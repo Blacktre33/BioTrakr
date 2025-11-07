@@ -88,7 +88,7 @@ def train_and_register_model(settings: Settings, data: TrainingData | None = Non
         mlflow.log_metrics(metrics)
         mlflow.log_text(json.dumps(dataset.feature_names), FEATURE_NAMES_ARTIFACT)
 
-        model_info = mlflow.sklearn.log_model(
+        mlflow.sklearn.log_model(
             sk_model=pipeline,
             artifact_path="model",
             registered_model_name=settings.model_name,
