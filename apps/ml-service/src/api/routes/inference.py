@@ -27,7 +27,7 @@ def predict_failure(
         prediction = repository.predict(payload.features)
     except ValueError as exc:
         logger.warning("prediction.failed", asset_id=payload.asset_id, exc_info=exc)
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return FailurePredictionResponse(
         asset_id=payload.asset_id,
