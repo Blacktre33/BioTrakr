@@ -5,7 +5,10 @@ from pydantic import BaseModel, Field
 
 class FailurePredictionRequest(BaseModel):
     asset_id: str = Field(..., description="Unique asset identifier")
-    features: Annotated[List[float], Field(min_length=1, description="Feature vector for prediction")]
+    features: Annotated[
+        List[float],
+        Field(min_length=1, description="Feature vector for prediction"),
+    ]
 
 
 class FailurePrediction(BaseModel):
