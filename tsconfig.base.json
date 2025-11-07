@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "commonjs",
+    "lib": ["ES2020"],
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "resolveJsonModule": true,
+    "useUnknownInCatchVariables": false,
+    "allowSyntheticDefaultImports": true,
+    "baseUrl": ".",
+    "paths": {
+      "@medasset/types": ["packages/types/src"],
+      "@medasset/config": ["packages/config/src"],
+      "@medasset/utils": ["packages/utils/src"],
+      "@medasset/utils/*": ["packages/utils/src/*"],
+      "@medasset/ui": ["packages/ui/src"]
+    }
+  }
+}
+

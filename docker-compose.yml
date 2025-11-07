@@ -1,0 +1,163 @@
+version: '3.8'
+
+services:
+  # ============================================
+  # PostgreSQL with TimescaleDB Extension
+  # ============================================
+  postgres:
+    image: timescale/timescaledb:latest-pg15
+    container_name: medasset-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: medasset_dev
+      POSTGRES_MULTIPLE_DATABASES: medasset_test
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/docker/postgres-init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - medasset-network
+
+  # ============================================
+  # Redis - Cache & Session Store
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: medasset-redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - medasset-network
+
+  # ============================================
+  # Meilisearch - Fast Search Engine
+  # ============================================
+  meilisearch:
+    image: getmeili/meilisearch:v1.5
+    container_name: medasset-search
+    environment:
+      MEILI_MASTER_KEY: masterKey
+      MEILI_ENV: development
+      MEILI_NO_ANALYTICS: true
+    ports:
+      - "7700:7700"
+    volumes:
+      - meilisearch_data:/meili_data
+    networks:
+      - medasset-network
+
+  # ============================================
+  # MLflow Tracking Server
+  # ============================================
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:2.16.0
+    container_name: medasset-mlflow
+    environment:
+      BACKEND_STORE_URI: sqlite:///mlflow/mlflow.db
+      ARTIFACT_ROOT: /mlflow/artifacts
+    command: ["mlflow", "server", "--host", "0.0.0.0", "--port", "5000", "--backend-store-uri", "sqlite:///mlflow/mlflow.db", "--default-artifact-root", "/mlflow/artifacts"]
+    ports:
+      - "5001:5000"
+    volumes:
+      - mlflow_data:/mlflow
+    networks:
+      - medasset-network
+
+  # ============================================
+  # ML Service (FastAPI)
+  # ============================================
+  ml-service:
+    build:
+      context: ./apps/ml-service
+      dockerfile: Dockerfile
+    container_name: medasset-ml-service
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/medasset_dev
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_REGISTRY_URI: http://mlflow:5000
+      MODEL_NAME: medasset-failure-risk
+      LOG_LEVEL: INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mlflow:
+        condition: service_started
+    ports:
+      - "8000:8000"
+    volumes:
+      - ml_service_artifacts:/app/artifacts
+    networks:
+      - medasset-network
+
+  # ============================================
+  # pgAdmin - Database Management UI (Optional)
+  # ============================================
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: medasset-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@medasset.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - postgres
+    networks:
+      - medasset-network
+    profiles:
+      - tools
+
+  # ============================================
+  # RedisInsight - Redis Management UI (Optional)
+  # ============================================
+  redis-insight:
+    image: redislabs/redisinsight:latest
+    container_name: medasset-redis-insight
+    ports:
+      - "8001:8001"
+    volumes:
+      - redis_insight_data:/db
+    depends_on:
+      - redis
+    networks:
+      - medasset-network
+    profiles:
+      - tools
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  meilisearch_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+  redis_insight_data:
+    driver: local
+  mlflow_data:
+    driver: local
+  ml_service_artifacts:
+    driver: local
+
+networks:
+  medasset-network:
+    driver: bridge

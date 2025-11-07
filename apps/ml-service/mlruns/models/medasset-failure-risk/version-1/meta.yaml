@@ -1,0 +1,14 @@
+aliases: []
+creation_timestamp: 1762250766554
+current_stage: None
+description: null
+last_updated_timestamp: 1762250766554
+name: medasset-failure-risk
+run_id: 259bbaf88e1f4393b29a7eac52b67b3a
+run_link: null
+source: file:///Users/saketh/BioTrakr/apps/ml-service/mlruns/0/259bbaf88e1f4393b29a7eac52b67b3a/artifacts/model
+status: READY
+status_message: null
+storage_location: file:///Users/saketh/BioTrakr/apps/ml-service/mlruns/0/259bbaf88e1f4393b29a7eac52b67b3a/artifacts/model
+user_id: null
+version: 1

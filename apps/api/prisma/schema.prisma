@@ -1,0 +1,236 @@
+// This is your Prisma schema file
+// Learn more: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+}
+
+// ============================================
+// ORGANIZATION & USERS
+// ============================================
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  type      String   // hospital, clinic, health_system
+  settings  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  facilities Facility[]
+  users      User[]
+  assets     Asset[]
+
+  @@map("organizations")
+}
+
+model Facility {
+  id             String   @id @default(uuid())
+  organizationId String
+  name           String
+  address        Json
+  timezone       String   @default("America/New_York")
+  floorPlans     Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  departments  Department[]
+  assets       Asset[]
+
+  @@index([organizationId])
+  @@map("facilities")
+}
+
+model Department {
+  id         String   @id @default(uuid())
+  facilityId String
+  name       String
+  code       String
+  floor      Int?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  assets   Asset[]
+
+  @@unique([facilityId, code])
+  @@index([facilityId])
+  @@map("departments")
+}
+
+model User {
+  id             String    @id @default(uuid())
+  organizationId String
+  email          String    @unique
+  password       String?
+  firstName      String
+  lastName       String
+  role           String    // admin, engineer, technician, clinical_staff, viewer
+  permissions    Json?
+  isActive       Boolean   @default(true)
+  lastLoginAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  requestedMaintenanceTasks MaintenanceTask[] @relation("MaintenanceRequestedBy")
+  assignedMaintenanceTasks  MaintenanceTask[] @relation("MaintenanceAssignedTo")
+
+  @@index([organizationId])
+  @@index([email])
+  @@map("users")
+}
+
+// ============================================
+// ASSETS
+// ============================================
+
+model Asset {
+  id             String    @id @default(uuid())
+  organizationId String
+  facilityId     String
+  departmentId   String?
+
+  // Basic Information
+  name           String
+  description    String?
+  assetTag       String    @unique
+  serialNumber   String?
+
+  // Classification
+  category       String    // infusion_pump, monitor, wheelchair, etc.
+  manufacturer   String
+  model          String
+
+  // Financial
+  purchaseDate   DateTime?
+  purchaseCost   Decimal?  @db.Decimal(10, 2)
+
+  // Status
+  status         String    @default("available") // available, in_use, maintenance, retired
+  condition      String    @default("good")      // excellent, good, fair, poor
+
+  // Location
+  currentLocation Json?
+
+  // Metadata
+  customFields   Json?
+  tags           String[]
+
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  facility     Facility     @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  department   Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  locationPings AssetLocationPing[]
+  maintenanceTasks MaintenanceTask[]
+  telemetryIngestEvents TelemetryIngestEvent[]
+  maintenanceEventLogs MaintenanceEventLog[]
+  scanLogs AssetScanLog[]
+
+  @@index([organizationId])
+  @@index([facilityId])
+  @@index([departmentId])
+  @@index([assetTag])
+  @@index([status])
+  @@index([category])
+  @@map("assets")
+}
+
+model AssetLocationPing {
+  id         String   @id @default(uuid())
+  assetId    String
+  latitude   Float
+  longitude  Float
+  status     String
+  observedAt DateTime @default(now())
+  metadata   Json?
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([assetId, observedAt])
+  @@map("asset_location_pings")
+}
+
+model MaintenanceTask {
+  id            String   @id @default(uuid())
+  assetId       String
+  requestedById String
+  assignedToId  String?
+  status        String   @default("scheduled")
+  priority      String   @default("medium")
+  summary       String
+  details       String?
+  scheduledFor  DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  asset        Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  requestedBy  User  @relation("MaintenanceRequestedBy", fields: [requestedById], references: [id], onDelete: Cascade)
+  assignedTo   User? @relation("MaintenanceAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+  eventLogs    MaintenanceEventLog[]
+
+  @@index([assetId])
+  @@index([requestedById])
+  @@index([assignedToId])
+  @@index([status])
+  @@index([priority])
+  @@map("maintenance_tasks")
+}
+
+model TelemetryIngestEvent {
+  id          String    @id @default(uuid())
+  assetId     String?
+  deviceId    String
+  payload     Json      @map("rawPayload")
+  receivedAt  DateTime  @default(now())
+  processedAt DateTime?
+  status      String    @default("pending")
+
+  asset Asset? @relation(fields: [assetId], references: [id], onDelete: SetNull)
+
+  @@index([deviceId, receivedAt])
+  @@index([status])
+  @@map("telemetry_ingest_events")
+}
+
+model MaintenanceEventLog {
+  id            String   @id @default(uuid())
+  maintenanceId String
+  assetId       String
+  eventType     String
+  payload       Json?
+  occurredAt    DateTime @default(now())
+
+  maintenanceTask MaintenanceTask @relation(fields: [maintenanceId], references: [id], onDelete: Cascade)
+  asset           Asset            @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([maintenanceId])
+  @@index([assetId, occurredAt])
+  @@map("maintenance_event_logs")
+}
+
+model AssetScanLog {
+  id           String   @id @default(uuid())
+  assetId      String
+  qrPayload    String
+  notes        String?
+  locationHint String?
+  createdAt    DateTime @default(now())
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([assetId, createdAt])
+  @@map("asset_scan_logs")
+}

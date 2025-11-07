@@ -1,0 +1,29 @@
+{
+  "name": "@medasset/utils",
+  "version": "0.1.0",
+  "description": "Shared utility helpers for security, logging, and future cross-service features.",
+  "main": "dist/index.cjs",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "lint": "eslint \"src/**/*.ts\"",
+    "test": "pnpm --filter @medasset/types build && pnpm --filter @medasset/config build && pnpm run build && node --test tests"
+  },
+  "dependencies": {
+    "@medasset/config": "workspace:*",
+    "@medasset/types": "workspace:*",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.6",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "eslint": "^8.55.0",
+    "eslint-config-prettier": "^9.1.0"
+  }
+}
+

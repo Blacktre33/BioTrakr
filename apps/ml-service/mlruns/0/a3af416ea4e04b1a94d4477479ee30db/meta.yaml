@@ -1,0 +1,15 @@
+artifact_uri: file:///Users/saketh/BioTrakr/apps/ml-service/mlruns/0/a3af416ea4e04b1a94d4477479ee30db/artifacts
+end_time: 1762250917071
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: a3af416ea4e04b1a94d4477479ee30db
+run_name: baseline-training
+run_uuid: a3af416ea4e04b1a94d4477479ee30db
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1762250915149
+status: 3
+tags: []
+user_id: saketh

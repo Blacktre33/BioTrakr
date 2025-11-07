@@ -1,0 +1,36 @@
+artifact_path: model
+flavors:
+  python_function:
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.sklearn
+    model_path: model.pkl
+    predict_fn: predict
+    python_version: 3.13.5
+  sklearn:
+    code: null
+    pickled_model: model.pkl
+    serialization_format: cloudpickle
+    sklearn_version: 1.7.2
+is_signature_from_type_hint: false
+mlflow_version: 2.22.2
+model_size_bytes: 265671
+model_uuid: 8d3b55ed2cd14607bbe5179cf1b600b0
+prompts: null
+run_id: a6dc6a2b0df84b2489cecc7c52f919f7
+saved_input_example_info:
+  artifact_path: input_example.json
+  pandas_orient: split
+  serving_input_path: serving_input_example.json
+  type: dataframe
+signature:
+  inputs: '[{"type": "double", "name": "usage_hours_last_week", "required": true},
+    {"type": "long", "name": "maintenance_overdue_days", "required": true}, {"type":
+    "double", "name": "temperature_avg", "required": true}, {"type": "double", "name":
+    "vibration_score", "required": true}, {"type": "double", "name": "age_years",
+    "required": true}]'
+  outputs: '[{"type": "tensor", "tensor-spec": {"dtype": "int64", "shape": [-1]}}]'
+  params: null
+type_hint_from_example: false
+utc_time_created: '2025-11-04 10:06:06.946819'

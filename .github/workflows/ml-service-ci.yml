@@ -1,0 +1,43 @@
+name: ML Service CI
+
+on:
+  push:
+    paths:
+      - 'apps/ml-service/**'
+      - '.github/workflows/ml-service-ci.yml'
+  pull_request:
+    paths:
+      - 'apps/ml-service/**'
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        run: |
+          pipx install poetry==2.2.1
+          poetry config virtualenvs.in-project true
+
+      - name: Install dependencies
+        working-directory: apps/ml-service
+        run: |
+          poetry install
+
+      - name: Lint
+        working-directory: apps/ml-service
+        run: |
+          poetry run ruff check src tests
+          poetry run mypy src
+
+      - name: Run tests
+        working-directory: apps/ml-service
+        run: |
+          poetry run pytest --cov=src --cov-report=term-missing
