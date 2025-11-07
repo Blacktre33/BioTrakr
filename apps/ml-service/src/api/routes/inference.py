@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException
 import structlog
+from fastapi import APIRouter, Depends, HTTPException
 
 from ...core.config import Settings, get_settings
 from ...models.registry import ModelRepository
@@ -14,14 +14,16 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/inference", tags=["Inference"])
 
 
-def get_repository(settings: Settings = Depends(get_settings)) -> ModelRepository:
+def get_repository(
+    settings: Settings = Depends(get_settings),  # noqa: B008
+) -> ModelRepository:
     return ModelRepository(settings=settings)
 
 
 @router.post("/predict-failure", response_model=FailurePredictionResponse)
 def predict_failure(
     payload: FailurePredictionRequest,
-    repository: ModelRepository = Depends(get_repository),
+    repository: ModelRepository = Depends(get_repository),  # noqa: B008
 ) -> FailurePredictionResponse:
     try:
         prediction = repository.predict(payload.features)

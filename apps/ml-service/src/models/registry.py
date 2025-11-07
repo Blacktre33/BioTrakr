@@ -9,13 +9,12 @@ import joblib
 import mlflow
 import mlflow.sklearn
 import pandas as pd
+import structlog
 from mlflow import artifacts
 from mlflow.tracking import MlflowClient
-import numpy as np
-import structlog
 
 from ..core.config import Settings
-from ..services.trainer import FEATURE_NAMES_ARTIFACT, TrainedModelInfo, train_and_register_model
+from ..services.trainer import FEATURE_NAMES_ARTIFACT, train_and_register_model
 
 logger = structlog.get_logger(__name__)
 
@@ -118,7 +117,8 @@ class ModelRepository:
             local_artifact = Path(self._settings.model_local_artifact)
             local_artifact.parent.mkdir(parents=True, exist_ok=True)
             joblib.dump({"model": model, "feature_names": self._feature_names}, local_artifact)
-            (local_artifact.parent / FEATURE_NAMES_ARTIFACT).write_text(json.dumps(self._feature_names))
+            feature_artifact = local_artifact.parent / FEATURE_NAMES_ARTIFACT
+            feature_artifact.write_text(json.dumps(self._feature_names))
 
             logger.info(
                 "model.loaded",

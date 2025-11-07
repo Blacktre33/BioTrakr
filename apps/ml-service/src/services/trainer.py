@@ -7,14 +7,13 @@ from pathlib import Path
 import joblib
 import mlflow
 import mlflow.sklearn
-from mlflow.models import infer_signature
-import numpy as np
 import structlog
+from mlflow.models import infer_signature
 from mlflow.tracking import MlflowClient
+from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
-from sklearn.ensemble import GradientBoostingClassifier
 
 from ..core.config import Settings
 from .data_loader import TrainingData, generate_synthetic_dataset
@@ -52,7 +51,9 @@ def _build_pipeline() -> Pipeline:
     )
 
 
-def train_and_register_model(settings: Settings, data: TrainingData | None = None) -> TrainedModelInfo:
+def train_and_register_model(
+    settings: Settings, data: TrainingData | None = None
+) -> TrainedModelInfo:
     """Train a baseline model and register it via MLflow."""
     mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
     if settings.mlflow_registry_uri:
@@ -76,7 +77,10 @@ def train_and_register_model(settings: Settings, data: TrainingData | None = Non
     feature_file = feature_dir / FEATURE_NAMES_ARTIFACT
     feature_file.write_text(json.dumps(dataset.feature_names))
 
-    joblib.dump({"model": pipeline, "feature_names": dataset.feature_names}, settings.model_local_artifact)
+    joblib.dump(
+        {"model": pipeline, "feature_names": dataset.feature_names},
+        settings.model_local_artifact,
+    )
 
     logger.info("training.metrics", **metrics)
 

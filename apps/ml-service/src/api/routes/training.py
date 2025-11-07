@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends
 import structlog
+from fastapi import APIRouter, Depends
 
 from ...core.config import Settings, get_settings
 from ...schemas.training import TrainingResponse
@@ -12,7 +12,9 @@ router = APIRouter(prefix="/training", tags=["Training"])
 
 
 @router.post("/trigger", response_model=TrainingResponse)
-def trigger_training(settings: Settings = Depends(get_settings)) -> TrainingResponse:
+def trigger_training(
+    settings: Settings = Depends(get_settings),  # noqa: B008
+) -> TrainingResponse:
     dataset = generate_synthetic_dataset()
     info = train_and_register_model(settings=settings, data=dataset)
 
