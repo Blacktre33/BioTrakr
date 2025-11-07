@@ -35,5 +35,10 @@ __pycache__/
 .venv/
 venv/
 *.egg-info/
+# MLflow
+mlruns/
+.mlflow/
+# ML Artifacts
+apps/ml-service/artifacts/
 # Docker
 *.pid

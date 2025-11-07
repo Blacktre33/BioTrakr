@@ -1,6 +1,7 @@
 .PHONY: install lint format test run train
 
-POETRY?=/Users/saketh/Library/Python/3.13/bin/poetry
+# Try to use poetry from PATH first, fallback to common locations
+POETRY?=$(shell command -v poetry 2>/dev/null || echo "poetry")
 
 install:
 	$(POETRY) install
