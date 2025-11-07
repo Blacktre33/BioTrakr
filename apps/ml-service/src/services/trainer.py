@@ -4,16 +4,16 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-import joblib
+import joblib  # type: ignore[import-untyped]
 import mlflow
 import mlflow.sklearn
 import structlog
 from mlflow.models import infer_signature
 from mlflow.tracking import MlflowClient
-from sklearn.ensemble import GradientBoostingClassifier
-from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import GradientBoostingClassifier  # type: ignore[import-untyped]
+from sklearn.metrics import accuracy_score, f1_score, roc_auc_score  # type: ignore[import-untyped]
+from sklearn.pipeline import Pipeline  # type: ignore[import-untyped]
+from sklearn.preprocessing import StandardScaler  # type: ignore[import-untyped]
 
 from ..core.config import Settings
 from .data_loader import TrainingData, generate_synthetic_dataset

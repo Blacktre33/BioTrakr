@@ -1,11 +1,11 @@
-from typing import List
+from typing import Annotated, List
 
 from pydantic import BaseModel, Field
 
 
 class FailurePredictionRequest(BaseModel):
     asset_id: str = Field(..., description="Unique asset identifier")
-    features: List[float] = Field(..., min_items=1, description="Feature vector for prediction")
+    features: Annotated[List[float], Field(min_length=1, description="Feature vector for prediction")]
 
 
 class FailurePrediction(BaseModel):

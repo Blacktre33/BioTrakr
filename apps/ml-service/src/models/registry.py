@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import joblib
+import joblib  # type: ignore[import-untyped]
 import mlflow
 import mlflow.sklearn
 import pandas as pd
