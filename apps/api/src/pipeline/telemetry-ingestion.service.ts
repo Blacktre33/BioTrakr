@@ -1,11 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Prisma, PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 
 import { loadPipelineConfig } from '@medasset/config';
 import type {
   TelemetryIngestEvent as TelemetryIngestEventType,
   TelemetryIngestPayload,
 } from '@medasset/types';
+
+import { PrismaService } from '../database/prisma.service';
 
 interface TelemetryIngestEventWithPayload extends TelemetryIngestEventType {
   payload: TelemetryIngestPayload;
@@ -16,7 +18,7 @@ export class TelemetryIngestionService {
   private readonly logger = new Logger(TelemetryIngestionService.name);
   private readonly config = loadPipelineConfig();
 
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async processPendingBatch(
     batchSize = this.config.batchSize,
@@ -33,7 +35,7 @@ export class TelemetryIngestionService {
 
     const results = await Promise.all(
       pendingEvents.map((event) =>
-        this.processSingleEvent(event as TelemetryIngestEventWithPayload),
+        this.processSingleEvent(event as unknown as TelemetryIngestEventWithPayload),
       ),
     );
 
@@ -56,17 +58,17 @@ export class TelemetryIngestionService {
       return false;
     }
 
-    const writeInput: Prisma.AssetLocationPingCreateInput = {
+    const writeInput: Prisma.LocationHistoryCreateInput = {
       asset: { connect: { id: asset.id } },
-      latitude: payload.latitude,
-      longitude: payload.longitude,
-      status: payload.status,
-      observedAt: new Date(payload.recordedAt),
-      metadata: payload.metadata,
+      timestamp: new Date(payload.recordedAt),
+      coordinatesX: payload.longitude, // Mapping longitude to X coordinate
+      coordinatesY: payload.latitude,  // Mapping latitude to Y coordinate
+      trackingMethod: 'GPS',
+      accuracyMeters: 5.0, // Default GPS accuracy
     };
 
     await this.prisma.$transaction(async (transaction) => {
-      await transaction.assetLocationPing.create({ data: writeInput });
+      await transaction.locationHistory.create({ data: writeInput });
 
       await transaction.telemetryIngestEvent.update({
         where: { id: event.id },
@@ -114,7 +116,7 @@ export class TelemetryIngestionService {
 
     if (payloadExternalId) {
       return this.prisma.asset.findUnique({
-        where: { assetTag: payloadExternalId },
+        where: { assetTagNumber: payloadExternalId },
       });
     }
 

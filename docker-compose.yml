@@ -64,45 +64,44 @@ services:
   # ============================================
   # MLflow Tracking Server
   # ============================================
-  mlflow:
-    image: ghcr.io/mlflow/mlflow:2.16.0
-    container_name: medasset-mlflow
-    environment:
-      BACKEND_STORE_URI: sqlite:///mlflow/mlflow.db
-      ARTIFACT_ROOT: /mlflow/artifacts
-    command: ["mlflow", "server", "--host", "0.0.0.0", "--port", "5000", "--backend-store-uri", "sqlite:///mlflow/mlflow.db", "--default-artifact-root", "/mlflow/artifacts"]
-    ports:
-      - "5001:5000"
-    volumes:
-      - mlflow_data:/mlflow
-    networks:
-      - medasset-network
+  # mlflow:
+  #   image: python:3.11-slim
+  #   container_name: medasset-mlflow
+  #   command: >
+  #     bash -c "pip install mlflow==2.16.0 &&
+  #              mlflow server --host 0.0.0.0 --port 5000 
+  #              --backend-store-uri sqlite:///mlflow/mlflow.db 
+  #              --default-artifact-root /mlflow/artifacts"
+  #   ports:
+  #     - "5001:5000"
+  #   volumes:
+  #     - mlflow_data:/mlflow
+  #   networks:
+  #     - medasset-network
 
   # ============================================
   # ML Service (FastAPI)
   # ============================================
-  ml-service:
-    build:
-      context: ./apps/ml-service
-      dockerfile: Dockerfile
-    container_name: medasset-ml-service
-    environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/medasset_dev
-      MLFLOW_TRACKING_URI: http://mlflow:5000
-      MLFLOW_REGISTRY_URI: http://mlflow:5000
-      MODEL_NAME: medasset-failure-risk
-      LOG_LEVEL: INFO
-    depends_on:
-      postgres:
-        condition: service_healthy
-      mlflow:
-        condition: service_started
-    ports:
-      - "8000:8000"
-    volumes:
-      - ml_service_artifacts:/app/artifacts
-    networks:
-      - medasset-network
+  # ml-service:
+  #   build:
+  #     context: ./apps/ml-service
+  #     dockerfile: Dockerfile
+  #   container_name: medasset-ml-service
+  #   environment:
+  #     DATABASE_URL: postgresql://postgres:postgres@postgres:5432/medasset_dev
+  #     MLFLOW_TRACKING_URI: http://mlflow:5000
+  #     MLFLOW_REGISTRY_URI: http://mlflow:5000
+  #     MODEL_NAME: medasset-failure-risk
+  #     LOG_LEVEL: INFO
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #   ports:
+  #     - "8000:8000"
+  #   volumes:
+  #     - ml_service_artifacts:/app/artifacts
+  #   networks:
+  #     - medasset-network
 
   # ============================================
   # pgAdmin - Database Management UI (Optional)

@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 
 import type { TelemetryIngestPayload } from '@medasset/types';
-import { getMockTelemetryIngestEvents } from '@medasset/utils/telemetry-mock';
+import { getMockTelemetryIngestEvents } from '@medasset/utils';
 
 import { PrismaService } from '../database/prisma.service';
 
@@ -30,7 +30,7 @@ export class TelemetryIngestionSimulator {
             id: mock.id,
             assetId: mock.assetId ?? null,
             deviceId: mock.deviceId,
-            rawPayload: mock.payload as unknown as Prisma.JsonValue,
+            payload: mock.payload as unknown as Prisma.JsonValue,
             receivedAt: new Date(mock.receivedAt),
             status: mock.status,
             processedAt: mock.processedAt ? new Date(mock.processedAt) : null,
@@ -52,7 +52,7 @@ export class TelemetryIngestionSimulator {
     await this.prisma.telemetryIngestEvent.create({
       data: {
         deviceId: payload.deviceId,
-        rawPayload: payload as unknown as Prisma.JsonValue,
+        payload: payload as unknown as Prisma.JsonValue,
         status: 'pending',
         receivedAt: new Date(payload.recordedAt ?? Date.now()),
       },
