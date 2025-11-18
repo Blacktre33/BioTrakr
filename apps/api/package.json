@@ -40,7 +40,9 @@
     "passport-jwt": "^4.0.1",
     "reflect-metadata": "^0.1.13",
     "rxjs": "^7.8.1",
-    "swagger-ui-express": "^5.0.0"
+    "swagger-ui-express": "^5.0.0",
+    "uuid": "^13.0.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.2.1",
@@ -52,6 +54,7 @@
     "@types/node": "^20.10.5",
     "@types/passport-jwt": "^3.0.13",
     "@types/supertest": "^6.0.2",
+    "@types/uuid": "^11.0.0",
     "@typescript-eslint/eslint-plugin": "^6.15.0",
     "@typescript-eslint/parser": "^6.15.0",
     "eslint": "^8.56.0",
