@@ -14,7 +14,7 @@ export default function LoginPage() {
     <div className="flex min-h-screen flex-col items-center justify-center bg-muted/30 px-4 py-12">
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-2 text-center">
-          <CardTitle className="text-2xl font-semibold">MedAsset Pro</CardTitle>
+          <CardTitle className="text-2xl font-semibold text-biotrakr-primary">BioTrakr</CardTitle>
           <CardDescription>Sign in to manage your facility&apos;s devices.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">

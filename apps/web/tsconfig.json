@@ -25,7 +25,7 @@
       "@medasset/types": ["../../packages/types/src"],
       "@medasset/config": ["../../packages/config/src"],
       "@medasset/utils": ["../../packages/utils/src"],
-      "@medasset/ui": ["../../packages/ui/src"]
+      "@biotrakr/ui": ["../../packages/ui/src"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],

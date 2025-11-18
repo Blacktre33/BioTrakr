@@ -23,6 +23,7 @@ import {
   type ImportResult,
   type ImportError,
 } from "@/lib/api/assets";
+import { colorTokens, spacingScale } from "@biotrakr/ui";
 
 // Type definitions
 interface AssetFormData {
@@ -313,38 +314,50 @@ export default function AssetDataEntry() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
+    <div className="min-h-screen bg-muted/30 p-6" style={{ padding: spacingScale.lg }}>
       <div className="max-w-6xl mx-auto">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Asset Data Entry</h1>
-          <p className="mt-2 text-gray-600">
+        <div style={{ marginBottom: spacingScale.xl }}>
+          <h1 className="text-3xl font-bold text-foreground">Asset Data Entry</h1>
+          <p className="mt-2 text-muted-foreground" style={{ marginTop: spacingScale.sm }}>
             Add new medical equipment to the BioTrakr system
           </p>
         </div>
 
         {/* Tab Navigation */}
-        <div className="bg-white rounded-lg shadow mb-6">
-          <div className="border-b border-gray-200">
+        <div className="bg-card rounded-lg shadow-md mb-6" style={{ marginBottom: spacingScale.md }}>
+          <div className="border-b border-border">
             <nav className="flex -mb-px">
               <button
                 onClick={() => setActiveTab("upload")}
-                className={`px-6 py-4 text-sm font-medium border-b-2 ${
+                className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors ${
                   activeTab === "upload"
-                    ? "border-blue-500 text-blue-600"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                    ? "border-biotrakr-primary text-biotrakr-primary"
+                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted"
                 }`}
+                style={{ 
+                  paddingLeft: spacingScale.md, 
+                  paddingRight: spacingScale.md,
+                  paddingTop: spacingScale.md,
+                  paddingBottom: spacingScale.md,
+                }}
               >
                 <FileSpreadsheet className="w-4 h-4 inline mr-2" />
                 Upload Excel
               </button>
               <button
                 onClick={() => setActiveTab("manual")}
-                className={`px-6 py-4 text-sm font-medium border-b-2 ${
+                className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors ${
                   activeTab === "manual"
-                    ? "border-blue-500 text-blue-600"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                    ? "border-biotrakr-primary text-biotrakr-primary"
+                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted"
                 }`}
+                style={{ 
+                  paddingLeft: spacingScale.md, 
+                  paddingRight: spacingScale.md,
+                  paddingTop: spacingScale.md,
+                  paddingBottom: spacingScale.md,
+                }}
               >
                 <Plus className="w-4 h-4 inline mr-2" />
                 Manual Entry
@@ -356,10 +369,16 @@ export default function AssetDataEntry() {
           {activeTab === "upload" && (
             <div className="p-6">
               {/* Download Template Button */}
-              <div className="mb-6 flex justify-end">
+              <div className="mb-6 flex justify-end" style={{ marginBottom: spacingScale.md }}>
                 <button
                   onClick={downloadTemplate}
-                  className="flex items-center px-4 py-2 text-sm font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100"
+                  className="flex items-center px-4 py-2 text-sm font-medium text-biotrakr-primary bg-biotrakr-primary/10 rounded-lg hover:bg-biotrakr-primary/20 transition-colors"
+                  style={{ 
+                    paddingLeft: spacingScale.md, 
+                    paddingRight: spacingScale.md,
+                    paddingTop: spacingScale.sm,
+                    paddingBottom: spacingScale.sm,
+                  }}
                 >
                   <Download className="w-4 h-4 mr-2" />
                   Download Template
@@ -372,11 +391,14 @@ export default function AssetDataEntry() {
                 onDragLeave={handleDrag}
                 onDragOver={handleDrag}
                 onDrop={handleDrop}
-                className={`border-2 border-dashed rounded-lg p-12 text-center transition-colors ${
+                className={`border-2 border-dashed rounded-lg text-center transition-colors ${
                   dragActive
-                    ? "border-blue-500 bg-blue-50"
-                    : "border-gray-300 hover:border-gray-400"
+                    ? "border-biotrakr-primary bg-biotrakr-primary/10"
+                    : "border-border hover:border-biotrakr-primary/50"
                 }`}
+                style={{ 
+                  padding: spacingScale["3xl"],
+                }}
               >
                 <input
                   ref={fileInputRef}
@@ -388,12 +410,12 @@ export default function AssetDataEntry() {
 
                 {uploadedFile ? (
                   <div className="flex items-center justify-center">
-                    <FileSpreadsheet className="w-12 h-12 text-green-500 mr-4" />
+                    <FileSpreadsheet className="w-12 h-12 text-biotrakr-success mr-4" style={{ marginRight: spacingScale.md }} />
                     <div className="text-left">
-                      <p className="font-medium text-gray-900">
+                      <p className="font-medium text-foreground">
                         {uploadedFile.name}
                       </p>
-                      <p className="text-sm text-gray-500">
+                      <p className="text-sm text-muted-foreground">
                         {(uploadedFile.size / 1024).toFixed(1)} KB
                       </p>
                     </div>
@@ -402,21 +424,28 @@ export default function AssetDataEntry() {
                         setUploadedFile(null);
                         setImportResult(null);
                       }}
-                      className="ml-4 p-1 text-gray-400 hover:text-red-500"
+                      className="ml-4 p-1 text-muted-foreground hover:text-biotrakr-error transition-colors"
+                      style={{ marginLeft: spacingScale.md, padding: spacingScale.xs }}
                     >
                       <X className="w-5 h-5" />
                     </button>
                   </div>
                 ) : (
                   <>
-                    <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                    <p className="text-lg font-medium text-gray-700 mb-2">
+                    <Upload className="w-12 h-12 text-muted-foreground mx-auto mb-4" style={{ marginBottom: spacingScale.md }} />
+                    <p className="text-lg font-medium text-foreground mb-2" style={{ marginBottom: spacingScale.sm }}>
                       Drag and drop your Excel file here
                     </p>
-                    <p className="text-sm text-gray-500 mb-4">or click to browse</p>
+                    <p className="text-sm text-muted-foreground mb-4" style={{ marginBottom: spacingScale.md }}>or click to browse</p>
                     <button
                       onClick={() => fileInputRef.current?.click()}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                      className="px-4 py-2 bg-biotrakr-primary text-white rounded-lg hover:opacity-90 transition-opacity"
+                      style={{ 
+                        paddingLeft: spacingScale.md, 
+                        paddingRight: spacingScale.md,
+                        paddingTop: spacingScale.sm,
+                        paddingBottom: spacingScale.sm,
+                      }}
                     >
                       Select File
                     </button>
@@ -426,11 +455,17 @@ export default function AssetDataEntry() {
 
               {/* Import Button */}
               {uploadedFile && !importResult && (
-                <div className="mt-6 flex justify-center">
+                <div className="mt-6 flex justify-center" style={{ marginTop: spacingScale.md }}>
                   <button
                     onClick={handleImport}
                     disabled={importing}
-                    className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                    className="px-6 py-3 bg-biotrakr-success text-white rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center transition-opacity"
+                    style={{ 
+                      paddingLeft: spacingScale.md, 
+                      paddingRight: spacingScale.md,
+                      paddingTop: spacingScale.md,
+                      paddingBottom: spacingScale.md,
+                    }}
                   >
                     {importing ? (
                       <>
@@ -470,43 +505,47 @@ export default function AssetDataEntry() {
                 <div
                   className={`mt-6 p-4 rounded-lg ${
                     importResult.success
-                      ? "bg-green-50"
-                      : "bg-yellow-50"
+                      ? "bg-biotrakr-success/10"
+                      : "bg-biotrakr-warning/10"
                   }`}
+                  style={{ 
+                    marginTop: spacingScale.md,
+                    padding: spacingScale.md,
+                  }}
                 >
                   <div className="flex items-start">
                     {importResult.failed === 0 ? (
-                      <CheckCircle className="w-6 h-6 text-green-500 mr-3 flex-shrink-0" />
+                      <CheckCircle className="w-6 h-6 text-biotrakr-success mr-3 flex-shrink-0" style={{ marginRight: spacingScale.md }} />
                     ) : (
-                      <AlertCircle className="w-6 h-6 text-yellow-500 mr-3 flex-shrink-0" />
+                      <AlertCircle className="w-6 h-6 text-biotrakr-warning mr-3 flex-shrink-0" style={{ marginRight: spacingScale.md }} />
                     )}
                     <div className="flex-1">
-                      <h3 className="font-medium text-gray-900">
+                      <h3 className="font-medium text-foreground">
                         Import{" "}
                         {importResult.failed === 0
                           ? "Successful"
                           : "Completed with Errors"}
                       </h3>
-                      <div className="mt-2 text-sm text-gray-600">
+                      <div className="mt-2 text-sm text-muted-foreground" style={{ marginTop: spacingScale.sm }}>
                         <p>Total rows: {importResult.totalRows}</p>
-                        <p className="text-green-600">
+                        <p className="text-biotrakr-success">
                           Imported: {importResult.imported}
                         </p>
                         {importResult.failed > 0 && (
-                          <p className="text-red-600">
+                          <p className="text-biotrakr-error">
                             Failed: {importResult.failed}
                           </p>
                         )}
                       </div>
 
                       {importResult.errors.length > 0 && (
-                        <div className="mt-4">
-                          <h4 className="font-medium text-gray-900 mb-2">
+                        <div className="mt-4" style={{ marginTop: spacingScale.md }}>
+                          <h4 className="font-medium text-foreground mb-2" style={{ marginBottom: spacingScale.sm }}>
                             Errors:
                           </h4>
                           <ul className="space-y-1">
                             {importResult.errors.map((error, i) => (
-                              <li key={i} className="text-sm text-red-600">
+                              <li key={i} className="text-sm text-biotrakr-error">
                                 Row {error.row}: {error.field} - {error.message}
                               </li>
                             ))}
@@ -525,20 +564,20 @@ export default function AssetDataEntry() {
             <div className="p-6">
               {/* Success Message */}
               {submitSuccess && (
-                <div className="mb-6 p-4 bg-green-50 rounded-lg flex items-center">
-                  <CheckCircle className="w-5 h-5 text-green-500 mr-3" />
-                  <span className="text-green-700">
+                <div className="mb-6 p-4 bg-biotrakr-success/10 rounded-lg flex items-center" style={{ marginBottom: spacingScale.md, padding: spacingScale.md }}>
+                  <CheckCircle className="w-5 h-5 text-biotrakr-success mr-3" style={{ marginRight: spacingScale.md }} />
+                  <span className="text-biotrakr-success font-medium">
                     Assets submitted successfully!
                   </span>
                 </div>
               )}
 
               {/* Form */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" style={{ gap: spacingScale.md }}>
                 {/* Required Fields */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Asset Tag <span className="text-red-500">*</span>
+                  <label className="block text-sm font-medium text-foreground mb-1" style={{ marginBottom: spacingScale.xs }}>
+                    Asset Tag <span className="text-biotrakr-error">*</span>
                   </label>
                   <input
                     type="text"
@@ -546,12 +585,18 @@ export default function AssetDataEntry() {
                     value={formData.assetTag}
                     onChange={handleInputChange}
                     placeholder="BT-2025-001"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full border border-input rounded-lg focus:ring-2 focus:ring-biotrakr-primary focus:border-biotrakr-primary bg-background text-foreground"
+                    style={{ 
+                      paddingLeft: spacingScale.md, 
+                      paddingRight: spacingScale.md,
+                      paddingTop: spacingScale.sm,
+                      paddingBottom: spacingScale.sm,
+                    }}
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-foreground mb-1" style={{ marginBottom: spacingScale.xs }}>
                     Serial Number
                   </label>
                   <input
@@ -559,19 +604,31 @@ export default function AssetDataEntry() {
                     name="serialNumber"
                     value={formData.serialNumber}
                     onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full border border-input rounded-lg focus:ring-2 focus:ring-biotrakr-primary focus:border-biotrakr-primary bg-background text-foreground"
+                    style={{ 
+                      paddingLeft: spacingScale.md, 
+                      paddingRight: spacingScale.md,
+                      paddingTop: spacingScale.sm,
+                      paddingBottom: spacingScale.sm,
+                    }}
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-foreground mb-1" style={{ marginBottom: spacingScale.xs }}>
                     Asset Category <span className="text-red-500">*</span>
                   </label>
                   <select
                     name="assetCategory"
                     value={formData.assetCategory}
                     onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full border border-input rounded-lg focus:ring-2 focus:ring-biotrakr-primary focus:border-biotrakr-primary bg-background text-foreground"
+                    style={{ 
+                      paddingLeft: spacingScale.md, 
+                      paddingRight: spacingScale.md,
+                      paddingTop: spacingScale.sm,
+                      paddingBottom: spacingScale.sm,
+                    }}
                   >
                     <option value="">Select category</option>
                     {ASSET_CATEGORIES.map((cat) => (
@@ -583,7 +640,7 @@ export default function AssetDataEntry() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-foreground mb-1" style={{ marginBottom: spacingScale.xs }}>
                     Asset Type <span className="text-red-500">*</span>
                   </label>
                   <select
@@ -591,7 +648,13 @@ export default function AssetDataEntry() {
                     value={formData.assetType}
                     onChange={handleInputChange}
                     disabled={!formData.assetCategory}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
+                    className="w-full border border-input rounded-lg focus:ring-2 focus:ring-biotrakr-primary focus:border-biotrakr-primary bg-background text-foreground disabled:bg-muted disabled:cursor-not-allowed"
+                    style={{ 
+                      paddingLeft: spacingScale.md, 
+                      paddingRight: spacingScale.md,
+                      paddingTop: spacingScale.sm,
+                      paddingBottom: spacingScale.sm,
+                    }}
                   >
                     <option value="">Select type</option>
                     {formData.assetCategory &&
@@ -604,7 +667,7 @@ export default function AssetDataEntry() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-foreground mb-1" style={{ marginBottom: spacingScale.xs }}>
                     Manufacturer <span className="text-red-500">*</span>
                   </label>
                   <input
@@ -612,12 +675,18 @@ export default function AssetDataEntry() {
                     name="manufacturer"
                     value={formData.manufacturer}
                     onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full border border-input rounded-lg focus:ring-2 focus:ring-biotrakr-primary focus:border-biotrakr-primary bg-background text-foreground"
+                    style={{ 
+                      paddingLeft: spacingScale.md, 
+                      paddingRight: spacingScale.md,
+                      paddingTop: spacingScale.sm,
+                      paddingBottom: spacingScale.sm,
+                    }}
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-foreground mb-1" style={{ marginBottom: spacingScale.xs }}>
                     Model Number <span className="text-red-500">*</span>
                   </label>
                   <input
@@ -625,12 +694,18 @@ export default function AssetDataEntry() {
                     name="modelNumber"
                     value={formData.modelNumber}
                     onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full border border-input rounded-lg focus:ring-2 focus:ring-biotrakr-primary focus:border-biotrakr-primary bg-background text-foreground"
+                    style={{ 
+                      paddingLeft: spacingScale.md, 
+                      paddingRight: spacingScale.md,
+                      paddingTop: spacingScale.sm,
+                      paddingBottom: spacingScale.sm,
+                    }}
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-foreground mb-1" style={{ marginBottom: spacingScale.xs }}>
                     Facility Code <span className="text-red-500">*</span>
                   </label>
                   <input
@@ -639,12 +714,18 @@ export default function AssetDataEntry() {
                     value={formData.facilityCode}
                     onChange={handleInputChange}
                     placeholder="FAC-MAIN"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full border border-input rounded-lg focus:ring-2 focus:ring-biotrakr-primary focus:border-biotrakr-primary bg-background text-foreground"
+                    style={{ 
+                      paddingLeft: spacingScale.md, 
+                      paddingRight: spacingScale.md,
+                      paddingTop: spacingScale.sm,
+                      paddingBottom: spacingScale.sm,
+                    }}
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-foreground mb-1" style={{ marginBottom: spacingScale.xs }}>
                     Department Code
                   </label>
                   <input
@@ -653,12 +734,18 @@ export default function AssetDataEntry() {
                     value={formData.departmentCode}
                     onChange={handleInputChange}
                     placeholder="DEPT-ICU"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full border border-input rounded-lg focus:ring-2 focus:ring-biotrakr-primary focus:border-biotrakr-primary bg-background text-foreground"
+                    style={{ 
+                      paddingLeft: spacingScale.md, 
+                      paddingRight: spacingScale.md,
+                      paddingTop: spacingScale.sm,
+                      paddingBottom: spacingScale.sm,
+                    }}
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-foreground mb-1" style={{ marginBottom: spacingScale.xs }}>
                     Location Code
                   </label>
                   <input
@@ -667,19 +754,31 @@ export default function AssetDataEntry() {
                     value={formData.locationCode}
                     onChange={handleInputChange}
                     placeholder="ICU-101"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full border border-input rounded-lg focus:ring-2 focus:ring-biotrakr-primary focus:border-biotrakr-primary bg-background text-foreground"
+                    style={{ 
+                      paddingLeft: spacingScale.md, 
+                      paddingRight: spacingScale.md,
+                      paddingTop: spacingScale.sm,
+                      paddingBottom: spacingScale.sm,
+                    }}
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-foreground mb-1" style={{ marginBottom: spacingScale.xs }}>
                     Status <span className="text-red-500">*</span>
                   </label>
                   <select
                     name="status"
                     value={formData.status}
                     onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full border border-input rounded-lg focus:ring-2 focus:ring-biotrakr-primary focus:border-biotrakr-primary bg-background text-foreground"
+                    style={{ 
+                      paddingLeft: spacingScale.md, 
+                      paddingRight: spacingScale.md,
+                      paddingTop: spacingScale.sm,
+                      paddingBottom: spacingScale.sm,
+                    }}
                   >
                     {ASSET_STATUSES.map((status) => (
                       <option key={status.value} value={status.value}>
@@ -690,14 +789,20 @@ export default function AssetDataEntry() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-foreground mb-1" style={{ marginBottom: spacingScale.xs }}>
                     Condition <span className="text-red-500">*</span>
                   </label>
                   <select
                     name="condition"
                     value={formData.condition}
                     onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full border border-input rounded-lg focus:ring-2 focus:ring-biotrakr-primary focus:border-biotrakr-primary bg-background text-foreground"
+                    style={{ 
+                      paddingLeft: spacingScale.md, 
+                      paddingRight: spacingScale.md,
+                      paddingTop: spacingScale.sm,
+                      paddingBottom: spacingScale.sm,
+                    }}
                   >
                     {ASSET_CONDITIONS.map((cond) => (
                       <option key={cond.value} value={cond.value}>
@@ -708,7 +813,7 @@ export default function AssetDataEntry() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-foreground mb-1" style={{ marginBottom: spacingScale.xs }}>
                     Purchase Price ($)
                   </label>
                   <input
@@ -717,7 +822,13 @@ export default function AssetDataEntry() {
                     value={formData.purchasePrice}
                     onChange={handleInputChange}
                     placeholder="0.00"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full border border-input rounded-lg focus:ring-2 focus:ring-biotrakr-primary focus:border-biotrakr-primary bg-background text-foreground"
+                    style={{ 
+                      paddingLeft: spacingScale.md, 
+                      paddingRight: spacingScale.md,
+                      paddingTop: spacingScale.sm,
+                      paddingBottom: spacingScale.sm,
+                    }}
                   />
                 </div>
               </div>
@@ -725,7 +836,8 @@ export default function AssetDataEntry() {
               {/* Advanced Fields Toggle */}
               <button
                 onClick={() => setShowAdvanced(!showAdvanced)}
-                className="mt-6 flex items-center text-sm font-medium text-blue-600 hover:text-blue-700"
+                className="mt-6 flex items-center text-sm font-medium text-biotrakr-primary hover:opacity-80 transition-opacity"
+                style={{ marginTop: spacingScale.md }}
               >
                 {showAdvanced ? (
                   <ChevronUp className="w-4 h-4 mr-1" />
@@ -737,9 +849,9 @@ export default function AssetDataEntry() {
 
               {/* Advanced Fields */}
               {showAdvanced && (
-                <div className="mt-4 pt-4 border-t border-gray-200 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="mt-4 pt-4 border-t border-border grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" style={{ marginTop: spacingScale.md, paddingTop: spacingScale.md, gap: spacingScale.md }}>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-foreground mb-1" style={{ marginBottom: spacingScale.xs }}>
                       Barcode
                     </label>
                     <input
@@ -747,12 +859,18 @@ export default function AssetDataEntry() {
                       name="barcode"
                       value={formData.barcode}
                       onChange={handleInputChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full border border-input rounded-lg focus:ring-2 focus:ring-biotrakr-primary focus:border-biotrakr-primary bg-background text-foreground"
+                    style={{ 
+                      paddingLeft: spacingScale.md, 
+                      paddingRight: spacingScale.md,
+                      paddingTop: spacingScale.sm,
+                      paddingBottom: spacingScale.sm,
+                    }}
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-foreground mb-1" style={{ marginBottom: spacingScale.xs }}>
                       Acquisition Date
                     </label>
                     <input
@@ -760,12 +878,18 @@ export default function AssetDataEntry() {
                       name="acquisitionDate"
                       value={formData.acquisitionDate}
                       onChange={handleInputChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full border border-input rounded-lg focus:ring-2 focus:ring-biotrakr-primary focus:border-biotrakr-primary bg-background text-foreground"
+                    style={{ 
+                      paddingLeft: spacingScale.md, 
+                      paddingRight: spacingScale.md,
+                      paddingTop: spacingScale.sm,
+                      paddingBottom: spacingScale.sm,
+                    }}
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-foreground mb-1" style={{ marginBottom: spacingScale.xs }}>
                       Installation Date
                     </label>
                     <input
@@ -773,12 +897,18 @@ export default function AssetDataEntry() {
                       name="installationDate"
                       value={formData.installationDate}
                       onChange={handleInputChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full border border-input rounded-lg focus:ring-2 focus:ring-biotrakr-primary focus:border-biotrakr-primary bg-background text-foreground"
+                    style={{ 
+                      paddingLeft: spacingScale.md, 
+                      paddingRight: spacingScale.md,
+                      paddingTop: spacingScale.sm,
+                      paddingBottom: spacingScale.sm,
+                    }}
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-foreground mb-1" style={{ marginBottom: spacingScale.xs }}>
                       Warranty Expiry
                     </label>
                     <input
@@ -786,12 +916,18 @@ export default function AssetDataEntry() {
                       name="warrantyExpiry"
                       value={formData.warrantyExpiry}
                       onChange={handleInputChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full border border-input rounded-lg focus:ring-2 focus:ring-biotrakr-primary focus:border-biotrakr-primary bg-background text-foreground"
+                    style={{ 
+                      paddingLeft: spacingScale.md, 
+                      paddingRight: spacingScale.md,
+                      paddingTop: spacingScale.sm,
+                      paddingBottom: spacingScale.sm,
+                    }}
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-foreground mb-1" style={{ marginBottom: spacingScale.xs }}>
                       UDI
                     </label>
                     <input
@@ -800,12 +936,18 @@ export default function AssetDataEntry() {
                       value={formData.udi}
                       onChange={handleInputChange}
                       placeholder="Unique Device Identifier"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full border border-input rounded-lg focus:ring-2 focus:ring-biotrakr-primary focus:border-biotrakr-primary bg-background text-foreground"
+                    style={{ 
+                      paddingLeft: spacingScale.md, 
+                      paddingRight: spacingScale.md,
+                      paddingTop: spacingScale.sm,
+                      paddingBottom: spacingScale.sm,
+                    }}
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-foreground mb-1" style={{ marginBottom: spacingScale.xs }}>
                       Lot Number
                     </label>
                     <input
@@ -813,7 +955,13 @@ export default function AssetDataEntry() {
                       name="lotNumber"
                       value={formData.lotNumber}
                       onChange={handleInputChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full border border-input rounded-lg focus:ring-2 focus:ring-biotrakr-primary focus:border-biotrakr-primary bg-background text-foreground"
+                    style={{ 
+                      paddingLeft: spacingScale.md, 
+                      paddingRight: spacingScale.md,
+                      paddingTop: spacingScale.sm,
+                      paddingBottom: spacingScale.sm,
+                    }}
                     />
                   </div>
 
@@ -824,9 +972,10 @@ export default function AssetDataEntry() {
                         name="isFdaRegulated"
                         checked={formData.isFdaRegulated}
                         onChange={handleInputChange}
-                        className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                        className="w-4 h-4 text-biotrakr-primary border-input rounded focus:ring-biotrakr-primary"
+                        style={{ marginRight: spacingScale.sm }}
                       />
-                      <span className="ml-2 text-sm text-gray-700">
+                      <span className="ml-2 text-sm text-foreground">
                         FDA Regulated
                       </span>
                     </label>
@@ -839,9 +988,10 @@ export default function AssetDataEntry() {
                         name="isRtlsTracked"
                         checked={formData.isRtlsTracked}
                         onChange={handleInputChange}
-                        className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                        className="w-4 h-4 text-biotrakr-primary border-input rounded focus:ring-biotrakr-primary"
+                        style={{ marginRight: spacingScale.sm }}
                       />
-                      <span className="ml-2 text-sm text-gray-700">
+                      <span className="ml-2 text-sm text-foreground">
                         RTLS Tracked
                       </span>
                     </label>
@@ -850,7 +1000,7 @@ export default function AssetDataEntry() {
                   {formData.isRtlsTracked && (
                     <>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                        <label className="block text-sm font-medium text-foreground mb-1" style={{ marginBottom: spacingScale.xs }}>
                           RTLS Tag ID
                         </label>
                         <input
@@ -858,12 +1008,18 @@ export default function AssetDataEntry() {
                           name="rtlsTagId"
                           value={formData.rtlsTagId}
                           onChange={handleInputChange}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          className="w-full border border-input rounded-lg focus:ring-2 focus:ring-biotrakr-primary focus:border-biotrakr-primary bg-background text-foreground"
+                    style={{ 
+                      paddingLeft: spacingScale.md, 
+                      paddingRight: spacingScale.md,
+                      paddingTop: spacingScale.sm,
+                      paddingBottom: spacingScale.sm,
+                    }}
                         />
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                        <label className="block text-sm font-medium text-foreground mb-1" style={{ marginBottom: spacingScale.xs }}>
                           BLE Beacon ID
                         </label>
                         <input
@@ -871,14 +1027,20 @@ export default function AssetDataEntry() {
                           name="bleBeaconId"
                           value={formData.bleBeaconId}
                           onChange={handleInputChange}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          className="w-full border border-input rounded-lg focus:ring-2 focus:ring-biotrakr-primary focus:border-biotrakr-primary bg-background text-foreground"
+                    style={{ 
+                      paddingLeft: spacingScale.md, 
+                      paddingRight: spacingScale.md,
+                      paddingTop: spacingScale.sm,
+                      paddingBottom: spacingScale.sm,
+                    }}
                         />
                       </div>
                     </>
                   )}
 
                   <div className="lg:col-span-3">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-foreground mb-1" style={{ marginBottom: spacingScale.xs }}>
                       Notes
                     </label>
                     <textarea
@@ -886,17 +1048,29 @@ export default function AssetDataEntry() {
                       value={formData.notes}
                       onChange={handleInputChange}
                       rows={3}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full border border-input rounded-lg focus:ring-2 focus:ring-biotrakr-primary focus:border-biotrakr-primary bg-background text-foreground"
+                    style={{ 
+                      paddingLeft: spacingScale.md, 
+                      paddingRight: spacingScale.md,
+                      paddingTop: spacingScale.sm,
+                      paddingBottom: spacingScale.sm,
+                    }}
                     />
                   </div>
                 </div>
               )}
 
               {/* Add Entry Button */}
-              <div className="mt-6 flex justify-end">
+              <div className="mt-6 flex justify-end" style={{ marginTop: spacingScale.md }}>
                 <button
                   onClick={handleAddEntry}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center"
+                  className="px-4 py-2 bg-biotrakr-primary text-white rounded-lg hover:opacity-90 flex items-center transition-opacity"
+                  style={{ 
+                    paddingLeft: spacingScale.md, 
+                    paddingRight: spacingScale.md,
+                    paddingTop: spacingScale.sm,
+                    paddingBottom: spacingScale.sm,
+                  }}
                 >
                   {editingIndex !== null ? (
                     <>
@@ -914,79 +1088,81 @@ export default function AssetDataEntry() {
 
               {/* Entries List */}
               {manualEntries.length > 0 && (
-                <div className="mt-8">
-                  <h3 className="text-lg font-medium text-gray-900 mb-4">
+                <div className="mt-8" style={{ marginTop: spacingScale.xl }}>
+                  <h3 className="text-lg font-medium text-foreground mb-4" style={{ marginBottom: spacingScale.md }}>
                     Pending Entries ({manualEntries.length})
                   </h3>
-                  <div className="bg-gray-50 rounded-lg overflow-hidden">
-                    <table className="min-w-full divide-y divide-gray-200">
-                      <thead className="bg-gray-100">
+                  <div className="bg-muted/30 rounded-lg overflow-hidden">
+                    <table className="min-w-full divide-y divide-border">
+                      <thead className="bg-muted/50">
                         <tr>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                          <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase" style={{ paddingLeft: spacingScale.md, paddingRight: spacingScale.md, paddingTop: spacingScale.md, paddingBottom: spacingScale.md }}>
                             Asset Tag
                           </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                          <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase" style={{ paddingLeft: spacingScale.md, paddingRight: spacingScale.md, paddingTop: spacingScale.md, paddingBottom: spacingScale.md }}>
                             Type
                           </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                          <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase" style={{ paddingLeft: spacingScale.md, paddingRight: spacingScale.md, paddingTop: spacingScale.md, paddingBottom: spacingScale.md }}>
                             Manufacturer
                           </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                          <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase" style={{ paddingLeft: spacingScale.md, paddingRight: spacingScale.md, paddingTop: spacingScale.md, paddingBottom: spacingScale.md }}>
                             Model
                           </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                          <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase" style={{ paddingLeft: spacingScale.md, paddingRight: spacingScale.md, paddingTop: spacingScale.md, paddingBottom: spacingScale.md }}>
                             Status
                           </th>
-                          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                          <th className="px-4 py-3 text-right text-xs font-medium text-muted-foreground uppercase" style={{ paddingLeft: spacingScale.md, paddingRight: spacingScale.md, paddingTop: spacingScale.md, paddingBottom: spacingScale.md }}>
                             Actions
                           </th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-200">
+                      <tbody className="divide-y divide-border">
                         {manualEntries.map((entry, index) => (
                           <tr
                             key={index}
                             className={
-                              editingIndex === index ? "bg-blue-50" : "bg-white"
+                              editingIndex === index ? "bg-biotrakr-primary/10" : "bg-card"
                             }
                           >
-                            <td className="px-4 py-3 text-sm text-gray-900">
+                            <td className="px-4 py-3 text-sm text-foreground" style={{ paddingLeft: spacingScale.md, paddingRight: spacingScale.md, paddingTop: spacingScale.md, paddingBottom: spacingScale.md }}>
                               {entry.assetTag}
                             </td>
-                            <td className="px-4 py-3 text-sm text-gray-600">
+                            <td className="px-4 py-3 text-sm text-muted-foreground" style={{ paddingLeft: spacingScale.md, paddingRight: spacingScale.md, paddingTop: spacingScale.md, paddingBottom: spacingScale.md }}>
                               {entry.assetType}
                             </td>
-                            <td className="px-4 py-3 text-sm text-gray-600">
+                            <td className="px-4 py-3 text-sm text-muted-foreground" style={{ paddingLeft: spacingScale.md, paddingRight: spacingScale.md, paddingTop: spacingScale.md, paddingBottom: spacingScale.md }}>
                               {entry.manufacturer}
                             </td>
-                            <td className="px-4 py-3 text-sm text-gray-600">
+                            <td className="px-4 py-3 text-sm text-muted-foreground" style={{ paddingLeft: spacingScale.md, paddingRight: spacingScale.md, paddingTop: spacingScale.md, paddingBottom: spacingScale.md }}>
                               {entry.modelNumber}
                             </td>
-                            <td className="px-4 py-3 text-sm">
+                            <td className="px-4 py-3 text-sm" style={{ paddingLeft: spacingScale.md, paddingRight: spacingScale.md, paddingTop: spacingScale.md, paddingBottom: spacingScale.md }}>
                               <span
                                 className={`px-2 py-1 rounded-full text-xs font-medium ${
                                   entry.status === "available"
-                                    ? "bg-green-100 text-green-800"
+                                    ? "bg-biotrakr-success/20 text-biotrakr-success"
                                     : entry.status === "in_use"
-                                      ? "bg-blue-100 text-blue-800"
+                                      ? "bg-biotrakr-info/20 text-biotrakr-info"
                                       : entry.status === "maintenance"
-                                        ? "bg-yellow-100 text-yellow-800"
-                                        : "bg-gray-100 text-gray-800"
+                                        ? "bg-biotrakr-warning/20 text-biotrakr-warning"
+                                        : "bg-muted text-muted-foreground"
                                 }`}
+                                style={{ paddingLeft: spacingScale.sm, paddingRight: spacingScale.sm, paddingTop: spacingScale.xs, paddingBottom: spacingScale.xs }}
                               >
                                 {entry.status}
                               </span>
                             </td>
-                            <td className="px-4 py-3 text-sm text-right">
+                            <td className="px-4 py-3 text-sm text-right" style={{ paddingLeft: spacingScale.md, paddingRight: spacingScale.md, paddingTop: spacingScale.md, paddingBottom: spacingScale.md }}>
                               <button
                                 onClick={() => handleEditEntry(index)}
-                                className="text-blue-600 hover:text-blue-800 mr-3"
+                                className="text-biotrakr-primary hover:opacity-80 mr-3 transition-opacity"
+                                style={{ marginRight: spacingScale.md }}
                               >
                                 <Edit2 className="w-4 h-4" />
                               </button>
                               <button
                                 onClick={() => handleDeleteEntry(index)}
-                                className="text-red-600 hover:text-red-800"
+                                className="text-biotrakr-error hover:opacity-80 transition-opacity"
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
@@ -1002,7 +1178,13 @@ export default function AssetDataEntry() {
                     <button
                       onClick={handleSubmitAll}
                       disabled={importing}
-                      className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center"
+                      className="px-6 py-3 bg-biotrakr-success text-white rounded-lg hover:opacity-90 disabled:opacity-50 flex items-center transition-opacity"
+                      style={{ 
+                        paddingLeft: spacingScale.md, 
+                        paddingRight: spacingScale.md,
+                        paddingTop: spacingScale.md,
+                        paddingBottom: spacingScale.md,
+                      }}
                     >
                       {importing ? (
                         <>

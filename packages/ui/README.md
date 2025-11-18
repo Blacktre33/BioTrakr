@@ -1,14 +1,14 @@
-# @medasset/ui
+# @biotrakr/ui
 
-Shared design tokens for MedAsset Pro. The module currently exports colour and
-spacing primitives so new surfaces can adopt a consistent visual language
-before the full component library lands.
+Shared design tokens and UI components for BioTrakr. The module exports colour,
+spacing primitives, and reusable UI components so the application maintains a
+consistent visual language.
 
 ```ts
-import { colorTokens } from "@medasset/ui";
+import { colorTokens, spacingScale } from "@biotrakr/ui";
 
 console.log(colorTokens.brandPrimary);
 ```
 
-Run `pnpm --filter @medasset/ui build` to emit distributable packages via tsup.
+Run `pnpm --filter @biotrakr/ui build` to emit distributable packages.
 

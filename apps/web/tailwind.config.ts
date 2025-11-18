@@ -1,6 +1,7 @@
 import type { Config } from "tailwindcss";
 import { fontFamily } from "tailwindcss/defaultTheme";
 import tailwindcssAnimate from "tailwindcss-animate";
+import { colorTokens, spacingScale, borderRadius as borderRadiusTokens } from "@biotrakr/ui";
 
 const config: Config = {
   darkMode: ["class"],
@@ -12,6 +13,17 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        // BioTrakr Brand Colors
+        biotrakr: {
+          primary: colorTokens.brandPrimary,
+          secondary: colorTokens.brandSecondary,
+          accent: colorTokens.brandAccent,
+          success: colorTokens.success,
+          warning: colorTokens.warning,
+          error: colorTokens.error,
+          info: colorTokens.info,
+        },
+        // Shadcn/UI Compatible Colors
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
@@ -46,7 +58,11 @@ const config: Config = {
           foreground: "hsl(var(--card-foreground))",
         },
       },
+      spacing: {
+        ...spacingScale,
+      },
       borderRadius: {
+        ...borderRadiusTokens,
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",

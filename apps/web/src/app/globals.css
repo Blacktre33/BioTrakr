@@ -4,6 +4,16 @@
 
 @layer base {
   :root {
+    /* BioTrakr UI Design Tokens */
+    --biotrakr-primary: #0B5FFF;
+    --biotrakr-secondary: #15C5B0;
+    --biotrakr-accent: #A855F7;
+    --biotrakr-success: #10B981;
+    --biotrakr-warning: #F59E0B;
+    --biotrakr-error: #EF4444;
+    --biotrakr-info: #3B82F6;
+
+    /* Shadcn/UI Compatible Variables */
     --background: 0 0% 100%;
     --foreground: 222.2 84% 4.9%;
 

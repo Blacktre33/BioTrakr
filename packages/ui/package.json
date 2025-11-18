@@ -1,7 +1,7 @@
 {
-  "name": "@medasset/ui",
+  "name": "@biotrakr/ui",
   "version": "0.1.0",
-  "description": "Shared design tokens and UI building blocks for MedAsset Pro.",
+  "description": "Shared design tokens and UI building blocks for BioTrakr.",
   "main": "dist/index.cjs",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",

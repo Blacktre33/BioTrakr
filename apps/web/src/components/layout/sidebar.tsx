@@ -29,7 +29,7 @@ export function Sidebar() {
   return (
     <aside className="hidden w-60 shrink-0 border-r bg-card/40 lg:flex lg:flex-col">
       <div className="px-6 py-6">
-        <span className="text-lg font-semibold">MedAsset Pro</span>
+        <span className="text-lg font-semibold text-biotrakr-primary">BioTrakr</span>
         <p className="text-sm text-muted-foreground">Device Operations</p>
       </div>
       <nav className="flex-1 space-y-1 px-4">
@@ -52,7 +52,7 @@ export function Sidebar() {
         })}
       </nav>
       <div className="px-6 py-6 text-xs text-muted-foreground">
-        © {new Date().getFullYear()} MedAsset Pro
+        © {new Date().getFullYear()} BioTrakr
       </div>
     </aside>
   );

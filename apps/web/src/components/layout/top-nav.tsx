@@ -16,8 +16,8 @@ export function TopNav() {
           <Menu className="h-4 w-4" />
           <span className="sr-only">Toggle navigation</span>
         </Button>
-        <Link href="/" className="text-sm font-medium text-muted-foreground">
-          MedAsset Pro
+        <Link href="/" className="text-sm font-medium text-biotrakr-primary">
+          BioTrakr
         </Link>
       </div>
       <div className="flex items-center gap-4 text-sm text-muted-foreground">

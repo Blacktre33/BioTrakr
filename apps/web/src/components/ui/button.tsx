@@ -17,6 +17,11 @@ const buttonVariants = cva(
         destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90",
         subtle: "bg-muted text-muted-foreground hover:bg-muted/80",
         link: "text-primary underline-offset-4 hover:underline",
+        // BioTrakr Brand Variants
+        biotrakr: "bg-biotrakr-primary text-white shadow hover:opacity-90",
+        "biotrakr-secondary": "bg-biotrakr-secondary text-white shadow hover:opacity-90",
+        "biotrakr-success": "bg-biotrakr-success text-white shadow hover:opacity-90",
+        "biotrakr-outline": "border border-biotrakr-primary text-biotrakr-primary bg-transparent hover:bg-biotrakr-primary/10",
       },
       size: {
         default: "h-9 px-4 py-2",

@@ -9,11 +9,11 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
   title: {
-    default: "MedAsset Pro",
-    template: "%s | MedAsset Pro",
+    default: "BioTrakr",
+    template: "%s | BioTrakr",
   },
   description:
-    "MedAsset Pro provides real-time medical device tracking and analytics for healthcare teams.",
+    "BioTrakr provides real-time medical device tracking and analytics for healthcare teams.",
 };
 
 export default function RootLayout({
