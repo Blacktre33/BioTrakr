@@ -81,6 +81,169 @@ export interface AssetScanLog {
   createdAt: string;
 }
 
+// Telemetry Labeling Standards -------------------------------------------------
+
+/**
+ * Failure types for predictive maintenance ML models.
+ * Used to label training data and classify failure events.
+ */
+export type FailureType =
+  | "no_failure"
+  | "mechanical_failure"
+  | "electrical_failure"
+  | "software_failure"
+  | "calibration_drift"
+  | "component_wear"
+  | "unknown_failure";
+
+/**
+ * Time-to-failure categories for survival analysis models.
+ * Indicates urgency of maintenance intervention.
+ */
+export type TimeToFailure = "0-24h" | "1-7d" | "7-30d" | "30d+";
+
+/**
+ * Equipment health status categories.
+ * Maps to health_score ranges: critical (0-20), poor (21-40), fair (41-60),
+ * good (61-80), excellent (81-100).
+ */
+export type HealthStatus = "critical" | "poor" | "fair" | "good" | "excellent";
+
+/**
+ * Label quality/provenance indicators.
+ * Tracks how labels were generated for ML training data.
+ */
+export type LabelQuality =
+  | "verified" // Human-confirmed
+  | "automated" // System-generated
+  | "inferred" // Derived from related data
+  | "estimated" // Based on models/heuristics
+  | "synthetic"; // Artificially generated
+
+/**
+ * Event severity levels for prioritization.
+ */
+export type EventSeverity = "critical" | "high" | "medium" | "low" | "info";
+
+/**
+ * FDA-aligned risk classification for medical devices.
+ */
+export type RiskClass = "class_i" | "class_ii" | "class_iii";
+
+/**
+ * Standard telemetry event domains for metric naming.
+ * Follows pattern: {domain}.{entity}.{action}.{metric_type}
+ */
+export type TelemetryDomain =
+  | "asset"
+  | "rtls"
+  | "maintenance"
+  | "compliance"
+  | "user"
+  | "system"
+  | "ml";
+
+/**
+ * Event categories for telemetry classification.
+ */
+export type EventCategory =
+  | "location"
+  | "maintenance"
+  | "compliance"
+  | "operational"
+  | "system";
+
+/**
+ * ML training labels attached to telemetry events.
+ * Populated by labeling pipeline for model training.
+ */
+export interface MLTrainingLabels {
+  failure_within_7d?: boolean;
+  failure_type?: FailureType;
+  time_to_failure_hours?: number;
+  time_to_failure_category?: TimeToFailure;
+  health_score?: number; // 0-100
+  health_status?: HealthStatus;
+  requires_pm?: boolean;
+  anomaly_detected?: boolean;
+  failure_probability?: number; // 0.0-1.0
+  label_source?: string;
+  label_confidence?: number; // 0.0-1.0
+  label_quality?: LabelQuality;
+  labeled_by?: string;
+  labeled_at?: string;
+}
+
+/**
+ * Standard telemetry event structure following naming conventions.
+ * Extends base payload with categorization and ML labels.
+ */
+export interface TelemetryEvent {
+  // Naming convention: domain.entity.action.metric_type
+  name: string;
+
+  // Standard tags (always required)
+  timestamp: string;
+  facility_id: string;
+  asset_id?: string;
+  environment: string;
+  service_name: string;
+  trace_id?: string;
+
+  // Categorization
+  asset_category?: string;
+  asset_type?: string;
+  department?: string;
+  event_category?: EventCategory;
+  severity?: EventSeverity;
+  risk_class?: RiskClass;
+
+  // Measurement
+  value: number;
+  unit?: string;
+
+  // ML labels (optional - populated by labeling pipeline)
+  labels?: MLTrainingLabels;
+
+  // Additional metadata
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Sensor reading features for ML training data.
+ * Represents the feature vector used in predictive maintenance models.
+ */
+export interface SensorReadingFeatures {
+  temperature_celsius?: number;
+  vibration_rms?: number;
+  power_consumption_watts?: number;
+  operating_hours?: number;
+  cycles_since_maintenance?: number;
+  error_count_24h?: number;
+  ambient_humidity_percent?: number;
+  [key: string]: number | undefined; // Allow additional sensor features
+}
+
+/**
+ * Complete training data record combining features and labels.
+ * Used for exporting ML training datasets from telemetry data.
+ */
+export interface MLTrainingRecord {
+  record_id: string;
+  asset_id: string;
+  timestamp: string;
+  features: SensorReadingFeatures;
+  labels: MLTrainingLabels;
+  metadata?: {
+    label_source?: string;
+    label_confidence?: number;
+    labeled_by?: string;
+    labeled_at?: string;
+  };
+}
+
+// Telemetry Ingestion ---------------------------------------------------------
+
 export interface TelemetryIngestPayload {
   assetExternalId?: string;
   assetId?: Uuid;
@@ -90,6 +253,17 @@ export interface TelemetryIngestPayload {
   status: AssetStatus;
   recordedAt: string;
   metadata?: Record<string, unknown>;
+  
+  // Enhanced fields for labeling standards
+  metricName?: string; // domain.entity.action.metric_type
+  metricValue?: number;
+  metricUnit?: string;
+  assetCategory?: string;
+  assetType?: string;
+  department?: string;
+  eventCategory?: EventCategory;
+  severity?: EventSeverity;
+  mlLabels?: MLTrainingLabels;
 }
 
 export interface TelemetryIngestEvent {
