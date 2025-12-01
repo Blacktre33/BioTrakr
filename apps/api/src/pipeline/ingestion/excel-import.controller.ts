@@ -20,8 +20,8 @@ import {
   ApiBody,
   ApiQuery,
 } from '@nestjs/swagger';
-import { Response } from 'express';
-import { ExcelImportService } from './excel-import.service';
+import { Response, Request } from 'express';
+import { ExcelImportService, ImportResult } from './excel-import.service';
 
 @ApiTags('Excel Import/Export')
 @Controller('api/v1/assets')
@@ -77,7 +77,7 @@ export class ExcelImportController {
   @ApiResponse({ status: 400, description: 'Invalid file or validation errors' })
   async importAssets(
     @UploadedFile() file: Express.Multer.File,
-  ) {
+  ): Promise<ImportResult> {
     if (!file) {
       throw new BadRequestException('No file uploaded');
     }

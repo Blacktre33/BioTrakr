@@ -2,6 +2,7 @@ import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import * as XLSX from 'xlsx';
 import { v4 as uuidv4 } from 'uuid';
+import { AssetStatus } from '@prisma/client';
 
 interface AssetRow {
   'Asset Tag*': string;
@@ -40,7 +41,7 @@ interface QuickEntryRow {
   'Status*': string;
 }
 
-interface ImportResult {
+export interface ImportResult {
   success: boolean;
   totalRows: number;
   imported: number;
@@ -312,8 +313,7 @@ export class ExcelImportService {
       row['Manufacturer*'],
     );
 
-    // Map status and condition to Prisma enums
-    const assetStatus = this.mapStatus(row['Status*']);
+    const assetStatus = this.mapStatus(row['Status*']) as AssetStatus;
     const assetCondition = this.mapCondition(row['Condition*'] || 'good');
 
     // Create asset using Prisma
@@ -338,10 +338,10 @@ export class ExcelImportService {
           ? parseFloat(String(row['Purchase Price']))
           : 0,
         udiDeviceIdentifier: row['UDI'] || null,
-        lotNumber: row['Lot Number'] || null,
-        isTrackedRtls: this.parseYesNo(row['Is RTLS Tracked']),
-        rtlsTagId: row['RTLS Tag ID'] || null,
-        bleBeaconId: row['BLE Beacon ID'] || null,
+        // lotNumber: row['Lot Number'] || null, // Not in schema
+        // isTrackedRtls: this.parseYesNo(row['Is RTLS Tracked']), // Not in schema
+        rfidTagId: row['RTLS Tag ID'] || null,
+        bleBeaconMac: row['BLE Beacon ID'] || null,
         notes: row['Notes'] || null,
         primaryCustodianId: userId || uuidv4(), // Default user
         custodianDepartmentId: department?.id || facility.id,
@@ -363,7 +363,7 @@ export class ExcelImportService {
 
   private async getOrCreateFacility(code: string) {
     const facility = await this.prisma.facility.findFirst({
-      where: { name: { contains: code, mode: 'insensitive' } },
+      where: { facilityName: { contains: code, mode: 'insensitive' } },
     });
 
     if (facility) {
@@ -375,8 +375,8 @@ export class ExcelImportService {
       data: {
         id: uuidv4(),
         organizationId: uuidv4(), // Default org - should be set properly
-        name: code,
-        address: {},
+        facilityName: code,
+        facilityCode: code.toUpperCase().replace(/\s+/g, '_'),
         timezone: 'UTC',
       },
     });
@@ -386,7 +386,7 @@ export class ExcelImportService {
     const department = await this.prisma.department.findFirst({
       where: {
         facilityId,
-        code: { equals: code, mode: 'insensitive' },
+        departmentCode: { equals: code, mode: 'insensitive' },
       },
     });
 
@@ -398,8 +398,8 @@ export class ExcelImportService {
       data: {
         id: uuidv4(),
         facilityId,
-        name: code,
-        code: code.toUpperCase(),
+        departmentName: code,
+        departmentCode: code.toUpperCase(),
       },
     });
   }
@@ -479,16 +479,16 @@ export class ExcelImportService {
       'Serial Number': a.serialNumber,
       'Manufacturer': a.manufacturer,
       'Model Number': a.modelNumber,
-      'Facility': a.currentFacility?.name || '',
+      'Facility': a.currentFacility?.facilityName || '',
       'Status': a.assetStatus,
       'Acquisition Date': a.purchaseDate,
       'Installation Date': a.installationDate,
       'Warranty Expiry': a.warrantyEndDate,
       'Purchase Price': a.purchaseCost,
       'UDI': a.udiDeviceIdentifier,
-      'RTLS Tracked': a.isTrackedRtls ? 'Yes' : 'No',
-      'RTLS Tag ID': a.rtlsTagId,
-      'BLE Beacon ID': a.bleBeaconId,
+      'RTLS Tracked': a.rfidTagId || a.bleBeaconMac ? 'Yes' : 'No',
+      'RTLS Tag ID': a.rfidTagId,
+      'BLE Beacon ID': a.bleBeaconMac,
       'Notes': a.notes,
     }));
 

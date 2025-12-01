@@ -178,7 +178,7 @@ export class IngestionService {
           trackingMethod:
             trackingMethodMap[event.sourceType.toLowerCase()] || 'MANUAL',
           accuracyMeters: event.accuracyMeters || null,
-          metadata: event.rawPayload || {},
+          // metadata: event.rawPayload || {}, // Not in schema
         },
       });
 
@@ -425,10 +425,10 @@ export class IngestionService {
   ): Promise<void> {
     // Note: Asset model uses assetStatus, not condition
     // Update status based on condition severity
-    const statusMap: Record<string, 'MAINTENANCE' | 'REPAIR' | 'QUARANTINE'> = {
-      critical: 'REPAIR',
-      poor: 'MAINTENANCE',
-      fair: 'MAINTENANCE',
+    const statusMap: Record<string, 'IN_MAINTENANCE' | 'QUARANTINED'> = {
+      critical: 'QUARANTINED',
+      poor: 'IN_MAINTENANCE',
+      fair: 'IN_MAINTENANCE',
     };
 
     const newStatus = statusMap[condition.toLowerCase()];
