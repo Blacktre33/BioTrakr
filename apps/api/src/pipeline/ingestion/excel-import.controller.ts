@@ -23,8 +23,17 @@ import {
 import { Response, Request } from 'express';
 import { ExcelImportService, ImportResult } from './excel-import.service';
 
+export interface UploadedMulterFile {
+  fieldname: string;
+  originalname: string;
+  encoding: string;
+  mimetype: string;
+  buffer: Buffer;
+  size: number;
+}
+
 @ApiTags('Excel Import/Export')
-@Controller('api/v1/assets')
+@Controller('v1/assets')
 export class ExcelImportController {
   private readonly logger = new Logger(ExcelImportController.name);
 
@@ -76,7 +85,7 @@ export class ExcelImportController {
   })
   @ApiResponse({ status: 400, description: 'Invalid file or validation errors' })
   async importAssets(
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFile() file: UploadedMulterFile,
   ): Promise<ImportResult> {
     if (!file) {
       throw new BadRequestException('No file uploaded');
@@ -147,28 +156,18 @@ export class ExcelImportController {
     },
   })
   async downloadTemplate(@Res() res: Response) {
-    // In production, you would serve the pre-generated template file
-    // For now, we'll generate it on-the-fly or return a static file
-    
-    // This would typically read from a static file:
-    // const templatePath = path.join(__dirname, '..', '..', 'templates', 'biotrakr_asset_template.xlsx');
-    // const buffer = fs.readFileSync(templatePath);
+    this.logger.log('Generating Excel template for asset import');
+
+    const buffer = await this.excelImportService.generateTemplate();
+
+    const filename = 'biotrakr_asset_template.xlsx';
 
     res.setHeader(
       'Content-Type',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     );
-    res.setHeader(
-      'Content-Disposition',
-      'attachment; filename="biotrakr_asset_template.xlsx"',
-    );
-    
-    // Return a message indicating template should be served from static files
-    // In production, use: res.send(buffer);
-    res.status(200).json({
-      message: 'Template endpoint - configure to serve static template file',
-      templateUrl: '/static/biotrakr_asset_template.xlsx',
-    });
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(buffer);
   }
 
   /**
@@ -195,7 +194,7 @@ export class ExcelImportController {
     description: 'Validation result',
   })
   async validateFile(
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFile() file: UploadedMulterFile,
   ) {
     if (!file) {
       throw new BadRequestException('No file uploaded');

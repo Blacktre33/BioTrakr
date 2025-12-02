@@ -3,12 +3,19 @@ import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 
-import { loadApiConfig } from '@medasset/config';
+import { loadApiConfig } from '@biotrakr/config';
 
 import { AppModule } from './app.module';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
+
+  // Fix for BigInt serialization (Prisma uses BigInt)
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-ignore
+  BigInt.prototype.toJSON = function () {
+    return Number(this);
+  };
 
   const config = loadApiConfig();
 
@@ -28,7 +35,7 @@ async function bootstrap(): Promise<void> {
   );
 
   const documentConfig = new DocumentBuilder()
-    .setTitle('MedAsset Pro API')
+    .setTitle('BioTrakr API')
     .setDescription('Medical Device Asset Management API')
     .setVersion('1.0.0')
     .addBearerAuth()

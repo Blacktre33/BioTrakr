@@ -5,13 +5,13 @@ import jwt, {
   type VerifyOptions,
 } from "jsonwebtoken";
 
-import { loadSecurityConfig } from "@medasset/config";
+import { loadSecurityConfig } from "@biotrakr/config";
 import type {
   AuthenticatedUser,
   Permission,
   TokenPair,
   UserRole,
-} from "@medasset/types";
+} from "@biotrakr/types";
 
 /**
  * Claims embedded within access tokens. Storing organisation and role data

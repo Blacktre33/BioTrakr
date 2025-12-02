@@ -1,4 +1,4 @@
-# MedAsset Pro Machine Learning Service
+# BioTrakr Machine Learning Service
 
 The ML microservice powers predictive maintenance and asset risk scoring. It provides APIs for online inference and utilities for offline training using MLflow for experiment tracking and model registry.
 
@@ -90,8 +90,8 @@ src/
 docker-compose up ml-service
 
 # or build the image directly
-docker build -t medasset-ml-service apps/ml-service
-docker run --rm -p 8000:8000 --env-file apps/ml-service/.env medasset-ml-service
+docker build -t biotrakr-ml-service apps/ml-service
+docker run --rm -p 8000:8000 --env-file apps/ml-service/.env biotrakr-ml-service
 ```
 
 The Compose file also starts an MLflow tracking server on http://localhost:5001.

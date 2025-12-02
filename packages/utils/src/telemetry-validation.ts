@@ -12,7 +12,7 @@ import type {
   RiskClass,
   EventCategory,
   MLTrainingLabels,
-} from "@medasset/types";
+} from "@biotrakr/types";
 
 /**
  * Validation result structure

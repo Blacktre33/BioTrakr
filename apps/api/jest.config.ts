@@ -15,10 +15,10 @@ const config: Config = {
   coverageDirectory: '../coverage',
   testEnvironment: 'node',
   moduleNameMapper: {
-    '^@medasset/types$': '<rootDir>/../../../packages/types/src',
-    '^@medasset/config$': '<rootDir>/../../../packages/config/src',
-    '^@medasset/utils$': '<rootDir>/../../../packages/utils/src',
-    '^@medasset/ui$': '<rootDir>/../../../packages/ui/src',
+    '^@biotrakr/types$': '<rootDir>/../../../packages/types/src',
+    '^@biotrakr/config$': '<rootDir>/../../../packages/config/src',
+    '^@biotrakr/utils$': '<rootDir>/../../../packages/utils/src',
+    '^@biotrakr/ui$': '<rootDir>/../../../packages/ui/src',
   },
 };
 

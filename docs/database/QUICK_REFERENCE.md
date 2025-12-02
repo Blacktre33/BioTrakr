@@ -206,7 +206,7 @@ SELECT * FROM timescaledb_information.hypertables;
 
 ### View Database Size
 ```sql
-SELECT pg_size_pretty(pg_database_size('medasset_dev'));
+SELECT pg_size_pretty(pg_database_size('biotrakr_dev'));
 ```
 
 ---

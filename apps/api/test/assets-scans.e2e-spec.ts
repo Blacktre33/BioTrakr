@@ -75,7 +75,7 @@ describe('Asset scan routes (e2e)', () => {
 
   it('records and retrieves asset scan logs', async () => {
     const payload = {
-      qrPayload: 'medasset://asset/' + assetId,
+      qrPayload: 'biotrakr://asset/' + assetId,
       notes: 'Verified in storage closet',
       locationHint: 'Building A - Floor 3',
     };

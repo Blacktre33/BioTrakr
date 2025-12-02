@@ -1,11 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
-import { loadPipelineConfig } from '@medasset/config';
+import { loadPipelineConfig } from '@biotrakr/config';
 import type {
   TelemetryIngestEvent as TelemetryIngestEventType,
   TelemetryIngestPayload,
-} from '@medasset/types';
+} from '@biotrakr/types';
 
 import { PrismaService } from '../database/prisma.service';
 

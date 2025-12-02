@@ -1,8 +1,8 @@
-# MedAsset Pro PRD Progress Report
+# BioTrakr PRD Progress Report
 
 _Last updated: November 7, 2025_
 
-This document captures the current implementation status against the Product Requirements Document (PRD) for MedAsset Pro. It is organized by major capability areas and roadmap phases defined in the PRD.
+This document captures the current implementation status against the Product Requirements Document (PRD) for BioTrakr. It is organized by major capability areas and roadmap phases defined in the PRD.
 
 ---
 
@@ -35,7 +35,7 @@ This document captures the current implementation status against the Product Req
 
 **Security & Auth Prep:**
 - Route groups (`(auth)/(dashboard)`) defined; login screen shell ready.
-- Step 7 delivered shared security utilities and centralised env validation via `@medasset/config` and `@medasset/utils`.
+- Step 7 delivered shared security utilities and centralised env validation via `@biotrakr/config` and `@biotrakr/utils`.
 
 ---
 
@@ -63,7 +63,7 @@ This document captures the current implementation status against the Product Req
 ## 5. Upcoming Work (Q4 2025)
 
 1. **Step 7 – Shared Packages & Security Foundations** ✅
-   - `@medasset/types`, `@medasset/config`, and `@medasset/utils` publish shared tooling with tsup builds.
+   - `@biotrakr/types`, `@biotrakr/config`, and `@biotrakr/utils` publish shared tooling with tsup builds.
    - API/web consume the new loaders and no longer depend on hard-coded API URLs.
 
 2. **Authentication & Authorization (Step 8)**
@@ -76,7 +76,7 @@ This document captures the current implementation status against the Product Req
 
 4. **Data Pipeline Integration (Step 10)** ✅
    - Telemetry ingestion schema (`telemetry_ingest_events`, `maintenance_event_logs`, `asset_scan_logs`) with Prisma migrations applied.
-   - Pipeline config loader (`@medasset/config`) validates Timescale/queue settings for orchestration.
+   - Pipeline config loader (`@biotrakr/config`) validates Timescale/queue settings for orchestration.
    - Dashboard pipeline monitor (`/pipeline`) displays ingest events, config snapshot, and maintenance timeline.
    - `TelemetryIngestionService` processes pending events into curated `asset_location_pings`.
    - QR scanning workflow integrated: browser-based scanner with `@zxing/browser`, API endpoints (`POST/GET /assets/:id/scans`), and scan history card on Assets page.

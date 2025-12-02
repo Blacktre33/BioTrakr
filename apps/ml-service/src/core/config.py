@@ -5,11 +5,11 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    api_title: str = "MedAsset Pro ML Service"
+    api_title: str = "BioTrakr ML Service"
     api_version: str = "0.1.0"
 
     database_url: str = Field(
-        default="postgresql://postgres:postgres@localhost:5433/medasset_dev",
+        default="postgresql://postgres:postgres@localhost:5433/biotrakr_dev",
         description="Primary PostgreSQL/TimescaleDB connection for feature extraction.",
     )
     mlflow_tracking_uri: str = Field(
@@ -21,7 +21,7 @@ class Settings(BaseSettings):
         description="Optional MLflow model registry URI if different from tracking.",
     )
     model_name: str = Field(
-        default="medasset-failure-risk",
+        default="biotrakr-failure-risk",
         description="Registered model name used for inference and version management.",
     )
     model_local_artifact: str = Field(

@@ -18,7 +18,7 @@ def setup_test_environment() -> Generator[None, None, None]:
     preventing PermissionErrors in CI/CD environments like GitHub Actions.
     """
     # Create a temporary directory for all test artifacts
-    temp_dir = tempfile.mkdtemp(prefix="medasset-ml-test-")
+    temp_dir = tempfile.mkdtemp(prefix="biotrakr-ml-test-")
     mlruns_dir = Path(temp_dir) / "mlruns"
     artifacts_dir = Path(temp_dir) / "artifacts"
     

@@ -1,10 +1,10 @@
-# MedAsset Pro - Medical Device Asset Management Platform
+# BioTrakr - Medical Device Asset Management Platform
 > Next-generation healthcare asset management with real-time tracking, predictive maintenance, and compliance automation.
 
 ## 🏗️ Project Structure
 
 ```
-medasset-pro/
+biotrakr/
 ├── apps/
 │   ├── api/              # NestJS backend API
 │   ├── web/              # Next.js web application
@@ -24,10 +24,10 @@ medasset-pro/
 
 ### Shared Packages
 
-- `@medasset/types` – canonical domain types shared by API and web clients.
-- `@medasset/config` – zod-based environment loaders to avoid hard-coded URLs.
-- `@medasset/utils` – security helpers for hashing, token creation, and guards.
-- `@medasset/ui` – design tokens to be leveraged by every surface.
+- `@biotrakr/types` – canonical domain types shared by API and web clients.
+- `@biotrakr/config` – zod-based environment loaders to avoid hard-coded URLs.
+- `@biotrakr/utils` – security helpers for hashing, token creation, and guards.
+- `@biotrakr/ui` – design tokens to be leveraged by every surface.
 
 ### Dashboard Enhancements (Step 9)
 
@@ -74,10 +74,10 @@ Run individual apps when iterating on specific surfaces:
 
 ```bash
 # API (NestJS)
-pnpm --filter @medasset/api dev
+pnpm --filter @biotrakr/api dev
 
 # Web (Next.js)
-pnpm --filter @medasset/web dev
+pnpm --filter @biotrakr/web dev
 ```
 
 ### Available Services
@@ -104,8 +104,8 @@ pnpm --filter @medasset/web dev
 pnpm test
 
 # Run tests for a specific app
-pnpm --filter @medasset/api test
-pnpm --filter @medasset/web test
+pnpm --filter @biotrakr/api test
+pnpm --filter @biotrakr/web test
 
 # Run E2E tests (Playwright)
 pnpm test:e2e
@@ -118,7 +118,7 @@ pnpm test:e2e
 pnpm build
 
 # Build specific app
-pnpm --filter @medasset/web build
+pnpm --filter @biotrakr/web build
 ```
 
 ## 🤝 Contributing

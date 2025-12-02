@@ -11,7 +11,7 @@
 - **Status:** ✅ **RUNNING & HEALTHY**
 - **Image:** `timescale/timescaledb:latest-pg15`
 - **Port:** 5433
-- **Database:** medasset_dev
+- **Database:** biotrakr_dev
 - **Uptime:** 9 minutes
 - **Health:** Healthy
 - **Tables:** 25 (comprehensive schema deployed)
@@ -228,17 +228,17 @@ pnpm dev
 
 ### Check Database
 ```bash
-docker exec medasset-postgres psql -U postgres -d medasset_dev -c "SELECT version();"
+docker exec biotrakr-postgres psql -U postgres -d biotrakr_dev -c "SELECT version();"
 ```
 
 ### Check TimescaleDB
 ```bash
-docker exec medasset-postgres psql -U postgres -d medasset_dev -c "SELECT * FROM timescaledb_information.hypertables;"
+docker exec biotrakr-postgres psql -U postgres -d biotrakr_dev -c "SELECT * FROM timescaledb_information.hypertables;"
 ```
 
 ### Check Tables
 ```bash
-docker exec medasset-postgres psql -U postgres -d medasset_dev -c "\dt"
+docker exec biotrakr-postgres psql -U postgres -d biotrakr_dev -c "\dt"
 ```
 
 ### Check All Docker Services

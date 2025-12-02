@@ -10,7 +10,7 @@
 -- be expressed in Prisma schema.
 --
 -- Run with:
--- psql -U postgres -d medasset_dev -f timescaledb-setup.sql
+-- psql -U postgres -d biotrakr_dev -f timescaledb-setup.sql
 -- OR
 -- pnpm prisma db execute --file prisma/migrations/timescaledb-setup.sql
 --
@@ -402,7 +402,7 @@ CREATE INDEX IF NOT EXISTS idx_assets_model_number_trgm ON assets USING gin ("mo
 
 -- Grant read-only access for reporting (optional)
 -- CREATE ROLE biotrakr_readonly;
--- GRANT CONNECT ON DATABASE medasset_dev TO biotrakr_readonly;
+-- GRANT CONNECT ON DATABASE biotrakr_dev TO biotrakr_readonly;
 -- GRANT USAGE ON SCHEMA public TO biotrakr_readonly;
 -- GRANT SELECT ON ALL TABLES IN SCHEMA public TO biotrakr_readonly;
 

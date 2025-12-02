@@ -1,4 +1,4 @@
-import { loadApiConfig } from '@medasset/config';
+import { loadApiConfig } from '@biotrakr/config';
 import { Injectable } from '@nestjs/common';
 
 @Injectable()

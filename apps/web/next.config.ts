@@ -5,7 +5,7 @@ const nextConfig: NextConfig = {
   typedRoutes: true,
   turbopack: {},
   webpack: (config) => {
-    config.resolve.alias["@medasset/utils/telemetry-mock"] = path.resolve(
+      config.resolve.alias["@biotrakr/utils/telemetry-mock"] = path.resolve(
       __dirname,
       "../../packages/utils/src/telemetry-mock.ts",
     );

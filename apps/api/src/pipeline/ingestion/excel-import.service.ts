@@ -2,7 +2,7 @@ import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import * as XLSX from 'xlsx';
 import { v4 as uuidv4 } from 'uuid';
-import { AssetStatus } from '@prisma/client';
+import { AssetStatus, RiskClassification } from '@prisma/client';
 
 interface AssetRow {
   'Asset Tag*': string;
@@ -331,6 +331,8 @@ export class ExcelImportService {
         assetStatus,
         criticalityLevel: 'MEDIUM', // Default
         currentFacilityId: facility.id,
+        usefulLifeYears: 10, // Default
+        riskClassification: RiskClassification.CLASS_I, // Default
         purchaseDate: this.parseDate(row['Acquisition Date']) || new Date(),
         installationDate: this.parseDate(row['Installation Date']),
         warrantyEndDate: this.parseDate(row['Warranty Expiry']),
@@ -345,6 +347,8 @@ export class ExcelImportService {
         notes: row['Notes'] || null,
         primaryCustodianId: userId || uuidv4(), // Default user
         custodianDepartmentId: department?.id || facility.id,
+        createdById: userId || uuidv4(),
+        updatedById: userId || uuidv4(),
       },
       update: {
         serialNumber: row['Serial Number'] || undefined,
@@ -353,6 +357,7 @@ export class ExcelImportService {
         assetStatus,
         currentFacilityId: facility.id,
         updatedAt: new Date(),
+        updatedById: userId || uuidv4(),
       },
     });
   }
@@ -494,6 +499,126 @@ export class ExcelImportService {
 
     const ws = XLSX.utils.json_to_sheet(excelData);
     XLSX.utils.book_append_sheet(wb, ws, 'Assets');
+
+    // Write to buffer
+    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    return buffer;
+  }
+
+  /**
+   * Generate a blank Excel template for asset import
+   */
+  async generateTemplate(): Promise<Buffer> {
+    // Create workbook
+    const wb = XLSX.utils.book_new();
+
+    // Define the template headers based on AssetRow interface
+    const headers = [
+      'Asset Tag*',
+      'Serial Number',
+      'Barcode',
+      'Asset Category*',
+      'Asset Type*',
+      'Manufacturer*',
+      'Model Number*',
+      'Facility Code*',
+      'Department Code',
+      'Location Code',
+      'Status*',
+      'Condition*',
+      'Acquisition Date',
+      'Installation Date',
+      'Warranty Expiry',
+      'Purchase Price',
+      'UDI',
+      'Lot Number',
+      'Is FDA Regulated',
+      'Is RTLS Tracked',
+      'RTLS Tag ID',
+      'BLE Beacon ID',
+      'Notes',
+    ];
+
+    // Create worksheet with headers
+    const ws = XLSX.utils.aoa_to_sheet([headers]);
+
+    // Set column widths for better readability
+    const colWidths = headers.map((header) => ({
+      wch: Math.max(header.length + 2, 15),
+    }));
+    ws['!cols'] = colWidths;
+
+    // Add example row with instructions
+    const exampleRow = [
+      'ASSET-001',
+      'SN123456',
+      'BC789',
+      'Medical Equipment',
+      'Ventilator',
+      'Philips',
+      'V60',
+      'FACILITY-001',
+      'ICU',
+      'ICU-ROOM-101',
+      'Available',
+      'Excellent',
+      '2024-01-15',
+      '2024-01-20',
+      '2025-01-15',
+      '50000',
+      'UDI123456',
+      'LOT001',
+      'Yes',
+      'Yes',
+      'RFID-001',
+      'BLE-001',
+      'Sample asset entry',
+    ];
+    XLSX.utils.sheet_add_aoa(ws, [exampleRow], { origin: -1 });
+
+    // Add instructions sheet
+    const instructions = [
+      ['BioTrakr Asset Import Template'],
+      [],
+      ['Instructions:'],
+      ['1. Required fields are marked with *'],
+      ['2. Status values: Available, In_Use, Maintenance, Repair, Decommissioned, Quarantine'],
+      ['3. Condition values: Excellent, Good, Fair, Poor, Critical'],
+      ['4. Date format: YYYY-MM-DD (e.g., 2024-01-15)'],
+      ['5. Yes/No fields: Use "Yes" or "No"'],
+      ['6. Delete the example row before importing'],
+      [],
+      ['Column Descriptions:'],
+      ['Asset Tag*: Unique identifier for the asset'],
+      ['Serial Number: Manufacturer serial number'],
+      ['Barcode: Barcode identifier'],
+      ['Asset Category*: Category of the asset (e.g., Medical Equipment)'],
+      ['Asset Type*: Specific type (e.g., Ventilator, Monitor)'],
+      ['Manufacturer*: Manufacturer name'],
+      ['Model Number*: Model identifier'],
+      ['Facility Code*: Code of the facility'],
+      ['Department Code: Department code'],
+      ['Location Code: Location within facility'],
+      ['Status*: Current status of the asset'],
+      ['Condition*: Physical condition'],
+      ['Acquisition Date: Date asset was acquired'],
+      ['Installation Date: Date asset was installed'],
+      ['Warranty Expiry: Warranty expiration date'],
+      ['Purchase Price: Purchase cost in rupees'],
+      ['UDI: Unique Device Identifier'],
+      ['Lot Number: Lot/batch number'],
+      ['Is FDA Regulated: Yes/No'],
+      ['Is RTLS Tracked: Yes/No'],
+      ['RTLS Tag ID: RFID tag identifier'],
+      ['BLE Beacon ID: Bluetooth beacon MAC address'],
+      ['Notes: Additional notes'],
+    ];
+    const wsInstructions = XLSX.utils.aoa_to_sheet(instructions);
+    wsInstructions['!cols'] = [{ wch: 50 }];
+
+    // Append sheets to workbook
+    XLSX.utils.book_append_sheet(wb, ws, 'Assets');
+    XLSX.utils.book_append_sheet(wb, wsInstructions, 'Instructions');
 
     // Write to buffer
     const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });

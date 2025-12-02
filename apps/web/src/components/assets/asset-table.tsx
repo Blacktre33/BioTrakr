@@ -16,6 +16,7 @@ import {
   MapPin,
   Activity,
   Calendar,
+  ScanLine,
 } from 'lucide-react';
 import { cn, formatDate } from '@/lib/utils';
 import { Card, Button, Badge, Input, ProgressBar } from '@/components/ui';

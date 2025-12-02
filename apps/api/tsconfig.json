@@ -18,10 +18,10 @@
     "forceConsistentCasingInFileNames": false,
     "noFallthroughCasesInSwitch": false,
     "paths": {
-      "@medasset/types": ["../../packages/types/src"],
-      "@medasset/config": ["../../packages/config/src"],
-      "@medasset/utils": ["../../packages/utils/src"],
-      "@medasset/ui": ["../../packages/ui/src"]
+      "@biotrakr/types": ["../../packages/types/src"],
+      "@biotrakr/config": ["../../packages/config/src"],
+      "@biotrakr/utils": ["../../packages/utils/src"],
+      "@biotrakr/ui": ["../../packages/ui/src"]
     }
   },
   "include": ["src", "test"],

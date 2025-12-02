@@ -45,12 +45,12 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'MedAsset Pro | Healthcare Asset Management',
+  title: 'BioTrakr | Healthcare Asset Management',
   description: 'Next-generation healthcare asset management with real-time tracking, predictive maintenance, and compliance automation.',
   keywords: ['healthcare', 'asset management', 'medical devices', 'RTLS', 'predictive maintenance', 'compliance'],
-  authors: [{ name: 'MedAsset Team' }],
+  authors: [{ name: 'BioTrakr Team' }],
   openGraph: {
-    title: 'MedAsset Pro | Healthcare Asset Management',
+    title: 'BioTrakr | Healthcare Asset Management',
     description: 'Next-generation healthcare asset management with real-time tracking, predictive maintenance, and compliance automation.',
     type: 'website',
   },

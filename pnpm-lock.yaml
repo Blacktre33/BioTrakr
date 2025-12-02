@@ -377,10 +377,10 @@ importers:
 
   packages/utils:
     dependencies:
-      '@medasset/config':
+      '@biotrakr/config':
         specifier: workspace:*
         version: link:../config
-      '@medasset/types':
+      '@biotrakr/types':
         specifier: workspace:*
         version: link:../types
       bcryptjs:

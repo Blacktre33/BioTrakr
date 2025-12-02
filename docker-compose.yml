@@ -6,12 +6,12 @@ services:
   # ============================================
   postgres:
     image: timescale/timescaledb:latest-pg15
-    container_name: medasset-postgres
+    container_name: biotrakr-postgres
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: medasset_dev
-      POSTGRES_MULTIPLE_DATABASES: medasset_test
+      POSTGRES_DB: biotrakr_dev
+      POSTGRES_MULTIPLE_DATABASES: biotrakr_test
     ports:
       - "5433:5432"
     volumes:
@@ -23,7 +23,7 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - medasset-network
+      - biotrakr-network
 
   # ============================================
   # Redis - Cache & Session Store
@@ -42,14 +42,14 @@ services:
       timeout: 3s
       retries: 5
     networks:
-      - medasset-network
+      - biotrakr-network
 
   # ============================================
   # Meilisearch - Fast Search Engine
   # ============================================
   meilisearch:
     image: getmeili/meilisearch:v1.5
-    container_name: medasset-search
+    container_name: biotrakr-search
     environment:
       MEILI_MASTER_KEY: masterKey
       MEILI_ENV: development
@@ -59,14 +59,14 @@ services:
     volumes:
       - meilisearch_data:/meili_data
     networks:
-      - medasset-network
+      - biotrakr-network
 
   # ============================================
   # MLflow Tracking Server
   # ============================================
   # mlflow:
   #   image: python:3.11-slim
-  #   container_name: medasset-mlflow
+  #   container_name: biotrakr-mlflow
   #   command: >
   #     bash -c "pip install mlflow==2.16.0 &&
   #              mlflow server --host 0.0.0.0 --port 5000 
@@ -86,12 +86,12 @@ services:
   #   build:
   #     context: ./apps/ml-service
   #     dockerfile: Dockerfile
-  #   container_name: medasset-ml-service
+  #   container_name: biotrakr-ml-service
   #   environment:
-  #     DATABASE_URL: postgresql://postgres:postgres@postgres:5432/medasset_dev
+  #     DATABASE_URL: postgresql://postgres:postgres@postgres:5432/biotrakr_dev
   #     MLFLOW_TRACKING_URI: http://mlflow:5000
   #     MLFLOW_REGISTRY_URI: http://mlflow:5000
-  #     MODEL_NAME: medasset-failure-risk
+  #     MODEL_NAME: biotrakr-failure-risk
   #     LOG_LEVEL: INFO
   #   depends_on:
   #     postgres:
@@ -108,9 +108,9 @@ services:
   # ============================================
   pgadmin:
     image: dpage/pgadmin4:latest
-    container_name: medasset-pgadmin
+    container_name: biotrakr-pgadmin
     environment:
-      PGADMIN_DEFAULT_EMAIL: admin@medasset.com
+      PGADMIN_DEFAULT_EMAIL: admin@biotrakr.com
       PGADMIN_DEFAULT_PASSWORD: admin
       PGADMIN_CONFIG_SERVER_MODE: 'False'
     ports:
@@ -120,7 +120,7 @@ services:
     depends_on:
       - postgres
     networks:
-      - medasset-network
+      - biotrakr-network
     profiles:
       - tools
 
@@ -129,7 +129,7 @@ services:
   # ============================================
   redis-insight:
     image: redislabs/redisinsight:latest
-    container_name: medasset-redis-insight
+    container_name: biotrakr-redis-insight
     ports:
       - "8001:8001"
     volumes:
@@ -137,7 +137,7 @@ services:
     depends_on:
       - redis
     networks:
-      - medasset-network
+      - biotrakr-network
     profiles:
       - tools
 
@@ -158,5 +158,5 @@ volumes:
     driver: local
 
 networks:
-  medasset-network:
+  biotrakr-network:
     driver: bridge

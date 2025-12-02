@@ -1,6 +1,6 @@
-# MedAsset Pro Web Application
+# BioTrakr Web Application
 
-The MedAsset Pro web client provides administrative dashboards, asset visibility, and reporting for healthcare teams.
+The BioTrakr web client provides administrative dashboards, asset visibility, and reporting for healthcare teams.
 
 ## Prerequisites
 

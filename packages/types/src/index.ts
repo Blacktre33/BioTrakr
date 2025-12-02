@@ -1,5 +1,5 @@
 /**
- * Canonical domain types shared across MedAsset Pro services.
+ * Canonical domain types shared across BioTrakr services.
  * Exporting these interfaces keeps the API, web app, and future mobile
  * clients aligned with the Prisma data model and avoids drift between
  * independently declared types.

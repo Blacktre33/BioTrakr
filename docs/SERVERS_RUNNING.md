@@ -41,19 +41,19 @@
 ## Service Details
 
 ### PostgreSQL (TimescaleDB)
-- **Container:** medasset-postgres
-- **Database:** medasset_dev
+- **Container:** biotrakr-postgres
+- **Database:** biotrakr_dev
 - **User:** postgres
 - **Status:** Healthy and ready for connections
 - **Extensions:** TimescaleDB enabled
 
 ### Redis
-- **Container:** medasset-redis
+- **Container:** biotrakr-redis
 - **Status:** Healthy
 - **Mode:** Append-only file (AOF) enabled
 
 ### Meilisearch
-- **Container:** medasset-search
+- **Container:** biotrakr-search
 - **Status:** Running
 - **Ready for:** Search operations
 

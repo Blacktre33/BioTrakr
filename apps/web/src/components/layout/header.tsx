@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Bell,
@@ -26,6 +28,7 @@ interface HeaderProps {
 }
 
 export function Header({ title, subtitle, actions }: HeaderProps) {
+  const router = useRouter();
   const [showNotifications, setShowNotifications] = useState(false);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const { alerts, acknowledgeAlert, dismissAlert } = useAlertStore();
@@ -46,10 +49,18 @@ export function Header({ title, subtitle, actions }: HeaderProps) {
   };
 
   const quickAddOptions = [
-    { label: 'New Asset', icon: Plus, href: '/assets/new' },
-    { label: 'Work Order', icon: Plus, href: '/maintenance/new' },
-    { label: 'QR Scan', icon: Plus, href: '/scan' },
+    { label: 'New Asset', icon: Plus, href: '/assets', action: () => router.push('/assets?new=true') },
+    { label: 'Work Order', icon: Plus, href: '/maintenance', action: () => router.push('/maintenance') },
   ];
+
+  const handleQuickAddClick = (option: typeof quickAddOptions[0]) => {
+    setShowQuickAdd(false);
+    if (option.action) {
+      option.action();
+    } else {
+      router.push(option.href);
+    }
+  };
 
   return (
     <header className="sticky top-0 z-40 bg-surface-0/80 backdrop-blur-xl border-b border-white/5">
@@ -94,14 +105,14 @@ export function Header({ title, subtitle, actions }: HeaderProps) {
                     transition={{ duration: 0.15 }}
                   >
                     {quickAddOptions.map((option) => (
-                      <a
+                      <button
                         key={option.label}
-                        href={option.href}
-                        className="flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:bg-surface-200/50 hover:text-white transition-colors"
+                        onClick={() => handleQuickAddClick(option)}
+                        className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:bg-surface-200/50 hover:text-white transition-colors text-left"
                       >
                         <option.icon className="w-4 h-4" />
                         {option.label}
-                      </a>
+                      </button>
                     ))}
                   </motion.div>
                 </>
@@ -222,12 +233,13 @@ export function Header({ title, subtitle, actions }: HeaderProps) {
                     {/* Footer */}
                     {displayAlerts.length > 0 && (
                       <div className="px-4 py-3 border-t border-white/5">
-                        <a
+                        <Link
                           href="/alerts"
                           className="text-sm text-primary-400 hover:text-primary-300 transition-colors"
+                          onClick={() => setShowNotifications(false)}
                         >
                           View all notifications →
-                        </a>
+                        </Link>
                       </div>
                     )}
                   </motion.div>

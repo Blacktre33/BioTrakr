@@ -75,7 +75,7 @@ docker-compose ps
 
 ```bash
 # apps/api/.env
-DATABASE_URL="postgresql://postgres:postgres@localhost:5433/medasset_dev?schema=public"
+DATABASE_URL="postgresql://postgres:postgres@localhost:5433/biotrakr_dev?schema=public"
 SHADOW_DATABASE_URL="postgresql://postgres:postgres@localhost:5433/medasset_test?schema=public"
 ```
 
@@ -101,7 +101,7 @@ pnpm prisma migrate reset
 pnpm prisma db execute --file prisma/migrations/timescaledb-setup.sql
 
 # Verify TimescaleDB installation
-docker exec medasset-postgres psql -U postgres -d medasset_dev -c "\dx"
+docker exec biotrakr-postgres psql -U postgres -d biotrakr_dev -c "\dx"
 ```
 
 ### Step 5: Seed Database (Optional)
@@ -121,10 +121,10 @@ pnpm ts-node prisma/seed.ts
 pnpm prisma studio
 
 # Check database tables
-docker exec medasset-postgres psql -U postgres -d medasset_dev -c "\dt"
+docker exec biotrakr-postgres psql -U postgres -d biotrakr_dev -c "\dt"
 
 # Verify TimescaleDB hypertables
-docker exec medasset-postgres psql -U postgres -d medasset_dev -c "SELECT * FROM timescaledb_information.hypertables;"
+docker exec biotrakr-postgres psql -U postgres -d biotrakr_dev -c "SELECT * FROM timescaledb_information.hypertables;"
 ```
 
 ---
@@ -156,7 +156,7 @@ postgres:
   environment:
     POSTGRES_USER: postgres
     POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
-    POSTGRES_DB: medasset_dev
+    POSTGRES_DB: biotrakr_dev
   command:
     - "postgres"
     - "-c"
@@ -469,7 +469,7 @@ prisma.$on('query', (e) => {
 
 BACKUP_DIR="/var/backups/biotrakr"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-DB_NAME="medasset_dev"
+DB_NAME="biotrakr_dev"
 DB_HOST="localhost"
 DB_PORT="5433"
 DB_USER="postgres"
@@ -478,7 +478,7 @@ DB_USER="postgres"
 mkdir -p $BACKUP_DIR
 
 # Full database backup
-docker exec medasset-postgres pg_dump -U $DB_USER -Fc $DB_NAME > \
+docker exec biotrakr-postgres pg_dump -U $DB_USER -Fc $DB_NAME > \
   "$BACKUP_DIR/biotrakr_full_$TIMESTAMP.dump"
 
 # Compress
@@ -497,11 +497,11 @@ echo "Backup completed: biotrakr_full_$TIMESTAMP.dump.gz"
 gunzip biotrakr_full_20251108_120000.dump.gz
 
 # Restore to database
-docker exec -i medasset-postgres pg_restore -U postgres -d medasset_dev -c \
+docker exec -i biotrakr-postgres pg_restore -U postgres -d biotrakr_dev -c \
   < biotrakr_full_20251108_120000.dump
 
 # Verify
-docker exec medasset-postgres psql -U postgres -d medasset_dev -c "SELECT COUNT(*) FROM assets;"
+docker exec biotrakr-postgres psql -U postgres -d biotrakr_dev -c "SELECT COUNT(*) FROM assets;"
 ```
 
 ### Prisma Backup Workflow
@@ -638,19 +638,19 @@ export class HealthController {
 **Daily:**
 ```bash
 # Run database vacuum (via cron)
-0 2 * * * docker exec medasset-postgres vacuumdb -U postgres -d medasset_dev -z
+0 2 * * * docker exec biotrakr-postgres vacuumdb -U postgres -d biotrakr_dev -z
 ```
 
 **Weekly:**
 ```bash
 # Reindex tables
-0 3 * * 0 docker exec medasset-postgres reindexdb -U postgres -d medasset_dev
+0 3 * * 0 docker exec biotrakr-postgres reindexdb -U postgres -d biotrakr_dev
 ```
 
 **Monthly:**
 ```bash
 # Full vacuum and analyze
-0 4 1 * * docker exec medasset-postgres vacuumdb -U postgres -d medasset_dev -f -z
+0 4 1 * * docker exec biotrakr-postgres vacuumdb -U postgres -d biotrakr_dev -f -z
 ```
 
 ---

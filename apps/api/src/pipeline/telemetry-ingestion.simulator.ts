@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 
-import type { TelemetryIngestPayload } from '@medasset/types';
-import { getMockTelemetryIngestEvents } from '@medasset/utils';
+import type { TelemetryIngestPayload } from '@biotrakr/types';
+import { getMockTelemetryIngestEvents } from '@biotrakr/utils';
 
 import { PrismaService } from '../database/prisma.service';
 

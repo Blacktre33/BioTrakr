@@ -138,7 +138,7 @@ cd /Users/saketh/BioTrakr/apps/api
 cat .env
 
 # Should contain:
-# DATABASE_URL=postgresql://postgres:postgres@localhost:5433/medasset_dev
+# DATABASE_URL=postgresql://postgres:postgres@localhost:5433/biotrakr_dev
 # CLIENT_URL=http://localhost:3000
 # API_PORT=3001
 ```

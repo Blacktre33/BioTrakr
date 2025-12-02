@@ -29,7 +29,7 @@ The QR scanning feature allows field engineers to capture an asset QR code from 
 ## Local Development Notes
 
 - The scanner requires camera permissions; browsers block insecure contexts, so use HTTPS or `localhost` in development.
-- Mock payload format: `medasset://asset/<asset-uuid>`. The extractor also accepts bare UUID strings.
+- Mock payload format: `biotrakr://asset/<asset-uuid>`. The extractor also accepts bare UUID strings.
 - To run API tests without a real database, the e2e suite stubs Prisma; ensure you keep overrides in sync if you add new service methods.
 - Frontend tests include unit coverage for the QR parsing helper (`asset-scan-workflow.test.ts`). Consider adding Playwright coverage once the API is fully wired.
 

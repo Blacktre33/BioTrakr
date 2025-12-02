@@ -1,7 +1,8 @@
 'use client';
 
-import { forwardRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from 'react';
+import { forwardRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from 'react';
 import { motion, type HTMLMotionProps } from 'framer-motion';
+import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { cn } from '@/lib/utils';
 
 // Button Component
@@ -382,3 +383,178 @@ export function EmptyState({ icon, title, description, action }: EmptyStateProps
     </div>
   );
 }
+
+// Label Component
+interface LabelProps extends React.LabelHTMLAttributes<HTMLLabelElement> {
+  htmlFor?: string;
+}
+
+export const Label = forwardRef<HTMLLabelElement, LabelProps>(
+  ({ className, htmlFor, children, ...props }, ref) => {
+    return (
+      <label
+        ref={ref}
+        htmlFor={htmlFor}
+        className={cn(
+          'text-sm font-medium text-gray-300',
+          className
+        )}
+        {...props}
+      >
+        {children}
+      </label>
+    );
+  }
+);
+Label.displayName = 'Label';
+
+// Textarea Component
+interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
+  label?: string;
+  error?: string;
+}
+
+export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
+  ({ className, label, error, ...props }, ref) => {
+    return (
+      <div className="space-y-1.5">
+        {label && (
+          <label className="block text-sm font-medium text-gray-300">{label}</label>
+        )}
+        <textarea
+          ref={ref}
+          className={cn(
+            'w-full px-4 py-3 bg-surface-200/50 border border-white/5 rounded-xl',
+            'text-gray-100 placeholder-gray-500',
+            'focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500/50',
+            'transition-all duration-200 resize-none',
+            'min-h-[80px]',
+            error && 'border-critical-500/50 focus:ring-critical-500/50',
+            className
+          )}
+          {...props}
+        />
+        {error && (
+          <p className="text-sm text-critical-500">{error}</p>
+        )}
+      </div>
+    );
+  }
+);
+Textarea.displayName = 'Textarea';
+
+// Dialog Components (using Radix UI)
+const Dialog = DialogPrimitive.Root;
+const DialogTrigger = DialogPrimitive.Trigger;
+const DialogPortal = DialogPrimitive.Portal;
+const DialogClose = DialogPrimitive.Close;
+
+const DialogOverlay = forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Overlay>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Overlay
+    ref={ref}
+    className={cn(
+      'fixed inset-0 z-50 bg-black/50 backdrop-blur-sm',
+      'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
+      className
+    )}
+    {...props}
+  />
+));
+DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
+
+const DialogContent = forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
+>(({ className, children, ...props }, ref) => (
+  <DialogPortal>
+    <DialogOverlay />
+    <DialogPrimitive.Content
+      ref={ref}
+      className={cn(
+        'fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4',
+        'bg-surface-100/95 backdrop-blur-xl border border-white/5 rounded-2xl p-6 shadow-lg',
+        'duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out',
+        'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
+        'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
+        'data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%]',
+        'data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]',
+        className
+      )}
+      {...props}
+    >
+      {children}
+    </DialogPrimitive.Content>
+  </DialogPortal>
+));
+DialogContent.displayName = DialogPrimitive.Content.displayName;
+
+const DialogHeader = ({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) => (
+  <div
+    className={cn(
+      'flex flex-col space-y-1.5 text-center sm:text-left',
+      className
+    )}
+    {...props}
+  />
+);
+DialogHeader.displayName = 'DialogHeader';
+
+const DialogFooter = ({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) => (
+  <div
+    className={cn(
+      'flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2',
+      className
+    )}
+    {...props}
+  />
+);
+DialogFooter.displayName = 'DialogFooter';
+
+const DialogTitle = forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Title>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Title
+    ref={ref}
+    className={cn(
+      'text-lg font-semibold leading-none tracking-tight text-gray-200',
+      className
+    )}
+    {...props}
+  />
+));
+DialogTitle.displayName = DialogPrimitive.Title.displayName;
+
+const DialogDescription = forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Description>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Description>
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Description
+    ref={ref}
+    className={cn('text-sm text-gray-400', className)}
+    {...props}
+  />
+));
+DialogDescription.displayName = DialogPrimitive.Description.displayName;
+
+export {
+  Dialog,
+  DialogPortal,
+  DialogOverlay,
+  DialogClose,
+  DialogTrigger,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+};

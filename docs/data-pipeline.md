@@ -1,12 +1,12 @@
 # Step 10 – Data Pipeline Integration
 
 This document captures the design for ingesting real telemetry and maintenance
-events into MedAsset Pro. It complements the shared packages introduced in
+events into BioTrakr. It complements the shared packages introduced in
 Step 7/9 and prepares the platform for Timescale/IoT wiring.
 
 ## Ingestion Contracts
 
-- **TelemetryIngestPayload** (`@medasset/types`) – canonical JSON payload for
+- **TelemetryIngestPayload** (`@biotrakr/types`) – canonical JSON payload for
   device events (`deviceId`, coordinates, status, recordedAt, metadata).
 - **TelemetryIngestEvent** – stored record that tracks raw payloads,
   processing status, and source device identifiers.
@@ -41,7 +41,7 @@ Step 7/9 and prepares the platform for Timescale/IoT wiring.
 
 ## Configuration
 
-`@medasset/config` now exposes `loadPipelineConfig`, validating:
+`@biotrakr/config` now exposes `loadPipelineConfig`, validating:
 
 - `TIMESCALE_URL` – optional connection string for Timescale/PG.
 - `TELEMETRY_QUEUE_URL` – optional queue/broker for live device messages.

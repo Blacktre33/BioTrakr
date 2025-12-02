@@ -1,4 +1,4 @@
-# @medasset/config
+# @biotrakr/config
 
 Runtime-safe configuration loaders that validate environment variables using
 `zod`. Each loader memoises the parsed values so API requests and background
@@ -13,7 +13,7 @@ jobs do not repeatedly parse environment state.
   falling back to hard-coded URLs.
 
 ```ts
-import { loadApiConfig } from "@medasset/config";
+import { loadApiConfig } from "@biotrakr/config";
 
 const config = loadApiConfig();
 console.log(config.port);
@@ -22,6 +22,6 @@ console.log(config.port);
 ## Development
 
 ```bash
-pnpm --filter @medasset/config build
+pnpm --filter @biotrakr/config build
 ```
 

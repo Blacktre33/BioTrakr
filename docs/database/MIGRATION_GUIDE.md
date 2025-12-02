@@ -30,7 +30,7 @@ This guide walks you through migrating from the current basic BioTrakr schema to
 
 ```bash
 # Create backup of current database
-docker exec medasset-postgres pg_dump -U postgres -Fc medasset_dev > \
+docker exec biotrakr-postgres pg_dump -U postgres -Fc biotrakr_dev > \
   backup_pre_migration_$(date +%Y%m%d_%H%M%S).dump
 
 # Verify backup
@@ -82,7 +82,7 @@ pnpm prisma migrate dev --name comprehensive_schema_v2
 ```
 Environment variables loaded from .env
 Prisma schema loaded from prisma/schema.prisma
-Datasource "db": PostgreSQL database "medasset_dev"
+Datasource "db": PostgreSQL database "biotrakr_dev"
 
 Applying migration `20241108_comprehensive_schema_v2`
 
@@ -104,7 +104,7 @@ Your database is now in sync with your schema.
 pnpm prisma db execute --file prisma/migrations/timescaledb-setup.sql
 
 # OR run directly with psql
-docker exec -i medasset-postgres psql -U postgres -d medasset_dev < \
+docker exec -i biotrakr-postgres psql -U postgres -d biotrakr_dev < \
   prisma/migrations/timescaledb-setup.sql
 ```
 
@@ -130,7 +130,7 @@ docker exec -i medasset-postgres psql -U postgres -d medasset_dev < \
 pnpm prisma studio
 
 # Or use psql
-docker exec -it medasset-postgres psql -U postgres -d medasset_dev
+docker exec -it biotrakr-postgres psql -U postgres -d biotrakr_dev
 
 # Run verification queries
 SELECT COUNT(*) FROM assets;
@@ -340,7 +340,7 @@ If you need to rollback the migration:
 pnpm turbo stop
 
 # Restore from backup
-docker exec -i medasset-postgres pg_restore -U postgres -d medasset_dev -c \
+docker exec -i biotrakr-postgres pg_restore -U postgres -d biotrakr_dev -c \
   < backup_pre_migration_YYYYMMDD_HHMMSS.dump
 
 # Restore old schema

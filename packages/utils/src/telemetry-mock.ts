@@ -7,7 +7,7 @@ import type {
   TelemetryIngestEvent,
   TelemetryIngestPayload,
   Uuid,
-} from "@medasset/types";
+} from "@biotrakr/types";
 
 interface TelemetrySeed {
   assetKey: string;

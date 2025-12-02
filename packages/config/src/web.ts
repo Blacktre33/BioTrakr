@@ -9,7 +9,7 @@ const WebConfigSchema = z
   .object({
     NEXT_PUBLIC_API_URL: z
       .string()
-      .url("NEXT_PUBLIC_API_URL must point at the MedAsset Pro API gateway."),
+      .url("NEXT_PUBLIC_API_URL must point at the BioTrakr API gateway."),
     NEXT_PUBLIC_APP_URL: z
       .string()
       .url("NEXT_PUBLIC_APP_URL should describe the deployed Next.js origin.")

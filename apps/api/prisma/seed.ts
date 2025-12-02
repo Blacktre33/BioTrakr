@@ -1,18 +1,19 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, AssetStatus, DeviceCategory, CriticalityLevel, RiskClassification, WorkOrderType, WorkOrderStatus, TrackingMethod } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('🌱 Seeding database...');
+  console.log('🌱 Seeding database with V2 Schema...');
 
+  // 1. Create Organization
   const organization = await prisma.organization.upsert({
     where: { id: 'org-demo-001' },
     update: {},
     create: {
       id: 'org-demo-001',
-      name: 'Demo Hospital',
-      type: 'hospital',
+      name: 'Demo Hospital System',
+      type: 'hospital_network',
       settings: {
         timezone: 'America/New_York',
         currency: 'USD',
@@ -21,230 +22,195 @@ async function main() {
   });
   console.log('✅ Organization created:', organization.name);
 
+  // 2. Create Facility
   const facility = await prisma.facility.upsert({
-    where: { id: 'fac-demo-001' },
+    where: { facilityCode: 'MAIN_CAMPUS' },
     update: {},
     create: {
       id: 'fac-demo-001',
       organizationId: organization.id,
-      name: 'Main Campus',
-      address: {
-        street: '123 Medical Center Drive',
-        city: 'Boston',
-        state: 'MA',
-        zip: '02115',
-        country: 'USA',
-      },
+      facilityName: 'Main Medical Center',
+      facilityCode: 'MAIN_CAMPUS',
+      facilityType: 'General Hospital',
+      addressLine1: '123 Medical Center Drive',
+      city: 'Boston',
+      stateProvince: 'MA',
+      postalCode: '02115',
+      country: 'USA',
       timezone: 'America/New_York',
     },
   });
-  console.log('✅ Facility created:', facility.name);
+  console.log('✅ Facility created:', facility.facilityName);
 
-  const departments = await Promise.all([
-    prisma.department.upsert({
-      where: { id: 'dept-demo-001' },
-      update: {},
-      create: {
-        id: 'dept-demo-001',
-        facilityId: facility.id,
-        name: 'Emergency Department',
-        code: 'ED',
-        floor: 1,
+  // 3. Create Buildings & Floors
+  const building = await prisma.building.create({
+    data: {
+      facilityId: facility.id,
+      buildingCode: 'MAIN',
+      buildingName: 'Main Tower',
+      floors: {
+        create: [
+          { floorNumber: 1, floorName: 'Ground Floor' },
+          { floorNumber: 3, floorName: 'ICU Level' },
+          { floorNumber: 4, floorName: 'Med-Surg Level' },
+        ],
       },
-    }),
-    prisma.department.upsert({
-      where: { id: 'dept-demo-002' },
-      update: {},
-      create: {
-        id: 'dept-demo-002',
-        facilityId: facility.id,
-        name: 'Intensive Care Unit',
-        code: 'ICU',
-        floor: 3,
-      },
-    }),
-    prisma.department.upsert({
-      where: { id: 'dept-demo-003' },
-      update: {},
-      create: {
-        id: 'dept-demo-003',
-        facilityId: facility.id,
-        name: 'Medical-Surgical',
-        code: 'MEDSURG',
-        floor: 4,
-      },
-    }),
-  ]);
-  console.log('✅ Departments created:', departments.length);
+    },
+  });
+  
+  const floors = await prisma.floor.findMany({ where: { buildingId: building.id } });
+  const floorMap = Object.fromEntries(floors.map(f => [f.floorNumber, f.id]));
 
+  // 4. Create Departments
+  const deptED = await prisma.department.create({
+    data: {
+      facilityId: facility.id,
+      departmentName: 'Emergency Department',
+      departmentCode: 'ED',
+      costCenter: 'CC-101',
+    },
+  });
+
+  const deptICU = await prisma.department.create({
+    data: {
+      facilityId: facility.id,
+      departmentName: 'Intensive Care Unit',
+      departmentCode: 'ICU',
+      costCenter: 'CC-201',
+    },
+  });
+
+  const deptBiomed = await prisma.department.create({
+    data: {
+      facilityId: facility.id,
+      departmentName: 'Clinical Engineering',
+      departmentCode: 'BIOMED',
+      costCenter: 'CC-901',
+    },
+  });
+
+  // 5. Create Users
   const hashedPassword = await bcrypt.hash('Admin123!', 10);
+  
   const adminUser = await prisma.user.upsert({
     where: { email: 'admin@demo.hospital.com' },
     update: {},
     create: {
       organizationId: organization.id,
+      username: 'admin',
       email: 'admin@demo.hospital.com',
-      password: hashedPassword,
-      firstName: 'Admin',
-      lastName: 'User',
-      role: 'admin',
-      isActive: true,
+      passwordHash: hashedPassword,
+      firstName: 'System',
+      lastName: 'Admin',
+      role: 'ADMIN',
+      departmentId: deptBiomed.id,
     },
   });
-  console.log('✅ Admin user created:', adminUser.email);
 
-  const technicianUser = await prisma.user.upsert({
+  const techUser = await prisma.user.upsert({
     where: { email: 'tech@demo.hospital.com' },
     update: {},
     create: {
       organizationId: organization.id,
+      username: 'biomed_tech',
       email: 'tech@demo.hospital.com',
-      password: await bcrypt.hash('Tech123!', 10),
-      firstName: 'Biomed',
+      passwordHash: hashedPassword,
+      firstName: 'Alex',
       lastName: 'Technician',
-      role: 'technician',
-      isActive: true,
+      role: 'TECHNICIAN',
+      departmentId: deptBiomed.id,
     },
   });
-  console.log('✅ Technician user created:', technicianUser.email);
+  
+  console.log('✅ Users created');
 
-  const assets = await Promise.all([
-    prisma.asset.create({
-      data: {
-        organizationId: organization.id,
-        facilityId: facility.id,
-        departmentId: departments[0].id,
-        name: 'Infusion Pump - Alaris',
-        assetTag: 'IP-001',
-        serialNumber: 'ALR-12345',
-        category: 'infusion_pump',
-        manufacturer: 'BD',
-        model: 'Alaris 8015',
-        purchaseDate: new Date('2022-01-15'),
-        purchaseCost: 5000.0,
-        status: 'available',
-        condition: 'excellent',
-        currentLocation: {
-          building: 'Main',
-          floor: 1,
-          room: 'ED-101',
-        },
-        tags: ['critical', 'portable'],
-      },
-    }),
-    prisma.asset.create({
-      data: {
-        organizationId: organization.id,
-        facilityId: facility.id,
-        departmentId: departments[1].id,
-        name: 'Patient Monitor',
-        assetTag: 'PM-001',
-        serialNumber: 'PHL-67890',
-        category: 'monitor',
-        manufacturer: 'Philips',
-        model: 'IntelliVue MX800',
-        purchaseDate: new Date('2021-06-10'),
-        purchaseCost: 15000.0,
-        status: 'in_use',
-        condition: 'good',
-        currentLocation: {
-          building: 'Main',
-          floor: 3,
-          room: 'ICU-302',
-        },
-        tags: ['critical', 'stationary'],
-      },
-    }),
-    prisma.asset.create({
-      data: {
-        organizationId: organization.id,
-        facilityId: facility.id,
-        departmentId: departments[2].id,
-        name: 'Wheelchair',
-        assetTag: 'WC-001',
-        serialNumber: 'INV-11111',
-        category: 'wheelchair',
-        manufacturer: 'Invacare',
-        model: 'Tracer SX5',
-        purchaseDate: new Date('2023-03-20'),
-        purchaseCost: 500.0,
-        status: 'available',
-        condition: 'good',
-        currentLocation: {
-          building: 'Main',
-          floor: 4,
-          room: 'MS-Hallway',
-        },
-        tags: ['portable'],
-      },
-    }),
-  ]);
-  console.log('✅ Sample assets created:', assets.length);
-
-  const now = new Date();
-  const locationSeeds = assets.flatMap((asset, index) => {
-    const baseLat = 42.3467 + index * 0.001;
-    const baseLng = -71.0972 - index * 0.001;
-
-    return Array.from({ length: 6 }).map((_, offset) => ({
-      assetId: asset.id,
-      latitude: Number((baseLat + offset * 0.0002).toFixed(6)),
-      longitude: Number((baseLng + offset * 0.00015).toFixed(6)),
-      status: offset % 3 === 0 ? 'maintenance' : asset.status,
-      observedAt: new Date(now.getTime() - offset * 5 * 60 * 1000),
-      metadata: {
-        batteryLevel: 100 - offset * 3,
-        signalStrength: ['excellent', 'good', 'fair'][offset % 3],
-      },
-    }));
+  // 6. Create Assets
+  const asset1 = await prisma.asset.create({
+    data: {
+      organizationId: organization.id,
+      assetTagNumber: 'IP-001',
+      equipmentName: 'Infusion Pump - Alaris',
+      manufacturer: 'BD',
+      modelNumber: 'Alaris 8015',
+      serialNumber: 'ALR-12345',
+      deviceCategory: DeviceCategory.LIFE_SUPPORT,
+      assetStatus: AssetStatus.ACTIVE,
+      criticalityLevel: CriticalityLevel.CRITICAL,
+      riskClassification: RiskClassification.CLASS_II,
+      purchaseDate: new Date('2022-01-15'),
+      purchaseCost: 5000.00,
+      usefulLifeYears: 7,
+      currentFacilityId: facility.id,
+      currentBuildingId: building.id,
+      currentFloorId: floorMap[1],
+      primaryCustodianId: techUser.id,
+      custodianDepartmentId: deptBiomed.id,
+      createdById: adminUser.id,
+      updatedById: adminUser.id,
+      rfidTagId: 'RFID-001-ABC',
+    },
   });
 
-  await prisma.assetLocationPing.createMany({ data: locationSeeds });
-  console.log('✅ Location telemetry generated:', locationSeeds.length);
-
-  const maintenanceTasks = await prisma.maintenanceTask.createMany({
-    data: [
-      {
-        assetId: assets[0].id,
-        requestedById: adminUser.id,
-        assignedToId: technicianUser.id,
-        status: 'scheduled',
-        priority: 'high',
-        summary: 'Infusion pump preventive maintenance',
-        details: 'Run standard PM checklist and verify calibration.',
-        scheduledFor: new Date(now.getTime() + 24 * 60 * 60 * 1000),
-      },
-      {
-        assetId: assets[1].id,
-        requestedById: adminUser.id,
-        assignedToId: technicianUser.id,
-        status: 'in_progress',
-        priority: 'medium',
-        summary: 'Monitor alarm investigation',
-        details: 'Nurse reported intermittent high-pressure alarm during overnight shift.',
-        scheduledFor: new Date(now.getTime() - 2 * 60 * 60 * 1000),
-      },
-      {
-        assetId: assets[2].id,
-        requestedById: adminUser.id,
-        assignedToId: null,
-        status: 'completed',
-        priority: 'low',
-        summary: 'Wheelchair wheel replacement',
-        details: 'Front caster replaced and alignment verified.',
-        scheduledFor: new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000),
-        completedAt: new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000),
-      },
-    ],
+  const asset2 = await prisma.asset.create({
+    data: {
+      organizationId: organization.id,
+      assetTagNumber: 'PM-001',
+      equipmentName: 'Patient Monitor',
+      manufacturer: 'Philips',
+      modelNumber: 'IntelliVue MX800',
+      serialNumber: 'PHL-67890',
+      deviceCategory: DeviceCategory.PATIENT_MONITORING,
+      assetStatus: AssetStatus.IN_SERVICE,
+      criticalityLevel: CriticalityLevel.HIGH,
+      riskClassification: RiskClassification.CLASS_II,
+      purchaseDate: new Date('2021-06-10'),
+      purchaseCost: 15000.00,
+      usefulLifeYears: 10,
+      currentFacilityId: facility.id,
+      currentBuildingId: building.id,
+      currentFloorId: floorMap[3],
+      primaryCustodianId: techUser.id,
+      custodianDepartmentId: deptICU.id,
+      createdById: adminUser.id,
+      updatedById: adminUser.id,
+      bleBeaconMac: 'AA:BB:CC:11:22:33',
+    },
   });
-  console.log('✅ Maintenance tasks created:', maintenanceTasks.count);
+
+  console.log('✅ Assets created: 2');
+
+  // 7. Create Location History
+  await prisma.locationHistory.create({
+    data: {
+      assetId: asset1.id,
+      facilityId: facility.id,
+      buildingId: building.id,
+      floorId: floorMap[1],
+      trackingMethod: TrackingMethod.RFID,
+      timestamp: new Date(),
+      recordedByUserId: adminUser.id,
+    },
+  });
+
+  // 8. Create Maintenance History
+  await prisma.maintenanceHistory.create({
+    data: {
+      assetId: asset1.id,
+      workOrderType: WorkOrderType.PREVENTIVE_MAINTENANCE,
+      workOrderStatus: WorkOrderStatus.PENDING,
+      scheduledDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days from now
+      description: 'Annual PM Service',
+      assignedTechnicianId: techUser.id,
+      createdByUserId: adminUser.id,
+    },
+  });
 
   console.log('🎉 Seeding completed successfully!');
 }
 
 main()
-  .catch((error) => {
-    console.error('❌ Seeding failed:', error);
+  .catch((e) => {
+    console.error(e);
     process.exit(1);
   })
   .finally(async () => {

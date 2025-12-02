@@ -17,6 +17,7 @@ import {
   LogOut,
   HelpCircle,
   Activity,
+  TrendingUp,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useSidebarStore, useAlertStore } from '@/stores';
@@ -47,6 +48,12 @@ const navigationItems = [
     href: '/tracking',
     icon: MapPin,
     description: 'Real-time location',
+  },
+  {
+    name: 'Utilization',
+    href: '/utilization',
+    icon: TrendingUp,
+    description: 'Usage analytics',
   },
   {
     name: 'Compliance',
@@ -102,7 +109,7 @@ export function Sidebar() {
                 exit={{ opacity: 0, x: -10 }}
                 transition={{ duration: 0.2 }}
               >
-                <h1 className="text-lg font-bold text-white">MedAsset</h1>
+                <h1 className="text-lg font-bold text-white">BioTrakr</h1>
                 <p className="text-xs text-gray-500">Healthcare Management</p>
               </motion.div>
             )}
@@ -125,6 +132,15 @@ export function Sidebar() {
                 type="text"
                 placeholder="Search assets, orders..."
                 className="w-full pl-10 pr-4 py-2.5 bg-surface-200/50 border border-white/5 rounded-xl text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500/50"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    const query = (e.target as HTMLInputElement).value.trim();
+                    if (query) {
+                      // Navigate to assets page with search query
+                      window.location.href = `/assets?search=${encodeURIComponent(query)}`;
+                    }
+                  }
+                }}
               />
               <kbd className="absolute right-3 top-1/2 -translate-y-1/2 px-1.5 py-0.5 bg-surface-300 rounded text-[10px] text-gray-500 font-mono">
                 ⌘K

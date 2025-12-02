@@ -22,8 +22,8 @@ const SecurityConfigSchema = z
       .int()
       .min(10, "PASSWORD_SALT_ROUNDS should be at least 10 for bcrypt.")
       .default(12),
-    CSRF_COOKIE_NAME: z.string().default("medasset.csrf"),
-    CSRF_HEADER_NAME: z.string().default("x-medasset-csrf-token"),
+    CSRF_COOKIE_NAME: z.string().default("biotrakr.csrf"),
+    CSRF_HEADER_NAME: z.string().default("x-biotrakr-csrf-token"),
   })
   .transform((value) => {
     return {

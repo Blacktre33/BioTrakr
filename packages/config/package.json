@@ -1,7 +1,7 @@
 {
-  "name": "@medasset/config",
+  "name": "@biotrakr/config",
   "version": "0.1.0",
-  "description": "Environment configuration loaders and validation for MedAsset Pro.",
+  "description": "Environment configuration loaders and validation for BioTrakr.",
   "main": "dist/index.cjs",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",

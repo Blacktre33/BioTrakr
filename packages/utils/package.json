@@ -1,5 +1,5 @@
 {
-  "name": "@medasset/utils",
+  "name": "@biotrakr/utils",
   "version": "0.1.0",
   "description": "Shared utility helpers for security, logging, and future cross-service features.",
   "main": "dist/index.cjs",
@@ -10,11 +10,11 @@
     "build": "tsc -p tsconfig.json",
     "clean": "rm -rf dist",
     "lint": "eslint \"src/**/*.ts\"",
-    "test": "pnpm --filter @medasset/types build && pnpm --filter @medasset/config build && pnpm run build && node --test tests"
+    "test": "pnpm --filter @biotrakr/types build && pnpm --filter @biotrakr/config build && pnpm run build && node --test tests"
   },
   "dependencies": {
-    "@medasset/config": "workspace:*",
-    "@medasset/types": "workspace:*",
+    "@biotrakr/config": "workspace:*",
+    "@biotrakr/types": "workspace:*",
     "bcryptjs": "^2.4.3",
     "jsonwebtoken": "^9.0.2"
   },

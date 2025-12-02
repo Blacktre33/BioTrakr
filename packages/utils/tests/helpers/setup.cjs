@@ -3,11 +3,11 @@ const Module = require("node:module");
 const originalLoad = Module._load;
 
 Module._load = function patchedLoad(request, parent, isMain) {
-  if (request === "@medasset/config") {
+  if (request === "@biotrakr/config") {
     return require("../../../config/dist/index.js");
   }
 
-  if (request === "@medasset/types") {
+  if (request === "@biotrakr/types") {
     return require("../../../types/dist/index.js");
   }
 
