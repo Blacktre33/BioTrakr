@@ -5,5 +5,6 @@ export {
   DepartmentChart,
   MaintenanceChart,
   ChartContainer,
+  CustomTooltip,
 } from './charts';
 export { AlertsWidget, MaintenanceWidget, ActivityWidget } from './widgets';

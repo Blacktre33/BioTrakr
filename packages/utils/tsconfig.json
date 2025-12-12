@@ -5,7 +5,7 @@
     "declaration": true,
     "emitDeclarationOnly": false,
     "stripInternal": true,
-    "types": ["node"]
+    "skipLibCheck": true
   },
   "include": ["src"],
   "exclude": ["dist", "node_modules", "**/*.test.ts"]

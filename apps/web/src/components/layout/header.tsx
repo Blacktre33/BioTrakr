@@ -128,12 +128,19 @@ export function Header({ title, subtitle, actions }: HeaderProps) {
                 'relative p-2.5 rounded-xl transition-all duration-200',
                 showNotifications
                   ? 'bg-primary-500/20 text-primary-400'
-                  : 'text-gray-400 hover:bg-surface-200/50 hover:text-gray-200'
+                  : unreadAlerts.length > 0
+                    ? 'text-primary-400 hover:bg-surface-200/50'
+                    : 'text-gray-400 hover:bg-surface-200/50 hover:text-gray-200'
               )}
             >
-              <Bell className="w-5 h-5" />
+              <Bell 
+                className="w-5 h-5" 
+                fill={unreadAlerts.length > 0 ? 'currentColor' : 'none'}
+              />
               {unreadAlerts.length > 0 && (
-                <span className="absolute top-1 right-1 w-2 h-2 bg-critical-500 rounded-full" />
+                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 flex items-center justify-center bg-critical-500 text-white text-[10px] font-bold rounded-full">
+                  {unreadAlerts.length > 99 ? '99+' : unreadAlerts.length}
+                </span>
               )}
             </button>
 
