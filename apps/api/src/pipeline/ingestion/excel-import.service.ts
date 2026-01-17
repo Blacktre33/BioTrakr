@@ -101,7 +101,7 @@ export class ExcelImportService {
 
   /**
    * Get value from row with flexible column name matching
-   * Supports both 'Asset Tag*' and 'Asset Tag' formats
+   * Supports both 'Asset Tag*' and 'Asset Tag' formats, and common variations
    */
   private getRowValue(row: Record<string, any>, columnName: string): any {
     // Try exact match first
@@ -117,7 +117,43 @@ export class ExcelImportService {
     if (row[nameWithoutAsterisk] !== undefined) {
       return row[nameWithoutAsterisk];
     }
+
+    // Handle common column name variations
+    const variations: Record<string, string[]> = {
+      'Acquisition Date': ['PO or Acquisition Date', 'Purchase Date', 'Acquired Date'],
+      'Asset Category': ['Category', 'Equipment Category'],
+      'Asset Type': ['Type', 'Equipment Type'],
+      'Facility Code': ['Facility', 'Site Code', 'Site'],
+      'Department Code': ['Department', 'Dept Code', 'Dept'],
+    };
+
+    const baseColumnName = nameWithoutAsterisk.trim();
+    if (variations[baseColumnName]) {
+      for (const variant of variations[baseColumnName]) {
+        if (row[variant] !== undefined) return row[variant];
+        if (row[`${variant}*`] !== undefined) return row[`${variant}*`];
+      }
+    }
+
     return null;
+  }
+
+  /**
+   * Generate an asset tag from serial number or other identifier
+   */
+  private generateAssetTag(row: Record<string, any>, rowIndex: number): string {
+    const serialNumber = this.getRowValue(row, 'Serial Number');
+    const barcode = this.getRowValue(row, 'Barcode');
+
+    if (serialNumber) {
+      return `AUTO-SN-${String(serialNumber).trim()}`;
+    }
+    if (barcode) {
+      return `AUTO-BC-${String(barcode).trim()}`;
+    }
+    // Fallback to row-based ID
+    const timestamp = Date.now().toString(36).toUpperCase();
+    return `AUTO-${timestamp}-${rowIndex.toString().padStart(4, '0')}`;
   }
 
   /**
@@ -154,14 +190,24 @@ export class ExcelImportService {
       });
 
       // Filter out empty rows and sample data
+      // Accept rows that have Asset Tag OR Serial Number (we can auto-generate Asset Tag from Serial)
       const dataRows = rows.filter((row, index) => {
         const assetTag = this.getRowValue(row, 'Asset Tag');
-        // Skip empty rows and sample data (example from template)
+        const serialNumber = this.getRowValue(row, 'Serial Number');
+        const manufacturer = this.getRowValue(row, 'Manufacturer');
+
+        // Skip sample data rows from template
         const sampleAssetTags = ['BT-2025-001', 'ASSET-001'];
-        if (!assetTag || sampleAssetTags.includes(String(assetTag).trim())) {
+        if (assetTag && sampleAssetTags.includes(String(assetTag).trim())) {
           return false;
         }
-        return true;
+
+        // Accept row if it has Asset Tag, Serial Number, or at minimum a Manufacturer
+        // (rows with just manufacturer will get auto-generated Asset Tags)
+        const hasIdentifier = assetTag || serialNumber;
+        const hasRequiredData = manufacturer;
+
+        return hasIdentifier || hasRequiredData;
       });
 
       result.totalRows = dataRows.length;
@@ -203,7 +249,7 @@ export class ExcelImportService {
           }
 
           // Import the asset
-          await this.importAsset(row as AssetRow, userId);
+          await this.importAsset(row as AssetRow, userId, i);
           result.imported++;
         } catch (error) {
           result.errors.push({
@@ -244,6 +290,7 @@ export class ExcelImportService {
 
     // Use flexible column matching for all fields
     const assetTag = this.getRowValue(row, 'Asset Tag');
+    const serialNumber = this.getRowValue(row, 'Serial Number');
     const manufacturer = this.getRowValue(row, 'Manufacturer');
     const modelNumber = this.getRowValue(row, 'Model Number');
     const facilityCode = this.getRowValue(row, 'Facility Code');
@@ -252,12 +299,12 @@ export class ExcelImportService {
     const acquisitionDate = this.getRowValue(row, 'Acquisition Date');
     const purchasePrice = this.getRowValue(row, 'Purchase Price');
 
-    // Required fields
-    if (!assetTag) {
+    // Asset Tag is optional if Serial Number is present (we'll auto-generate)
+    if (!assetTag && !serialNumber) {
       errors.push({
         row: rowNum,
         field: 'Asset Tag',
-        message: 'Asset Tag is required',
+        message: 'Either Asset Tag or Serial Number is required',
       });
     }
 
@@ -269,47 +316,17 @@ export class ExcelImportService {
       });
     }
 
-    if (!modelNumber) {
-      errors.push({
-        row: rowNum,
-        field: 'Model Number',
-        message: 'Model Number is required',
-      });
-    }
+    // Model Number is optional - we'll use a placeholder if missing
+    // if (!modelNumber) { ... }
 
-    if (!facilityCode) {
-      errors.push({
-        row: rowNum,
-        field: 'Facility Code',
-        message: 'Facility Code is required',
-      });
-    }
+    // Facility Code is optional - we'll use a default if missing
+    // if (!facilityCode) { ... }
 
-    // Status validation
-    if (status) {
-      const statusUpper = String(status).toUpperCase().replace(' ', '_');
-      if (!this.validStatuses.includes(statusUpper)) {
-        errors.push({
-          row: rowNum,
-          field: 'Status',
-          message: `Invalid status: ${status}`,
-          value: status,
-        });
-      }
-    }
+    // Status validation is now lenient - mapStatus handles conversion
+    // We accept most status values and map them to valid ones
 
-    // Condition validation
-    if (condition) {
-      const conditionUpper = String(condition).toUpperCase();
-      if (!this.validConditions.includes(conditionUpper)) {
-        errors.push({
-          row: rowNum,
-          field: 'Condition',
-          message: `Invalid condition: ${condition}`,
-          value: condition,
-        });
-      }
-    }
+    // Condition validation is now lenient - mapCondition handles conversion
+    // We accept most condition values and map them to valid ones
 
     // Date validations
     if (acquisitionDate) {
@@ -342,13 +359,13 @@ export class ExcelImportService {
   /**
    * Import a single asset row into the database
    */
-  private async importAsset(row: AssetRow, userId?: string): Promise<void> {
+  private async importAsset(row: AssetRow, userId?: string, rowIndex?: number): Promise<void> {
     // Extract values using flexible column matching
-    const assetTag = this.getRowValue(row, 'Asset Tag');
+    let assetTag = this.getRowValue(row, 'Asset Tag');
     const serialNumber = this.getRowValue(row, 'Serial Number');
-    const manufacturerName = this.getRowValue(row, 'Manufacturer');
-    const modelNumber = this.getRowValue(row, 'Model Number');
-    const facilityCode = this.getRowValue(row, 'Facility Code');
+    const manufacturerName = this.getRowValue(row, 'Manufacturer') || 'Unknown';
+    const modelNumber = this.getRowValue(row, 'Model Number') || 'Unknown';
+    const facilityCode = this.getRowValue(row, 'Facility Code') || 'DEFAULT';
     const departmentCode = this.getRowValue(row, 'Department Code');
     const status = this.getRowValue(row, 'Status');
     const condition = this.getRowValue(row, 'Condition');
@@ -361,6 +378,12 @@ export class ExcelImportService {
     const bleBeaconId = this.getRowValue(row, 'BLE Beacon ID');
     const notes = this.getRowValue(row, 'Notes');
 
+    // Auto-generate Asset Tag if missing but Serial Number is present
+    if (!assetTag) {
+      assetTag = this.generateAssetTag(row, rowIndex || 0);
+      this.logger.log(`Auto-generated Asset Tag: ${assetTag} for Serial Number: ${serialNumber}`);
+    }
+
     // Resolve or create related entities
     const facility = await this.getOrCreateFacility(facilityCode);
     const department = departmentCode
@@ -370,6 +393,9 @@ export class ExcelImportService {
 
     const assetStatus = this.mapStatus(status || 'AVAILABLE') as AssetStatus;
     const assetCondition = this.mapCondition(condition || 'good');
+
+    // Parse purchase cost - handle formats like "1.25 Lakh", "10 lakh", etc.
+    const parsedCost = this.parsePurchasePrice(purchasePrice);
 
     // Create asset using Prisma
     await this.prisma.asset.upsert({
@@ -391,7 +417,7 @@ export class ExcelImportService {
         purchaseDate: this.parseDate(acquisitionDate) || new Date(),
         installationDate: this.parseDate(installationDate),
         warrantyEndDate: this.parseDate(warrantyExpiry),
-        purchaseCost: purchasePrice ? parseFloat(String(purchasePrice)) : 0,
+        purchaseCost: parsedCost,
         udiDeviceIdentifier: udi || null,
         rfidTagId: rtlsTagId || null,
         bleBeaconMac: bleBeaconId || null,
@@ -411,6 +437,33 @@ export class ExcelImportService {
         updatedById: userId || uuidv4(),
       },
     });
+  }
+
+  /**
+   * Parse purchase price from various formats (e.g., "1.25 Lakh", "10 lakh", "125000")
+   */
+  private parsePurchasePrice(value: any): number {
+    if (!value) return 0;
+
+    const str = String(value).toLowerCase().trim();
+
+    // Handle "lakh" format (1 lakh = 100,000)
+    const lakhMatch = str.match(/^([\d.]+)\s*lakh?s?$/i);
+    if (lakhMatch) {
+      return parseFloat(lakhMatch[1]) * 100000;
+    }
+
+    // Handle "crore" format (1 crore = 10,000,000)
+    const croreMatch = str.match(/^([\d.]+)\s*crore?s?$/i);
+    if (croreMatch) {
+      return parseFloat(croreMatch[1]) * 10000000;
+    }
+
+    // Remove currency symbols and commas
+    const cleaned = str.replace(/[₹$,\s]/g, '');
+    const parsed = parseFloat(cleaned);
+
+    return isNaN(parsed) ? 0 : parsed;
   }
 
   // ============================================================================
@@ -467,26 +520,47 @@ export class ExcelImportService {
   }
 
   private mapStatus(status: string): string {
+    if (!status) return 'AVAILABLE';
+
+    // Normalize: lowercase and replace spaces/underscores
+    const normalized = status.toLowerCase().replace(/[\s_-]+/g, '_').trim();
+
     const statusMap: Record<string, string> = {
       available: 'AVAILABLE',
-      'in_use': 'IN_USE',
+      in_use: 'IN_USE',
+      inuse: 'IN_USE',
       maintenance: 'MAINTENANCE',
       repair: 'REPAIR',
+      under_repair: 'REPAIR',
       decommissioned: 'DECOMMISSIONED',
       quarantine: 'QUARANTINE',
+      retired: 'DECOMMISSIONED',
+      active: 'IN_USE',
     };
-    return statusMap[status.toLowerCase()] || 'AVAILABLE';
+    return statusMap[normalized] || 'AVAILABLE';
   }
 
   private mapCondition(condition: string): string {
+    if (!condition) return 'GOOD';
+
+    // Normalize: lowercase and trim
+    const normalized = condition.toLowerCase().trim();
+
     const conditionMap: Record<string, string> = {
       excellent: 'EXCELLENT',
       good: 'GOOD',
       fair: 'FAIR',
       poor: 'POOR',
       critical: 'CRITICAL',
+      unknown: 'UNKNOWN',
+      new: 'EXCELLENT',
+      'like new': 'EXCELLENT',
+      'very good': 'EXCELLENT',
+      ok: 'FAIR',
+      okay: 'FAIR',
+      bad: 'POOR',
     };
-    return conditionMap[condition.toLowerCase()] || 'GOOD';
+    return conditionMap[normalized] || 'GOOD';
   }
 
   private isValidDate(value: any): boolean {
