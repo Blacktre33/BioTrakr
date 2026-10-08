@@ -29,6 +29,26 @@ interface AssetTableProps {
   onDelete?: (asset: Asset) => void;
 }
 
+function NotMeasured() {
+  return (
+    <span className="text-sm text-gray-500" title="No readings for this device yet">
+      —
+    </span>
+  );
+}
+
+/** Next PM date, flagged when it has already passed. */
+function NextPm({ date }: { date: string }) {
+  if (!date) return <p className="text-xs text-gray-400">Next: Not scheduled</p>;
+  const overdue = new Date(date).getTime() < Date.now();
+  return (
+    <p className={cn('text-xs', overdue ? 'text-critical-500 font-semibold' : 'text-gray-400')}>
+      {overdue ? 'PM overdue since ' : 'Next: '}
+      {formatDate(date, 'MMM d, yyyy')}
+    </p>
+  );
+}
+
 export function AssetTable({ assets, onAssetSelect, onEdit, onDelete }: AssetTableProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortField, setSortField] = useState<keyof Asset>('name');
@@ -47,7 +67,9 @@ export function AssetTable({ assets, onAssetSelect, onEdit, onDelete }: AssetTab
         (asset) =>
           asset.name.toLowerCase().includes(query) ||
           asset.serialNumber.toLowerCase().includes(query) ||
-          asset.manufacturer.toLowerCase().includes(query)
+          asset.manufacturer.toLowerCase().includes(query) ||
+          // Staff usually search by the tag printed on the device.
+          asset.tags.some((tag) => tag.toLowerCase().includes(query))
       );
     }
 
@@ -67,6 +89,11 @@ export function AssetTable({ assets, onAssetSelect, onEdit, onDelete }: AssetTab
       const aVal = a[sortField];
       const bVal = b[sortField];
       const modifier = sortDirection === 'asc' ? 1 : -1;
+
+      // Values not measured yet sort last in either direction.
+      const aMissing = aVal === null || aVal === '';
+      const bMissing = bVal === null || bVal === '';
+      if (aMissing || bMissing) return aMissing === bMissing ? 0 : aMissing ? 1 : -1;
 
       if (typeof aVal === 'string' && typeof bVal === 'string') {
         return aVal.localeCompare(bVal) * modifier;
@@ -305,32 +332,42 @@ export function AssetTable({ assets, onAssetSelect, onEdit, onDelete }: AssetTab
                   </div>
                 </td>
                 <td className="px-4 py-4">
-                  <div className="w-24">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className={cn(
-                        'text-sm font-semibold',
-                        asset.healthScore >= 90 ? 'text-success-500' :
-                        asset.healthScore >= 70 ? 'text-accent-400' :
-                        asset.healthScore >= 50 ? 'text-warning-500' : 'text-critical-500'
-                      )}>{asset.healthScore}%</span>
+                  {asset.healthScore === null ? (
+                    <NotMeasured />
+                  ) : (
+                    <div className="w-24">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className={cn(
+                          'text-sm font-semibold',
+                          asset.healthScore >= 90 ? 'text-success-500' :
+                          asset.healthScore >= 70 ? 'text-accent-400' :
+                          asset.healthScore >= 50 ? 'text-warning-500' : 'text-critical-500'
+                        )}>{asset.healthScore}%</span>
+                      </div>
+                      <ProgressBar value={asset.healthScore} size="sm" colorByValue />
                     </div>
-                    <ProgressBar value={asset.healthScore} size="sm" colorByValue />
-                  </div>
+                  )}
                 </td>
                 <td className="px-4 py-4">
-                  <div className="w-24">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm font-semibold text-gray-300">{asset.utilizationRate}%</span>
+                  {asset.utilizationRate === null ? (
+                    <NotMeasured />
+                  ) : (
+                    <div className="w-24">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-sm font-semibold text-gray-300">{asset.utilizationRate}%</span>
+                      </div>
+                      <ProgressBar value={asset.utilizationRate} size="sm" />
                     </div>
-                    <ProgressBar value={asset.utilizationRate} size="sm" />
-                  </div>
+                  )}
                 </td>
                 <td className="px-4 py-4">
                   <div className="flex items-center gap-2">
                     <Calendar className="w-3.5 h-3.5 text-gray-500" />
                     <div>
-                      <p className="text-xs text-gray-400">Next: {formatDate(asset.nextMaintenance, 'MMM d')}</p>
-                      <p className="text-xs text-gray-500">Last: {formatDate(asset.lastMaintenance, 'MMM d')}</p>
+                      <NextPm date={asset.nextMaintenance} />
+                      <p className="text-xs text-gray-500">
+                        Last: {asset.lastMaintenance ? formatDate(asset.lastMaintenance, 'MMM d, yyyy') : 'None recorded'}
+                      </p>
                     </div>
                   </div>
                 </td>

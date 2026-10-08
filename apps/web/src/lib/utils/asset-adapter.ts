@@ -5,31 +5,40 @@ import type { Asset as UiAsset, AssetStatus, AssetCategory, RiskLevel } from '@/
  * Map API asset status to UI asset status
  */
 function mapAssetStatus(apiStatus: string): AssetStatus {
+  // Keys are the database AssetStatus values. Quarantined and condemned
+  // devices must stand out as unsafe, never blend in as merely "offline".
   const statusMap: Record<string, AssetStatus> = {
-    'ACTIVE': 'operational',
-    'IN_SERVICE': 'operational',
-    'MAINTENANCE': 'maintenance',
-    'OUT_OF_SERVICE': 'offline',
-    'DECOMMISSIONED': 'decommissioned',
-    'RETIRED': 'decommissioned',
-    'CRITICAL': 'critical',
+    ACTIVE: 'operational',
+    IN_SERVICE: 'operational',
+    IN_MAINTENANCE: 'maintenance',
+    QUARANTINED: 'critical',
+    CONDEMNED: 'critical',
+    RETIRED: 'decommissioned',
+    DISPOSED: 'decommissioned',
   };
-  return statusMap[apiStatus] || 'offline';
+  return statusMap[apiStatus] ?? 'offline';
 }
 
 /**
  * Map API device category to UI asset category
  */
 function mapDeviceCategory(apiCategory: string): AssetCategory {
+  // Keys are the database DeviceCategory values.
   const categoryMap: Record<string, AssetCategory> = {
-    'DIAGNOSTIC_IMAGING': 'diagnostic',
-    'LABORATORY': 'laboratory',
-    'MONITORING': 'monitoring',
-    'SURGICAL': 'surgical',
-    'THERAPEUTIC': 'therapeutic',
-    'SUPPORT': 'support',
+    IMAGING: 'diagnostic',
+    DIAGNOSTIC: 'diagnostic',
+    LABORATORY: 'laboratory',
+    PATIENT_MONITORING: 'monitoring',
+    SURGICAL: 'surgical',
+    ANESTHESIA: 'surgical',
+    THERAPEUTIC: 'therapeutic',
+    LIFE_SUPPORT: 'therapeutic',
+    STERILIZATION: 'support',
+    SUPPORT_EQUIPMENT: 'support',
+    IT_MEDICAL: 'support',
+    OTHER: 'support',
   };
-  return categoryMap[apiCategory] || 'support';
+  return categoryMap[apiCategory] ?? 'support';
 }
 
 /**
@@ -42,7 +51,7 @@ function mapRiskLevel(apiCriticality: string): RiskLevel {
     'HIGH': 'high',
     'CRITICAL': 'critical',
   };
-  return riskMap[apiCriticality] || 'medium';
+  return riskMap[apiCriticality] ?? 'medium';
 }
 
 /**
@@ -67,11 +76,12 @@ export function adaptApiAssetToUi(apiAsset: ApiAsset): UiAsset {
       zone: '', // Not available in API response
     },
     purchaseDate: apiAsset.purchaseDate,
-    warrantyExpiry: '', // Not available in API response
-    lastMaintenance: '', // Not available in API response
-    nextMaintenance: '', // Not available in API response
-    utilizationRate: 0, // Would need to fetch from utilization API
-    healthScore: 85, // Default value, would need to calculate from maintenance data
+    warrantyExpiry: apiAsset.warrantyEndDate ?? '',
+    lastMaintenance: apiAsset.lastPmDate ?? '',
+    nextMaintenance: apiAsset.nextPmDueDate ?? '',
+    // Not computed yet: shown as "—" rather than a made-up number.
+    utilizationRate: null,
+    healthScore: null,
     tags: [apiAsset.assetTagNumber],
     assignedDepartment: '', // Not directly available, would need to join with department
     createdAt: apiAsset.createdAt,

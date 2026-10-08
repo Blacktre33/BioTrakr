@@ -9,6 +9,7 @@ import { RolesGuard } from './auth/roles.guard';
 import { THROTTLERS } from './auth/throttling';
 import { IngestionModule } from './pipeline/ingestion.module';
 import { PrismaModule } from './database/prisma.module';
+import { ReferenceModule } from './reference/reference.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
@@ -20,6 +21,7 @@ import { AppService } from './app.service';
     AuthModule,
     IngestionModule,
     AssetsModule,
+    ReferenceModule,
   ],
   controllers: [AppController],
   providers: [

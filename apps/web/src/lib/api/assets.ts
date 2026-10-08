@@ -124,6 +124,9 @@ export interface Asset {
   createdAt: string;
   updatedAt: string;
   deletedAt?: string | null;
+  lastPmDate?: string | null;
+  nextPmDueDate?: string | null;
+  warrantyEndDate?: string | null;
   currentFacility?: {
     id: string;
     facilityName: string;
