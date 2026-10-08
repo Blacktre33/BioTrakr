@@ -361,6 +361,7 @@ model User {
   transfersReceived         TransferHistory[] @relation("TransferReceived")
   trainingRecords           TrainingRecord[]
   mediaUploaded             MediaAttachment[]
+  assetScans                AssetScanLog[] @relation("AssetScanLogUser")
 
   @@index([organizationId])
   @@index([email])
@@ -1201,11 +1202,15 @@ model AssetScanLog {
   qrPayload               String
   notes                   String?
   locationHint            String?
+  /// Who scanned it. Null for scans recorded before this was tracked.
+  scannedById             String?
   createdAt               DateTime        @default(now())
 
   asset                   Asset           @relation(fields: [assetId], references: [id], onDelete: Restrict) // history outlives the asset; assets are soft-deleted
+  scannedBy               User?           @relation("AssetScanLogUser", fields: [scannedById], references: [id], onDelete: SetNull)
 
   @@index([assetId, createdAt])
+  @@index([scannedById, createdAt])
   @@map("asset_scan_logs")
 }
 

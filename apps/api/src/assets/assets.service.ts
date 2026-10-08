@@ -214,6 +214,7 @@ export class AssetsService {
       qrPayload: payload.qrPayload,
       notes: payload.notes ?? null,
       locationHint: payload.locationHint ?? null,
+      scannedBy: { connect: { id: user.userId } },
     };
 
     return this.prisma.assetScanLog.create({ data });

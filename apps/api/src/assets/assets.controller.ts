@@ -25,6 +25,7 @@ import {
 import type { AuthUser } from '../auth/auth-user';
 import { CurrentUser, Roles } from '../auth/decorators';
 import { ASSET_EDITOR_ROLES, SCAN_ROLES, STAFF_ROLES } from '../auth/roles';
+import { AssetLookupService } from './asset-lookup.service';
 import { AssetsService, MAX_PAGE_SIZE } from './assets.service';
 import { CreateAssetScanDto } from './dto/create-asset-scan.dto';
 import { AssetScanLogDto } from './dto/asset-scan-log.dto';
@@ -35,7 +36,10 @@ import { CreateAssetDto, UpdateAssetDto } from './dto/create-asset.dto';
 @Roles(...STAFF_ROLES)
 @Controller('assets')
 export class AssetsController {
-  constructor(private readonly assetsService: AssetsService) {}
+  constructor(
+    private readonly assetsService: AssetsService,
+    private readonly lookupService: AssetLookupService,
+  ) {}
 
   @Post()
   @HttpCode(201)
@@ -72,6 +76,18 @@ export class AssetsController {
       skip: Math.max(0, skip),
       take: Math.min(Math.max(1, take), MAX_PAGE_SIZE),
     });
+  }
+
+  // Declared before ':id' so "lookup" is not taken for an asset id.
+  @Get('lookup')
+  @ApiOperation({
+    summary:
+      'Find the device behind a scanned or typed code (tag number, asset id, QR payload or scan link), with safety alerts',
+  })
+  @ApiQuery({ name: 'code', required: true, type: String })
+  @ApiOkResponse({ description: 'Device summary for the bedside' })
+  async lookup(@Query('code') code: string, @CurrentUser() user: AuthUser) {
+    return this.lookupService.lookup(code, user);
   }
 
   @Get(':id')

@@ -238,3 +238,46 @@ export async function deleteAsset(assetId: string): Promise<Asset> {
   return data;
 }
 
+
+/** A device as staff need to see it at the bedside, from GET /assets/lookup. */
+export interface AssetLookup {
+  id: string;
+  assetTagNumber: string;
+  equipmentName: string;
+  manufacturer: string;
+  modelNumber: string;
+  serialNumber: string;
+  deviceCategory: string;
+  criticalityLevel: string;
+  riskClassification: string;
+  assetStatus: string;
+  recallStatus: string;
+  lastSeenTimestamp: string | null;
+  /** False when any alert says not to use the device. */
+  safeToUse: boolean;
+  alerts: Array<{ level: "stop" | "caution"; message: string }>;
+  location: { facility: string | null; room: string | null };
+  department: string | null;
+  pm: { lastPmDate: string | null; nextPmDueDate: string | null; overdue: boolean };
+  recentMaintenance: Array<{
+    id: string;
+    workOrderType: string;
+    workOrderStatus: string;
+    scheduledDate: string;
+    completedAt: string | null;
+    description: string | null;
+  }>;
+  recentScans: Array<{
+    id: string;
+    createdAt: string;
+    notes: string | null;
+    locationHint: string | null;
+    scannedBy: string | null;
+  }>;
+}
+
+/** Finds the device behind a scanned or typed code (tag, id, QR payload or scan link). */
+export async function lookupAsset(code: string): Promise<AssetLookup> {
+  const { data } = await api.get<AssetLookup>("/assets/lookup", { params: { code } });
+  return data;
+}

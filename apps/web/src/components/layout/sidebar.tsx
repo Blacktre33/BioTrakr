@@ -18,6 +18,7 @@ import {
   HelpCircle,
   Activity,
   TrendingUp,
+  ScanLine,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useSidebarStore, useAlertStore } from '@/stores';
@@ -35,6 +36,12 @@ const navigationItems = [
     href: '/assets',
     icon: Box,
     description: 'Asset inventory',
+  },
+  {
+    name: 'Scan a device',
+    href: '/scan',
+    icon: ScanLine,
+    description: 'Is it safe to use?',
   },
   {
     name: 'Maintenance',

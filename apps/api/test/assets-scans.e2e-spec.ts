@@ -78,6 +78,12 @@ describe('Asset scan routes (e2e)', () => {
         expect(body.id).toBeDefined();
         expect(body.createdAt).toBeDefined();
       });
+    // The scan is attributed to the signed-in user, never to a body field.
+    expect(prismaMock.assetScanLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        scannedBy: { connect: { id: 'user-technician' } },
+      }),
+    });
 
     await request(app.getHttpServer())
       .get(`/api/assets/${assetId}/scans`)

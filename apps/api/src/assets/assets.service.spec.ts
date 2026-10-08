@@ -65,6 +65,7 @@ describe('AssetsService', () => {
           qrPayload: 'payload',
           notes: null,
           locationHint: null,
+          scannedBy: { connect: { id: 'user-1' } },
         },
       });
       expect(result).toBe(created);

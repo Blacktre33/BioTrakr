@@ -93,6 +93,18 @@ Data is always scoped to the caller's organization.
 > [`apps/api/prisma/README.md`](./apps/api/prisma/README.md) for the migration
 > workflow and drift check.
 
+### Scanning devices on the ward
+
+`/scan` is a phone-first page: scan a tag (camera, or a keyboard-style
+barcode scanner) or type its number, and it shows straight away whether the
+device is safe to use (quarantined, with biomed, recalled, PM overdue), where
+it is, and when it was last seen. Ward staff can log a sighting in one tap.
+
+For the fastest path, print each label's QR code as a link:
+`https://<web host>/scan?code=<asset tag>`. Pointing a phone's own camera at
+the label then opens the device directly (after sign-in). Plain tag numbers,
+asset ids and `biotrakr://asset/<id>` payloads also work.
+
 ### Service Entry Points
 
 Run individual apps when iterating on specific surfaces:
