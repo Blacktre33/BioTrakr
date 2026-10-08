@@ -49,6 +49,19 @@ export class AssetsService {
       custodianId: baseDto.primaryCustodianId,
     });
 
+    // Tags are unique case-sensitively in the database, but staff type and
+    // scan them in any case: "vent-7" next to "VENT-7" would make a scan
+    // ambiguous. Same message as the unique-key conflict below.
+    const clash = await this.prisma.asset.findFirst({
+      where: {
+        assetTagNumber: { equals: baseDto.assetTagNumber, mode: 'insensitive' },
+      },
+      select: { id: true },
+    });
+    if (clash) {
+      throw new ConflictException('This asset tag number is already in use');
+    }
+
     // Build contract tracking data to store in notes (for fields not in schema)
     const contractTracking: Record<string, Record<string, unknown>> = {};
 

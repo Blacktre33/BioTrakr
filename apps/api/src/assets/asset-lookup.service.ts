@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -116,7 +117,10 @@ export class AssetLookupService {
   /** The device behind a scanned code, with what staff need at the bedside. */
   async lookup(rawCode: string | undefined, user: AuthUser) {
     const code = parseScanCode(rawCode);
-    const asset = await this.prisma.asset.findFirst({
+    // Up to two matches: tags are unique only case-sensitively in the
+    // database, so "icu-v1" and "ICU-V1" could both exist.
+    const matches = await this.prisma.asset.findMany({
+      take: 2,
       where: {
         organizationId: user.organizationId,
         deletedAt: null,
@@ -168,6 +172,17 @@ export class AssetLookupService {
       },
     });
 
+    const asset =
+      code.kind === 'tag'
+        ? (matches.find((m) => m.assetTagNumber === code.tag) ??
+          (matches.length === 1 ? matches[0] : undefined))
+        : matches[0];
+    if (!asset && code.kind === 'tag' && matches.length > 1) {
+      // Never pick one at random: the other might be the quarantined one.
+      throw new ConflictException(
+        `More than one device has a tag like "${code.tag}" (differing only in upper/lower case). Type the tag exactly as printed, and ask biomedical engineering to fix the duplicate.`,
+      );
+    }
     if (!asset) {
       throw new NotFoundException(
         code.kind === 'tag'

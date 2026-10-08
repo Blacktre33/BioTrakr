@@ -37,32 +37,39 @@ const device = {
 
 describe('Asset lookup by scan (e2e)', () => {
   let app: INestApplication;
-  const findFirst = jest.fn(
+  // A second device whose tag differs only in case: "Vent-8" vs "VENT-8".
+  const twins = [
+    {
+      ...device,
+      id: 'twin-1',
+      assetTagNumber: 'VENT-8',
+      assetStatus: 'ACTIVE',
+    },
+    { ...device, id: 'twin-2', assetTagNumber: 'Vent-8' },
+  ];
+  const findMany = jest.fn(
     async ({ where }: { where: Record<string, unknown> }) => {
       if (where.organizationId !== ORG_A || where.deletedAt !== null) {
-        return null;
+        return [];
       }
       const tag = where.assetTagNumber as
         | { equals: string; mode: string }
         | undefined;
-      if (where.id === ID) return device;
-      if (
-        tag?.mode === 'insensitive' &&
-        tag.equals.toUpperCase() === 'VENT-7'
-      ) {
-        return device;
-      }
-      return null;
+      if (where.id === ID) return [device];
+      if (tag?.mode !== 'insensitive') return [];
+      return [device, ...twins].filter(
+        (d) => d.assetTagNumber.toUpperCase() === tag.equals.toUpperCase(),
+      );
     },
   );
 
   beforeAll(async () => {
-    app = await createTestApp({ asset: { findFirst } });
+    app = await createTestApp({ asset: { findMany } });
   });
   afterAll(async () => {
     await app.close();
   });
-  beforeEach(() => findFirst.mockClear());
+  beforeEach(() => findMany.mockClear());
 
   const lookup = (
     code: string,
@@ -99,7 +106,7 @@ describe('Asset lookup by scan (e2e)', () => {
   it('finds a device from its QR payload or a scan link', async () => {
     await lookup(`biotrakr://asset/${ID}`).expect(200);
     await lookup(`https://biotrakr.example/scan?code=VENT-7`).expect(200);
-    expect(findFirst).toHaveBeenLastCalledWith(
+    expect(findMany).toHaveBeenLastCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
           organizationId: ORG_A,
@@ -120,6 +127,15 @@ describe('Asset lookup by scan (e2e)', () => {
     await lookup('').expect(400);
     const res = await lookup('https://example.com/menu').expect(400);
     expect(res.body.message).toMatch(/not a BioTrakr asset label/);
+  });
+
+  it('never guesses between tags that differ only in case', async () => {
+    // Exact spelling wins.
+    const exact = await lookup('Vent-8').expect(200);
+    expect(exact.body.id).toBe('twin-2');
+    // Otherwise refuse rather than risk showing the wrong device as safe.
+    const res = await lookup('vent-8').expect(409);
+    expect(res.body.message).toMatch(/More than one device/);
   });
 
   it('is not mistaken for an asset id route', async () => {

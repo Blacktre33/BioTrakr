@@ -74,7 +74,17 @@ function buildPrisma() {
       if (v === undefined) return true;
       if (v === null) return row[k] == null;
       if (typeof v === 'object' && !(v instanceof Date)) {
-        const cond = v as { lt?: Date; lte?: Date };
+        const cond = v as {
+          lt?: Date;
+          lte?: Date;
+          equals?: string;
+          mode?: string;
+        };
+        if (cond.equals !== undefined) {
+          return cond.mode === 'insensitive'
+            ? String(row[k]).toLowerCase() === cond.equals.toLowerCase()
+            : row[k] === cond.equals;
+        }
         const value = row[k] as Date | null | undefined;
         if (cond.lt) return value != null && value < cond.lt;
         if (cond.lte) return value != null && value <= cond.lte;
@@ -530,6 +540,19 @@ describe('Authentication and authorization (e2e)', () => {
       expect(asset.nextPmDueDate).toEqual(new Date('2026-10-01T08:00:00Z'));
     });
 
+    it('rejects events stamped in the future by a wrong gateway clock', async () => {
+      const future = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      const res = await post('maintenance', {
+        timestamp: future,
+        assetId: ASSET_A,
+        facilityId: FACILITY_A,
+        eventType: 'pm_completed',
+      }).expect(400);
+      expect(res.body.errors[0]).toMatch(/in the future/);
+      expect(prisma.maintenanceEvent.create).not.toHaveBeenCalled();
+      expect(prisma.assets[0].nextPmDueDate).toBeUndefined();
+    });
+
     it('ignores RTLS fixes older than the last one applied', async () => {
       const fix = {
         assetId: ASSET_A,
@@ -644,6 +667,30 @@ describe('Authentication and authorization (e2e)', () => {
         })
         .expect(409);
       expect(res.body.message).not.toContain('VENT-B');
+    });
+
+    it('treats a tag differing only in case as already in use', async () => {
+      await request(app.getHttpServer())
+        .post('/api/assets')
+        .set(bearer('engineer'))
+        .send({
+          assetTagNumber: 'vent-a', // VENT-A exists; scanning would be ambiguous
+          equipmentName: 'Pump',
+          manufacturer: 'BD',
+          modelNumber: 'A1',
+          serialNumber: 'S1',
+          deviceCategory: 'THERAPEUTIC',
+          criticalityLevel: 'HIGH',
+          riskClassification: 'CLASS_II',
+          purchaseDate: '2024-01-15T00:00:00Z',
+          purchaseCost: 10,
+          usefulLifeYears: 5,
+          currentFacilityId: FACILITY_A,
+          primaryCustodianId: '44444444-4444-4444-8444-444444444444',
+          custodianDepartmentId: '55555555-5555-4555-8555-555555555555',
+        })
+        .expect(409);
+      expect(prisma.asset.create).not.toHaveBeenCalled();
     });
   });
 

@@ -28,7 +28,7 @@ const validCheck: ImportCheck = {
   warnings: [{ row: 3, message: "No serial number" }],
   preview: [
     { row: 2, action: "create", assetTagNumber: "PUMP-1", equipmentName: "Infusion pump", facility: "City General", department: "ICU", status: "Active", category: "Therapeutic" },
-    { row: 3, action: "update", assetTagNumber: "PUMP-OLD", equipmentName: "Infusion pump", facility: "City General", department: "ICU", status: "Active", category: "Therapeutic" },
+    { row: 3, action: "update", assetTagNumber: "PUMP-OLD", equipmentName: "Infusion pump", facility: "City General", department: "ICU", status: "Active", category: "Therapeutic", changes: ["Serial Number", "Purchase Price"] },
   ],
 };
 
@@ -73,6 +73,7 @@ describe("AssetExcelImport", () => {
 
     expect(await screen.findByText(/Ready to import 2 devices/)).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "PUMP-OLD" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "Update: Serial Number, Purchase Price" })).toBeInTheDocument();
     expect(screen.getByText(/1 note/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Import 2 devices" }));

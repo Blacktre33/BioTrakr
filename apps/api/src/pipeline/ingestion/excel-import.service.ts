@@ -11,6 +11,7 @@ import {
   isExampleRow,
   readSheet,
   type AssetDraft,
+  type ColumnKey,
   type ImportIssue,
   type ImportReference,
   type ImportWarning,
@@ -30,6 +31,8 @@ export interface ImportPreviewRow {
   department: string;
   status: string;
   category: string;
+  /** For updates: the columns whose values will change. */
+  changes?: string[];
 }
 
 /** Result of checking a file. Nothing is written. */
@@ -56,9 +59,88 @@ export interface ImportResult {
   warnings: ImportWarning[];
 }
 
+type PlannedDraft = AssetDraft & {
+  existingId?: string;
+  /** The device is in a do-not-use status; an import never releases it. */
+  keepStatus?: boolean;
+};
+
 interface Plan {
   check: ImportCheck;
-  drafts: Array<AssetDraft & { existingId?: string }>;
+  drafts: PlannedDraft[];
+}
+
+/** Statuses that mean "do not use" on /scan; see asset-lookup.service.ts. */
+const STOP_STATUSES: ReadonlySet<string> = new Set([
+  'QUARANTINED',
+  'IN_MAINTENANCE',
+  'CONDEMNED',
+  'RETIRED',
+  'DISPOSED',
+]);
+
+/** Database field -> the column it comes from. */
+const FIELD_COLUMN: Record<keyof ReturnType<typeof assetFields>, ColumnKey> = {
+  assetTagNumber: 'assetTag',
+  equipmentName: 'equipmentName',
+  manufacturer: 'manufacturer',
+  modelNumber: 'modelNumber',
+  serialNumber: 'serialNumber',
+  deviceCategory: 'category',
+  criticalityLevel: 'criticality',
+  riskClassification: 'riskClass',
+  assetStatus: 'status',
+  currentFacilityId: 'facilityCode',
+  custodianDepartmentId: 'departmentCode',
+  purchaseDate: 'purchaseDate',
+  purchaseCost: 'purchasePrice',
+  usefulLifeYears: 'usefulLifeYears',
+  installationDate: 'installationDate',
+  warrantyEndDate: 'warrantyExpiry',
+  udiDeviceIdentifier: 'udi',
+  rfidTagId: 'rtlsTagId',
+  bleBeaconMac: 'bleBeaconId',
+  notes: 'notes',
+};
+
+type AssetFields = ReturnType<typeof assetFields>;
+
+/**
+ * What an import writes to an existing device: required columns always,
+ * optional columns only when the cell has a value (a blank cell never wipes
+ * data), and never a status that would release a do-not-use device.
+ */
+function updateFields(draft: PlannedDraft): Partial<AssetFields> {
+  const all = assetFields(draft);
+  const required = new Set(
+    IMPORT_COLUMNS.filter((c) => c.required).map((c) => c.key),
+  );
+  const provided = new Set(draft.provided);
+  const out: Partial<AssetFields> = {};
+  for (const [field, column] of Object.entries(FIELD_COLUMN) as Array<
+    [keyof AssetFields, ColumnKey]
+  >) {
+    if (field === 'assetStatus' && draft.keepStatus) continue;
+    if (required.has(column) || provided.has(column)) {
+      (out as Record<string, unknown>)[field] = all[field];
+    }
+  }
+  return out;
+}
+
+function sameValue(a: unknown, b: unknown): boolean {
+  if (a instanceof Date || b instanceof Date) {
+    return (
+      a instanceof Date && b instanceof Date && a.getTime() === b.getTime()
+    );
+  }
+  if (a === null || a === undefined || b === null || b === undefined) {
+    return (a ?? null) === (b ?? null);
+  }
+  // Prisma returns DECIMAL columns as Decimal objects.
+  if (typeof a === 'number' || typeof b === 'number')
+    return Number(a) === Number(b);
+  return String(a) === String(b);
 }
 
 /** The draft's database columns (drops row number and display names). */
@@ -137,7 +219,6 @@ export class ExcelImportService {
           for (const draft of drafts) {
             failingRow = draft.row;
             const { existingId } = draft;
-            const fields = assetFields(draft);
             if (existingId) {
               const { count } = await tx.asset.updateMany({
                 where: {
@@ -145,13 +226,13 @@ export class ExcelImportService {
                   organizationId: user.organizationId,
                   deletedAt: null,
                 },
-                data: { ...fields, updatedById: user.userId },
+                data: { ...updateFields(draft), updatedById: user.userId },
               });
               if (count === 0) throw new Error('ASSET_CHANGED');
             } else {
               await tx.asset.create({
                 data: {
-                  ...fields,
+                  ...assetFields(draft),
                   organizationId: user.organizationId,
                   primaryCustodianId: user.userId,
                   createdById: user.userId,
@@ -165,9 +246,14 @@ export class ExcelImportService {
       );
     } catch (error) {
       const code = (error as { code?: string }).code;
+      const target = String(
+        (error as { meta?: { target?: unknown } }).meta?.target ?? '',
+      );
       const message =
         code === 'P2002'
-          ? 'This asset tag was added by someone else while you were importing. Check the file again.'
+          ? target.includes('assetTagNumber') || !target
+            ? 'This asset tag was added by someone else while you were importing. Check the file again.'
+            : `This row duplicates a value that must be unique (${target}).`
           : (error as Error).message === 'ASSET_CHANGED'
             ? 'This device was deleted or changed while you were importing. Check the file again.'
             : 'Could not save this row. Nothing was imported; please try again.';
@@ -240,6 +326,16 @@ export class ExcelImportService {
       }
       return empty();
     }
+    if (sheet.duplicates.length > 0) {
+      for (const header of sheet.duplicates) {
+        errors.push({
+          row: 0,
+          field: header,
+          message: `Column "${header}" appears more than once. Keep one and delete the others.`,
+        });
+      }
+      return empty();
+    }
     if (sheet.ignored.length > 0) {
       warnings.push({
         row: 0,
@@ -306,24 +402,56 @@ export class ExcelImportService {
     const existing = await this.findExistingTags(
       drafts.map((d) => d.assetTagNumber),
     );
+    const changes = new Map<number, string[]>();
     for (const draft of drafts) {
-      const match = existing.get(draft.assetTagNumber.toLowerCase());
-      if (!match) continue;
-      if (
-        match.organizationId === user.organizationId &&
-        match.deletedAt === null
-      ) {
-        draft.existingId = match.id;
-        // Keep the tag exactly as it is stored, so the label still scans.
-        draft.assetTagNumber = match.assetTagNumber;
-      } else {
+      const matches = existing.get(draft.assetTagNumber.toLowerCase()) ?? [];
+      if (matches.length === 0) continue;
+      const live = matches.filter(
+        (m) => m.organizationId === user.organizationId && m.deletedAt === null,
+      );
+      if (live.length > 1) {
+        errors.push({
+          row: draft.row,
+          field: 'Asset Tag',
+          message:
+            'More than one device already has this tag (differing only in upper/lower case). Fix those devices first.',
+          value: draft.assetTagNumber,
+        });
+        continue;
+      }
+      const match = live[0];
+      if (!match) {
         errors.push({
           row: draft.row,
           field: 'Asset Tag',
           message: 'This asset tag is already in use',
           value: draft.assetTagNumber,
         });
+        continue;
       }
+      draft.existingId = match.id;
+      // Keep the tag exactly as it is stored, so the label still scans.
+      draft.assetTagNumber = match.assetTagNumber;
+      if (
+        STOP_STATUSES.has(match.assetStatus) &&
+        !STOP_STATUSES.has(draft.assetStatus)
+      ) {
+        draft.keepStatus = true;
+        warnings.push({
+          row: draft.row,
+          message: `Status stays ${labelOf(ASSET_FORM_ENUMS.assetStatus, match.assetStatus)}: an import can't release a device that is out of use. Biomedical engineering must release it on the device itself.`,
+        });
+      }
+      const update = updateFields(draft);
+      changes.set(
+        draft.row,
+        (Object.keys(update) as Array<keyof AssetFields>)
+          .filter((f) => !sameValue(update[f], match[f]))
+          .map(
+            (f) =>
+              IMPORT_COLUMNS.find((c) => c.key === FIELD_COLUMN[f])!.header,
+          ),
+      );
     }
 
     const valid = errors.length === 0;
@@ -346,6 +474,7 @@ export class ExcelImportService {
           department: d.departmentName,
           status: labelOf(ASSET_FORM_ENUMS.assetStatus, d.assetStatus),
           category: labelOf(ASSET_FORM_ENUMS.deviceCategory, d.deviceCategory),
+          ...(d.existingId ? { changes: changes.get(d.row) ?? [] } : {}),
         })),
       },
     };
@@ -373,39 +502,44 @@ export class ExcelImportService {
     return { facilities, departments };
   }
 
-  /** Existing assets with any of these tags (ignoring case), keyed by lower-case tag. */
+  /** Existing assets with any of these tags (ignoring case), grouped by lower-case tag. */
   private async findExistingTags(tags: string[]) {
+    const select = {
+      id: true,
+      organizationId: true,
+      deletedAt: true,
+      ...Object.fromEntries(Object.keys(FIELD_COLUMN).map((f) => [f, true])),
+    } as const;
     const found = new Map<
       string,
-      {
-        id: string;
-        assetTagNumber: string;
-        organizationId: string;
-        deletedAt: Date | null;
-      }
+      Array<
+        AssetFields & {
+          id: string;
+          organizationId: string;
+          deletedAt: Date | null;
+        }
+      >
     >();
     for (let i = 0; i < tags.length; i += 500) {
       const chunk = tags.slice(i, i + 500);
       if (chunk.length === 0) continue;
-      const rows = await this.prisma.asset.findMany({
+      const rows = (await this.prisma.asset.findMany({
         where: {
           OR: chunk.map((tag) => ({
             assetTagNumber: { equals: tag, mode: 'insensitive' as const },
           })),
         },
-        select: {
-          id: true,
-          assetTagNumber: true,
-          organizationId: true,
-          deletedAt: true,
-        },
-      });
+        select,
+      })) as unknown as Array<
+        AssetFields & {
+          id: string;
+          organizationId: string;
+          deletedAt: Date | null;
+        }
+      >;
       for (const r of rows) {
         const key = r.assetTagNumber.toLowerCase();
-        const current = found.get(key);
-        // Prefer a live asset over a deleted one with the same tag.
-        if (!current || (current.deletedAt !== null && r.deletedAt === null))
-          found.set(key, r);
+        found.set(key, [...(found.get(key) ?? []), r]);
       }
     }
     return found;

@@ -151,12 +151,24 @@ describe("ScanDevice", () => {
     lookupState = {
       isPending: false,
       isError: true,
-      error: new Error('No device with tag "NOPE" in your organization. Check the label and try again.'),
+      error: Object.assign(new Error('No device with tag "NOPE" in your organization. Check the label and try again.'), {
+        statusCode: 404,
+      }),
     };
     render(wrap(<ScanDevice />));
 
     expect(screen.getByRole("alert")).toHaveTextContent("Device not found");
     expect(screen.getByRole("alert")).toHaveTextContent(/Check the label/);
+  });
+
+  it("never shows an old answer next to a failed refresh", () => {
+    searchParams = new URLSearchParams("code=VENT-7");
+    lookupState = { isPending: false, isError: true, error: new Error("Network Error"), data: asset };
+    render(wrap(<ScanDevice />));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Network Error");
+    expect(screen.getByRole("alert")).toHaveTextContent(/Do not assume it is safe/);
+    expect(screen.queryByText("OK to use")).not.toBeInTheDocument();
   });
 
   it("shows the device for a code in the link", () => {

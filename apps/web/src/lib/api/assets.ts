@@ -51,6 +51,8 @@ export interface ImportPreviewRow {
   department: string;
   status: string;
   category: string;
+  /** For updates: the columns whose values will change. */
+  changes?: string[];
 }
 
 /** Result of checking a file before import. Nothing is saved. */

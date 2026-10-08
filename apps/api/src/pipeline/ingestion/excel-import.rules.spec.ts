@@ -87,8 +87,13 @@ describe('mapHeaders', () => {
     ]);
     expect(missing.map((c) => c.header)).toEqual(['Criticality', 'Risk Class']);
     expect(ignored).toEqual(['Condition*', 'Lot Number']);
-    expect(columns.get('Asset Type*')).toBe('equipmentName');
-    expect(columns.get('Acquisition Date')).toBe('purchaseDate');
+    expect(columns.get(1)).toBe('equipmentName');
+    expect(columns.get(9)).toBe('purchaseDate');
+  });
+
+  it('flags a field that appears twice instead of letting the last one win', () => {
+    const { duplicates } = mapHeaders(['Asset Tag', 'Status', 'Asset Status']);
+    expect(duplicates).toEqual(['Status']);
   });
 });
 
@@ -131,6 +136,16 @@ describe('parseDateCell', () => {
     expect(parseDateCell('05/01/2024')).toBe('invalid');
     expect(parseDateCell('2024-02-30')).toBe('invalid');
   });
+  it('rejects a bare year typed into a date column', () => {
+    // As an Excel date, 2024 is 1905-07-16.
+    expect(parseDateCell(2024)).toBe('invalid');
+    expect(parseDateCell('1905-07-16')).toBe('invalid');
+  });
+  it('reads dates from workbooks that count from 1904', () => {
+    expect(parseDateCell(43844, true)).toEqual(
+      new Date('2024-01-15T00:00:00Z'),
+    );
+  });
 });
 
 describe('parsePrice', () => {
@@ -142,6 +157,10 @@ describe('parsePrice', () => {
     [0, 0],
     [12.5, 12.5],
   ])('%j -> %d', (raw, expected) => expect(parsePrice(raw)).toBe(expected));
+  it('rejects amounts too large for the database', () => {
+    expect(parsePrice('2000 crore')).toBe('invalid');
+    expect(parsePrice(9_999_999_999.99)).toBe(9_999_999_999.99);
+  });
   it('rejects negative and non-numeric amounts', () => {
     expect(parsePrice('-5')).toBe('invalid');
     expect(parsePrice(-5)).toBe('invalid');

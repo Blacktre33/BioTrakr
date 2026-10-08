@@ -58,6 +58,21 @@ function buildPrisma() {
       assetTagNumber: 'PUMP-OLD',
       organizationId: ORG_A,
       deletedAt: null,
+      // Taken out of use after a fault; an old spreadsheet must not release it.
+      assetStatus: 'QUARANTINED',
+      equipmentName: 'Infusion pump',
+      manufacturer: 'BD',
+      modelNumber: 'Alaris',
+      serialNumber: 'SN-PUMP-OLD',
+      deviceCategory: 'THERAPEUTIC',
+      criticalityLevel: 'HIGH',
+      riskClassification: 'CLASS_II',
+      currentFacilityId: 'f1',
+      custodianDepartmentId: 'd1',
+      purchaseDate: new Date('2024-01-15T00:00:00Z'),
+      purchaseCost: 40000,
+      usefulLifeYears: 7,
+      notes: 'Keep me',
     },
     // Belongs to another organization: the tag is taken.
     {
@@ -161,7 +176,13 @@ describe('Excel import (e2e)', () => {
           category: 'Therapeutic',
         },
         // Matched ignoring case; keeps the stored spelling so the label still scans.
-        { row: 3, action: 'update', assetTagNumber: 'PUMP-OLD' },
+        {
+          row: 3,
+          action: 'update',
+          assetTagNumber: 'PUMP-OLD',
+          // Only what differs; status is protected, blank columns are left alone.
+          changes: ['Serial Number', 'Purchase Price'],
+        },
       ],
     });
     noWrites();
@@ -229,6 +250,44 @@ describe('Excel import (e2e)', () => {
         assetTagNumber: 'PUMP-OLD',
         updatedById: 'user-engineer',
       }),
+    });
+    const update = prisma.tx.asset.updateMany.mock.calls[0] as unknown as [
+      { data: Record<string, unknown> },
+    ];
+    // The quarantined device stays quarantined, and blank cells wipe nothing.
+    expect(update[0].data).not.toHaveProperty('assetStatus');
+    expect(update[0].data).not.toHaveProperty('notes');
+    expect(update[0].data).not.toHaveProperty('usefulLifeYears');
+    expect(body.warnings).toContainEqual({
+      row: 3,
+      message: expect.stringContaining('Status stays Quarantined'),
+    });
+  });
+
+  it('keeps leading zeros in tags and rejects a repeated column', async () => {
+    const wb = XLSX.utils.book_new();
+    const sheet = XLSX.utils.aoa_to_sheet([HEADERS, row('X')]);
+    // A numeric cell formatted to show 00123, as Excel does for zero-padded tags.
+    sheet['A2'] = { t: 'n', v: 123, z: '00000', w: '00123' };
+    XLSX.utils.book_append_sheet(wb, sheet, 'Asset Entry');
+    const { body } = await upload(
+      'validate',
+      XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }),
+    ).expect(200);
+    expect(body.preview[0].assetTagNumber).toBe('00123');
+
+    const twice = await upload(
+      'validate',
+      workbook(
+        [[...row('PUMP-1'), 'Quarantined']],
+        [...HEADERS, 'Asset Status'],
+      ),
+    ).expect(200);
+    expect(twice.body).toMatchObject({
+      valid: false,
+      errors: [
+        { field: 'Status', message: expect.stringContaining('more than once') },
+      ],
     });
   });
 

@@ -26,6 +26,23 @@ export class IngestionValidationError extends Error {
 /** Used when PM frequency is not recorded on the asset. */
 export const DEFAULT_PM_INTERVAL_DAYS = 90;
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** How far ahead of server time an event may be stamped (gateway clock drift). */
+export const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
+
+/**
+ * The event's time. A gateway with a wrong clock must not stamp the future:
+ * a future PM completion would hide an overdue PM, and a future location
+ * fix would block every real one until that date.
+ */
+function eventTimeOf(timestamp: string, now = Date.now()): Date {
+  const time = new Date(timestamp);
+  if (time.getTime() > now + MAX_CLOCK_SKEW_MS) {
+    throw new IngestionValidationError([
+      `Timestamp ${timestamp} is in the future; check the device or gateway clock`,
+    ]);
+  }
+  return time;
+}
 
 /**
  * DTO enums carry the lower-case database values (e.g. "critical"); the
@@ -92,7 +109,7 @@ export class IngestionService {
     // `??` (not `||`) everywhere: 0 and false are real readings, not "missing".
     await this.prisma.assetTelemetry.create({
       data: {
-        time: new Date(event.timestamp),
+        time: eventTimeOf(event.timestamp),
         assetId: event.assetId,
         facilityId: event.facilityId,
         assetCategory: event.assetCategory,
@@ -145,7 +162,7 @@ export class IngestionService {
       manual: 'MANUAL',
       scan: 'QR',
     };
-    const eventTime = new Date(event.timestamp);
+    const eventTime = eventTimeOf(event.timestamp);
 
     await this.prisma.locationHistory.create({
       data: {
@@ -188,7 +205,7 @@ export class IngestionService {
     event: MaintenanceEventDto,
     organizationId: string,
   ): Promise<void> {
-    const eventTime = new Date(event.timestamp);
+    const eventTime = eventTimeOf(event.timestamp);
 
     await this.prisma.maintenanceEvent.create({
       data: {
@@ -232,7 +249,7 @@ export class IngestionService {
   ): Promise<void> {
     await this.prisma.errorEvent.create({
       data: {
-        time: new Date(event.timestamp),
+        time: eventTimeOf(event.timestamp),
         assetId: event.assetId,
         facilityId: event.facilityId,
         errorCode: event.errorCode,

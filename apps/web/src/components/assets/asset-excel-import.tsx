@@ -353,7 +353,13 @@ export function AssetExcelImport({ onImportComplete }: AssetExcelImportProps) {
                           {p.department}, {p.facility}
                         </td>
                         <td className="px-3 py-2 text-gray-300">{p.status}</td>
-                        <td className="px-3 py-2 text-gray-300">{p.action === 'create' ? 'New' : 'Update'}</td>
+                        <td className="px-3 py-2 text-gray-300">
+                          {p.action === 'create'
+                            ? 'New'
+                            : p.changes?.length
+                              ? `Update: ${p.changes.join(', ')}`
+                              : 'No change'}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

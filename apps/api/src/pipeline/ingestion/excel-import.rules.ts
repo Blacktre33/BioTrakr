@@ -197,23 +197,35 @@ for (const col of IMPORT_COLUMNS) {
 
 /** Maps the sheet's header row to column keys; reports unknown and missing columns. */
 export function mapHeaders(headers: string[]): {
-  columns: Map<string, ColumnKey>;
+  /** Column index -> key. */
+  columns: Map<number, ColumnKey>;
   missing: ColumnSpec[];
   ignored: string[];
+  /** Columns that appear more than once (by any of their names). */
+  duplicates: string[];
 } {
-  const columns = new Map<string, ColumnKey>();
+  const columns = new Map<number, ColumnKey>();
   const ignored: string[] = [];
-  for (const header of headers) {
+  const duplicates: string[] = [];
+  headers.forEach((header, index) => {
     const key = HEADER_TO_KEY.get(normalizeHeader(header));
-    if (key && ![...columns.values()].includes(key)) columns.set(header, key);
-    else if (!key && header.trim() && !header.startsWith('__EMPTY'))
-      ignored.push(header);
-  }
+    if (!key) {
+      if (header.trim() && !header.startsWith('__EMPTY')) ignored.push(header);
+      return;
+    }
+    // Two columns for the same field would make the result depend on
+    // column order (e.g. "Status" twice), so that is an error.
+    if ([...columns.values()].includes(key)) {
+      duplicates.push(IMPORT_COLUMNS.find((c) => c.key === key)!.header);
+      return;
+    }
+    columns.set(index, key);
+  });
   const present = new Set(columns.values());
   const missing = IMPORT_COLUMNS.filter(
     (c) => c.required && !present.has(c.key),
   );
-  return { columns, missing, ignored };
+  return { columns, missing, ignored, duplicates };
 }
 
 // --------------------------------------------------------------------------
@@ -296,17 +308,25 @@ export const ALLOWED_VALUES = {
 };
 
 /** A date from an Excel date cell (serial number) or a YYYY-MM-DD string, as UTC midnight. */
-export function parseDateCell(value: unknown): Date | null | 'invalid' {
+/** Earliest plausible date; also catches a bare year (2024 = 1905-07-16 as a date). */
+export const MIN_YEAR = 1950;
+
+export function parseDateCell(
+  value: unknown,
+  date1904 = false,
+): Date | null | 'invalid' {
   if (value === null || value === undefined || value === '') return null;
   if (typeof value === 'number') {
-    const parts = XLSX.SSF.parse_date_code(value);
-    if (!parts || parts.y < 1900) return 'invalid';
+    // Workbooks saved by older Mac Excel count days from 1904, not 1900.
+    const parts = XLSX.SSF.parse_date_code(value, { date1904 });
+    if (!parts || parts.y < MIN_YEAR) return 'invalid';
     return new Date(Date.UTC(parts.y, parts.m - 1, parts.d));
   }
   const text = String(value).trim();
   const match = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return 'invalid';
   const [y, m, d] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  if (y < MIN_YEAR) return 'invalid';
   const date = new Date(Date.UTC(y, m - 1, d));
   // Rejects impossible dates such as 2024-02-30.
   return date.getUTCMonth() === m - 1 && date.getUTCDate() === d
@@ -315,7 +335,15 @@ export function parseDateCell(value: unknown): Date | null | 'invalid' {
 }
 
 /** Rupee amounts: 125000, "₹1,25,000", "1.25 lakh", "2 crore". */
+/** purchase_cost is DECIMAL(12,2). */
+export const MAX_PRICE = 9_999_999_999.99;
+
 export function parsePrice(value: unknown): number | null | 'invalid' {
+  const n = parseAmount(value);
+  return typeof n === 'number' && n > MAX_PRICE ? 'invalid' : n;
+}
+
+function parseAmount(value: unknown): number | null | 'invalid' {
   if (value === null || value === undefined || value === '') return null;
   if (typeof value === 'number')
     return value >= 0 && Number.isFinite(value) ? value : 'invalid';
@@ -351,6 +379,8 @@ export interface ImportWarning {
 export interface SheetRow {
   row: number;
   values: Partial<Record<ColumnKey, unknown>>;
+  /** The workbook counts dates from 1904 (older Mac Excel). */
+  date1904?: boolean;
 }
 
 /** Reference data the rows are checked against, all from the importer's organization. */
@@ -366,6 +396,8 @@ export interface ImportReference {
 
 export interface AssetDraft {
   row: number;
+  /** Optional columns that had a value; blank ones are left alone on update. */
+  provided: ColumnKey[];
   assetTagNumber: string;
   equipmentName: string;
   manufacturer: string;
@@ -395,60 +427,81 @@ const text = (value: unknown): string =>
 const header = (key: ColumnKey) =>
   IMPORT_COLUMNS.find((c) => c.key === key)!.header;
 
+/** Columns read as the text Excel shows, so "00123" keeps its leading zeros. */
+const TEXT_COLUMNS = new Set<ColumnKey>([
+  'assetTag',
+  'equipmentName',
+  'manufacturer',
+  'modelNumber',
+  'serialNumber',
+  'facilityCode',
+  'departmentCode',
+  'udi',
+  'rtlsTagId',
+  'bleBeaconId',
+  'notes',
+]);
+
 /** Reads the first suitable sheet into rows keyed by column, with Excel row numbers. */
 export function readSheet(buffer: Buffer): {
   rows: SheetRow[];
   missing: ColumnSpec[];
   ignored: string[];
+  duplicates: string[];
   sheetName: string;
 } {
-  // raw values: dates stay Excel serial numbers (parsed exactly by parseDateCell).
+  // cellDates off: dates stay Excel serial numbers, parsed exactly by parseDateCell.
   const workbook = XLSX.read(buffer, {
     type: 'buffer',
     cellDates: false,
     dense: true,
   });
+  const date1904 = Boolean(workbook.Workbook?.WBProps?.date1904);
   const preferred = ['Asset Entry', 'Assets', 'Quick Entry', 'Sheet1'];
   const sheetName =
     preferred.find((n) => workbook.SheetNames.includes(n)) ??
     workbook.SheetNames[0];
-  if (!sheetName)
+  if (!sheetName) {
     return {
       rows: [],
       missing: IMPORT_COLUMNS.filter((c) => c.required),
       ignored: [],
+      duplicates: [],
       sheetName: '',
     };
+  }
 
   const sheet = workbook.Sheets[sheetName];
-  const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
-    header: 1,
+  const options = { header: 1 as const, defval: null, blankrows: true };
+  const rawMatrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+    ...options,
     raw: true,
-    defval: null,
-    blankrows: true,
   });
-  const headerRow = (matrix[0] ?? []).map((h) => text(h));
-  const { columns, missing, ignored } = mapHeaders(headerRow);
+  const shownMatrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+    ...options,
+    raw: false,
+  });
+  const headerRow = (rawMatrix[0] ?? []).map((h) => text(h));
+  const { columns, missing, ignored, duplicates } = mapHeaders(headerRow);
 
   const rows: SheetRow[] = [];
-  for (let i = 1; i < matrix.length; i++) {
-    const cells = matrix[i] ?? [];
+  for (let i = 1; i < rawMatrix.length; i++) {
     const values: Partial<Record<ColumnKey, unknown>> = {};
-    headerRow.forEach((h, c) => {
-      const key = columns.get(h);
-      if (key)
-        values[key] =
-          typeof cells[c] === 'string' ? (cells[c] as string).trim() : cells[c];
-    });
+    for (const [c, key] of columns) {
+      const cell =
+        (TEXT_COLUMNS.has(key) ? shownMatrix[i] : rawMatrix[i])?.[c] ?? null;
+      values[key] = typeof cell === 'string' ? cell.trim() : cell;
+    }
     if (
       Object.values(values).every(
         (v) => v === null || v === undefined || v === '',
       )
-    )
+    ) {
       continue;
-    rows.push({ row: i + 1, values });
+    }
+    rows.push({ row: i + 1, values, date1904 });
   }
-  return { rows, missing, ignored, sheetName };
+  return { rows, missing, ignored, duplicates, sheetName };
 }
 
 /**
@@ -456,10 +509,11 @@ export function readSheet(buffer: Buffer): {
  * that does not clearly match is reported so the person can fix the sheet.
  */
 export function checkRow(
-  { row, values }: SheetRow,
+  sheetRow: SheetRow,
   reference: ImportReference,
   today: Date = new Date(),
 ): { draft?: AssetDraft; errors: ImportIssue[]; warnings: ImportWarning[] } {
+  const { row, values } = sheetRow;
   const errors: ImportIssue[] = [];
   const warnings: ImportWarning[] = [];
   const issue = (key: ColumnKey, message: string, value?: unknown) =>
@@ -551,11 +605,11 @@ export function checkRow(
   }
 
   const dateField = (key: ColumnKey, mustBePast: boolean): Date | null => {
-    const parsed = parseDateCell(values[key]);
+    const parsed = parseDateCell(values[key], sheetRow.date1904);
     if (parsed === 'invalid') {
       issue(
         key,
-        'Use YYYY-MM-DD (e.g. 2024-01-15) or an Excel date',
+        'Use YYYY-MM-DD (e.g. 2024-01-15) or an Excel date, 1950 or later',
         values[key],
       );
       return null;
@@ -572,7 +626,11 @@ export function checkRow(
   let purchaseCost = 0;
   const price = parsePrice(values.purchasePrice);
   if (price === 'invalid')
-    issue('purchasePrice', 'Not a valid amount', values.purchasePrice);
+    issue(
+      'purchasePrice',
+      'Not a valid amount (0 to 9,99,99,99,999.99)',
+      values.purchasePrice,
+    );
   else if (price === null)
     warnings.push({ row, message: 'No purchase price; recorded as 0' });
   else purchaseCost = price;
@@ -623,6 +681,9 @@ export function checkRow(
       rfidTagId: text(values.rtlsTagId) || null,
       bleBeaconMac: text(values.bleBeaconId) || null,
       notes: text(values.notes) || null,
+      provided: IMPORT_COLUMNS.filter(
+        (c) => !c.required && text(values[c.key]) !== '',
+      ).map((c) => c.key),
     },
   };
 }

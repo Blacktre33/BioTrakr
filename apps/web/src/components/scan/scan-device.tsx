@@ -113,12 +113,20 @@ export function ScanDevice() {
 
           {lookup.isError && (
             <div role="alert" className="rounded-2xl border border-critical-500/40 bg-critical-500/10 p-4 text-gray-100">
-              <p className="font-semibold">Device not found</p>
+              <p className="font-semibold">
+                {(lookup.error as { statusCode?: number }).statusCode === 404
+                  ? "Device not found"
+                  : "Couldn't check this device. Do not assume it is safe to use."}
+              </p>
               <p className="mt-1 text-sm">{(lookup.error as Error).message}</p>
             </div>
           )}
 
-          {lookup.data && <AssetBedsideCard asset={lookup.data} scannedCode={code} role={role} />}
+          {/* After a failed refresh React Query keeps the old data; never show it
+              next to the error, it may say "OK to use" for a device that no longer is. */}
+          {lookup.data && !lookup.isError && (
+            <AssetBedsideCard asset={lookup.data} scannedCode={code} role={role} />
+          )}
 
           <Button type="button" variant="ghost" className="w-full" onClick={scanAnother}>
             Scan another device
