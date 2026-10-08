@@ -10,7 +10,8 @@ const customConfig: Config = {
     "^@/(.*)$": "<rootDir>/src/$1",
   },
   collectCoverage: false,
-  testPathIgnorePatterns: ["<rootDir>/tests/"],
+  // src_old_backup is the pre-rewrite UI, kept for reference only.
+  testPathIgnorePatterns: ["<rootDir>/tests/", "<rootDir>/src_old_backup/"],
 };
 
 export default createJestConfig(customConfig);

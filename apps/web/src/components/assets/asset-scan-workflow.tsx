@@ -145,7 +145,7 @@ export function AssetScanWorkflow({ onScanRecorded, open: controlledOpen, onOpen
       img.onload = async () => {
         try {
           const reader = new BrowserQRCodeReader();
-          const result = await reader.decodeFromImage(img);
+          const result = await reader.decodeFromImageElement(img);
           
           if (result) {
             const payload = result.getText();

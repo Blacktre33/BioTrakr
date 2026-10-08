@@ -1,608 +1,423 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
-import { PrismaService } from '../../database/prisma.service';
+import { Injectable, Logger } from '@nestjs/common';
 import * as XLSX from 'xlsx';
-// Built-in; the `uuid` package (v13) is ESM-only and cannot be required from this CommonJS build.
-import { randomUUID as uuidv4 } from 'crypto';
-import { AssetStatus, RiskClassification } from '@prisma/client';
 
 import type { AuthUser } from '../../auth/auth-user';
+import { PrismaService } from '../../database/prisma.service';
+import { ASSET_FORM_ENUMS } from '../../reference/asset-form-options';
+import {
+  IMPORT_COLUMNS,
+  MAX_IMPORT_ROWS,
+  checkRow,
+  isExampleRow,
+  readSheet,
+  type AssetDraft,
+  type ImportIssue,
+  type ImportReference,
+  type ImportWarning,
+} from './excel-import.rules';
 
-interface AssetRow {
-  'Asset Tag*': string;
-  'Serial Number'?: string;
-  'Barcode'?: string;
-  'Asset Category*': string;
-  'Asset Type*': string;
-  'Manufacturer*': string;
-  'Model Number*': string;
-  'Facility Code*': string;
-  'Department Code'?: string;
-  'Location Code'?: string;
-  'Status*': string;
-  'Condition*': string;
-  'Acquisition Date'?: string;
-  'Installation Date'?: string;
-  'Warranty Expiry'?: string;
-  'Purchase Price'?: number;
-  'UDI'?: string;
-  'Lot Number'?: string;
-  'Is FDA Regulated'?: string;
-  'Is RTLS Tracked'?: string;
-  'RTLS Tag ID'?: string;
-  'BLE Beacon ID'?: string;
-  'Notes'?: string;
+export type { ImportIssue, ImportWarning } from './excel-import.rules';
+
+/** How many rows the preview shows; the counts always cover the whole file. */
+export const PREVIEW_ROWS = 50;
+
+export interface ImportPreviewRow {
+  row: number;
+  action: 'create' | 'update';
+  assetTagNumber: string;
+  equipmentName: string;
+  facility: string;
+  department: string;
+  status: string;
+  category: string;
 }
 
-interface QuickEntryRow {
-  'Asset Tag*': string;
-  'Serial Number'?: string;
-  'Asset Type*': string;
-  'Manufacturer*': string;
-  'Model Number*': string;
-  'Facility Code*': string;
-  'Department Code'?: string;
-  'Status*': string;
+/** Result of checking a file. Nothing is written. */
+export interface ImportCheck {
+  valid: boolean;
+  totalRows: number;
+  toCreate: number;
+  toUpdate: number;
+  errors: ImportIssue[];
+  warnings: ImportWarning[];
+  preview: ImportPreviewRow[];
 }
 
+/** Result of an import. All rows are saved, or none are. */
 export interface ImportResult {
   success: boolean;
   totalRows: number;
   imported: number;
+  created: number;
+  updated: number;
+  /** Rows with at least one error. */
   failed: number;
-  errors: Array<{
-    row: number;
-    field: string;
-    message: string;
-    value?: any;
-  }>;
-  warnings: Array<{
-    row: number;
-    message: string;
-  }>;
+  errors: ImportIssue[];
+  warnings: ImportWarning[];
 }
 
-interface ValidationError {
-  row: number;
-  field: string;
-  message: string;
-  value?: any;
+interface Plan {
+  check: ImportCheck;
+  drafts: Array<AssetDraft & { existingId?: string }>;
 }
+
+/** The draft's database columns (drops row number and display names). */
+function assetFields(draft: AssetDraft) {
+  return {
+    assetTagNumber: draft.assetTagNumber,
+    equipmentName: draft.equipmentName,
+    manufacturer: draft.manufacturer,
+    modelNumber: draft.modelNumber,
+    serialNumber: draft.serialNumber,
+    deviceCategory: draft.deviceCategory,
+    criticalityLevel: draft.criticalityLevel,
+    riskClassification: draft.riskClassification,
+    assetStatus: draft.assetStatus,
+    currentFacilityId: draft.currentFacilityId,
+    custodianDepartmentId: draft.custodianDepartmentId,
+    purchaseDate: draft.purchaseDate,
+    purchaseCost: draft.purchaseCost,
+    usefulLifeYears: draft.usefulLifeYears,
+    installationDate: draft.installationDate,
+    warrantyEndDate: draft.warrantyEndDate,
+    udiDeviceIdentifier: draft.udiDeviceIdentifier,
+    rfidTagId: draft.rfidTagId,
+    bleBeaconMac: draft.bleBeaconMac,
+    notes: draft.notes,
+  };
+}
+
+const labelOf = (
+  options: Array<{ value: string; label: string }>,
+  value: string,
+) => options.find((o) => o.value === value)?.label ?? value;
 
 @Injectable()
 export class ExcelImportService {
   private readonly logger = new Logger(ExcelImportService.name);
 
-  // Valid values for validation
-  private readonly validCategories = [
-    'diagnostic_imaging',
-    'life_support',
-    'surgical',
-    'laboratory',
-    'patient_care',
-    'infrastructure',
-  ];
-
-  private readonly validStatuses = [
-    'AVAILABLE',
-    'IN_USE',
-    'MAINTENANCE',
-    'REPAIR',
-    'DECOMMISSIONED',
-    'QUARANTINE',
-  ];
-
-  private readonly validConditions = [
-    'EXCELLENT',
-    'GOOD',
-    'FAIR',
-    'POOR',
-    'CRITICAL',
-    'UNKNOWN',
-  ];
-
   constructor(private readonly prisma: PrismaService) {}
 
-  /**
-   * Get value from row with flexible column name matching
-   * Supports both 'Asset Tag*' and 'Asset Tag' formats, and common variations
-   */
-  private getRowValue(row: Record<string, any>, columnName: string): any {
-    // Try exact match first
-    if (row[columnName] !== undefined) {
-      return row[columnName];
-    }
-    // Try with asterisk
-    if (row[`${columnName}*`] !== undefined) {
-      return row[`${columnName}*`];
-    }
-    // Try without asterisk (if columnName has one)
-    const nameWithoutAsterisk = columnName.replace('*', '');
-    if (row[nameWithoutAsterisk] !== undefined) {
-      return row[nameWithoutAsterisk];
-    }
+  /** Checks a file and shows what would happen. Never writes. */
+  async checkFile(fileBuffer: Buffer, user: AuthUser): Promise<ImportCheck> {
+    return (await this.plan(fileBuffer, user)).check;
+  }
 
-    // Handle common column name variations
-    const variations: Record<string, string[]> = {
-      'Acquisition Date': ['PO or Acquisition Date', 'Purchase Date', 'Acquired Date'],
-      'Asset Category': ['Category', 'Equipment Category'],
-      'Asset Type': ['Type', 'Equipment Type'],
-      'Facility Code': ['Facility', 'Site Code', 'Site'],
-      'Department Code': ['Department', 'Dept Code', 'Dept'],
+  /**
+   * Imports a file only if every row is valid, in one transaction: either
+   * all devices are saved or none are, so a half-imported sheet never has
+   * to be untangled.
+   */
+  async importFromExcel(
+    fileBuffer: Buffer,
+    user: AuthUser,
+  ): Promise<ImportResult> {
+    const { check, drafts } = await this.plan(fileBuffer, user);
+    const base = {
+      totalRows: check.totalRows,
+      warnings: check.warnings,
     };
+    if (!check.valid) {
+      return {
+        ...base,
+        success: false,
+        imported: 0,
+        created: 0,
+        updated: 0,
+        failed: new Set(check.errors.filter((e) => e.row > 0).map((e) => e.row))
+          .size,
+        errors: check.errors,
+      };
+    }
 
-    const baseColumnName = nameWithoutAsterisk.trim();
-    if (variations[baseColumnName]) {
-      for (const variant of variations[baseColumnName]) {
-        if (row[variant] !== undefined) return row[variant];
-        if (row[`${variant}*`] !== undefined) return row[`${variant}*`];
+    let failingRow = 0;
+    try {
+      await this.prisma.$transaction(
+        async (tx) => {
+          for (const draft of drafts) {
+            failingRow = draft.row;
+            const { existingId } = draft;
+            const fields = assetFields(draft);
+            if (existingId) {
+              const { count } = await tx.asset.updateMany({
+                where: {
+                  id: existingId,
+                  organizationId: user.organizationId,
+                  deletedAt: null,
+                },
+                data: { ...fields, updatedById: user.userId },
+              });
+              if (count === 0) throw new Error('ASSET_CHANGED');
+            } else {
+              await tx.asset.create({
+                data: {
+                  ...fields,
+                  organizationId: user.organizationId,
+                  primaryCustodianId: user.userId,
+                  createdById: user.userId,
+                  updatedById: user.userId,
+                },
+              });
+            }
+          }
+        },
+        { timeout: 120_000 },
+      );
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      const message =
+        code === 'P2002'
+          ? 'This asset tag was added by someone else while you were importing. Check the file again.'
+          : (error as Error).message === 'ASSET_CHANGED'
+            ? 'This device was deleted or changed while you were importing. Check the file again.'
+            : 'Could not save this row. Nothing was imported; please try again.';
+      if (!code && (error as Error).message !== 'ASSET_CHANGED') {
+        this.logger.error(
+          `Import failed at row ${failingRow}`,
+          (error as Error).stack,
+        );
       }
+      return {
+        ...base,
+        success: false,
+        imported: 0,
+        created: 0,
+        updated: 0,
+        failed: 1,
+        errors: [{ row: failingRow, field: 'Asset Tag', message }],
+      };
     }
 
-    return null;
-  }
-
-  /**
-   * Generate an asset tag from serial number or other identifier
-   */
-  private generateAssetTag(row: Record<string, any>, rowIndex: number): string {
-    const serialNumber = this.getRowValue(row, 'Serial Number');
-    const barcode = this.getRowValue(row, 'Barcode');
-
-    if (serialNumber) {
-      return `AUTO-SN-${String(serialNumber).trim()}`;
-    }
-    if (barcode) {
-      return `AUTO-BC-${String(barcode).trim()}`;
-    }
-    // Fallback to row-based ID
-    const timestamp = Date.now().toString(36).toUpperCase();
-    return `AUTO-${timestamp}-${rowIndex.toString().padStart(4, '0')}`;
-  }
-
-  /**
-   * Import assets from Excel file buffer
-   */
-  async importFromExcel(fileBuffer: Buffer, user: AuthUser): Promise<ImportResult> {
-    const result: ImportResult = {
-      success: false,
-      totalRows: 0,
-      imported: 0,
+    this.logger.log(
+      `Imported ${drafts.length} assets for organization ${user.organizationId} (${check.toCreate} new, ${check.toUpdate} updated)`,
+    );
+    return {
+      ...base,
+      success: true,
+      imported: drafts.length,
+      created: check.toCreate,
+      updated: check.toUpdate,
       failed: 0,
       errors: [],
-      warnings: [],
     };
+  }
 
+  private async plan(fileBuffer: Buffer, user: AuthUser): Promise<Plan> {
+    const errors: ImportIssue[] = [];
+    const warnings: ImportWarning[] = [];
+    const empty = (): Plan => ({
+      check: {
+        valid: false,
+        totalRows: 0,
+        toCreate: 0,
+        toUpdate: 0,
+        errors,
+        warnings,
+        preview: [],
+      },
+      drafts: [],
+    });
+
+    let sheet: ReturnType<typeof readSheet>;
     try {
-      // Parse Excel file
-      const workbook = XLSX.read(fileBuffer, { type: 'buffer', cellDates: true });
-
-      // Try to find data sheet - support multiple sheet name conventions
-      const sheetPreferences = ['Asset Entry', 'Quick Entry', 'Assets', 'Sheet1'];
-      let sheetName = sheetPreferences.find(name => workbook.SheetNames.includes(name))
-        || workbook.SheetNames[0];
-
-      this.logger.log(`Using sheet: "${sheetName}" from available sheets: [${workbook.SheetNames.join(', ')}]`);
-
-      const worksheet = workbook.Sheets[sheetName];
-      const rows = XLSX.utils.sheet_to_json<AssetRow | QuickEntryRow>(worksheet, {
-        defval: null,
-        raw: false,
-      });
-
-      // Filter out empty rows and sample data
-      // Accept rows that have Asset Tag OR Serial Number (we can auto-generate Asset Tag from Serial)
-      const dataRows = rows.filter((row, index) => {
-        const assetTag = this.getRowValue(row, 'Asset Tag');
-        const serialNumber = this.getRowValue(row, 'Serial Number');
-        const manufacturer = this.getRowValue(row, 'Manufacturer');
-
-        // Skip sample data rows from template
-        const sampleAssetTags = ['BT-2025-001', 'ASSET-001'];
-        if (assetTag && sampleAssetTags.includes(String(assetTag).trim())) {
-          return false;
-        }
-
-        // Accept row if it has Asset Tag, Serial Number, or at minimum a Manufacturer
-        // (rows with just manufacturer will get auto-generated Asset Tags)
-        const hasIdentifier = assetTag || serialNumber;
-        const hasRequiredData = manufacturer;
-
-        return hasIdentifier || hasRequiredData;
-      });
-
-      result.totalRows = dataRows.length;
-
-      if (dataRows.length === 0) {
-        // Provide helpful debug info
-        const columnNames = rows.length > 0 ? Object.keys(rows[0] || {}).join(', ') : 'none';
-        this.logger.warn(`No data rows found. Total rows parsed: ${rows.length}. Columns found: ${columnNames}`);
-
-        let errorMessage = 'No data rows found in the Excel file';
-        if (rows.length === 0) {
-          errorMessage = 'The Excel file appears to be empty. Make sure your data is in the first sheet.';
-        } else if (rows.length === 1) {
-          errorMessage = 'Only the example row was found. Please add your asset data below the example row, or delete the example and add your own data.';
-        } else {
-          errorMessage = `Found ${rows.length} rows but none with valid Asset Tag values. Columns detected: ${columnNames}`;
-        }
-
-        result.errors.push({
-          row: 0,
-          field: 'file',
-          message: errorMessage,
-        });
-        return result;
-      }
-
-      // Process each row
-      for (let i = 0; i < dataRows.length; i++) {
-        const row = dataRows[i];
-        const rowNum = i + 2; // Excel row number (1-indexed + header)
-
-        try {
-          // Validate row
-          const validationErrors = this.validateRow(row, rowNum);
-          if (validationErrors.length > 0) {
-            result.errors.push(...validationErrors);
-            result.failed++;
-            continue;
-          }
-
-          // Import the asset
-          await this.importAsset(row as AssetRow, user, i);
-          result.imported++;
-        } catch (error) {
-          result.errors.push({
-            row: rowNum,
-            field: 'database',
-            message: error.message,
-          });
-          result.failed++;
-        }
-      }
-
-      result.success = result.failed === 0;
-
-      this.logger.log(
-        `Import complete: ${result.imported} imported, ${result.failed} failed out of ${result.totalRows} rows`,
-      );
-
-      return result;
-    } catch (error) {
-      this.logger.error(`Excel import failed: ${error.message}`, error.stack);
-      result.errors.push({
+      sheet = readSheet(fileBuffer);
+    } catch {
+      errors.push({
         row: 0,
-        field: 'file',
-        message: `Failed to parse Excel file: ${error.message}`,
+        field: 'File',
+        message: 'This file could not be read. Save it as .xlsx and try again.',
       });
-      return result;
-    }
-  }
-
-  /**
-   * Validate a single row
-   */
-  private validateRow(
-    row: AssetRow | QuickEntryRow,
-    rowNum: number,
-  ): ValidationError[] {
-    const errors: ValidationError[] = [];
-
-    // Use flexible column matching for all fields
-    const assetTag = this.getRowValue(row, 'Asset Tag');
-    const serialNumber = this.getRowValue(row, 'Serial Number');
-    const manufacturer = this.getRowValue(row, 'Manufacturer');
-    const modelNumber = this.getRowValue(row, 'Model Number');
-    const facilityCode = this.getRowValue(row, 'Facility Code');
-    const status = this.getRowValue(row, 'Status');
-    const condition = this.getRowValue(row, 'Condition');
-    const acquisitionDate = this.getRowValue(row, 'Acquisition Date');
-    const purchasePrice = this.getRowValue(row, 'Purchase Price');
-
-    // Asset Tag is optional if Serial Number is present (we'll auto-generate)
-    if (!assetTag && !serialNumber) {
-      errors.push({
-        row: rowNum,
-        field: 'Asset Tag',
-        message: 'Either Asset Tag or Serial Number is required',
-      });
+      return empty();
     }
 
-    if (!manufacturer) {
-      errors.push({
-        row: rowNum,
-        field: 'Manufacturer',
-        message: 'Manufacturer is required',
-      });
-    }
-
-    // Model Number is optional - we'll use a placeholder if missing
-    // if (!modelNumber) { ... }
-
-    // Facility Code is optional - we'll use a default if missing
-    // if (!facilityCode) { ... }
-
-    // Status validation is now lenient - mapStatus handles conversion
-    // We accept most status values and map them to valid ones
-
-    // Condition validation is now lenient - mapCondition handles conversion
-    // We accept most condition values and map them to valid ones
-
-    // Date validations
-    if (acquisitionDate) {
-      if (!this.isValidDate(acquisitionDate)) {
+    if (sheet.missing.length > 0) {
+      for (const col of sheet.missing) {
         errors.push({
-          row: rowNum,
-          field: 'Acquisition Date',
-          message: 'Invalid date format. Use YYYY-MM-DD',
-          value: acquisitionDate,
+          row: 0,
+          field: col.header,
+          message: `Column "${col.header}" is missing. Download the latest template and copy your rows into it.`,
+        });
+      }
+      return empty();
+    }
+    if (sheet.ignored.length > 0) {
+      warnings.push({
+        row: 0,
+        message: `These columns are not used and will be ignored: ${sheet.ignored.join(', ')}`,
+      });
+    }
+
+    const rows = sheet.rows.filter((r) => {
+      if (!isExampleRow(r)) return true;
+      warnings.push({
+        row: r.row,
+        message: 'Skipped the template example row',
+      });
+      return false;
+    });
+    if (rows.length === 0) {
+      errors.push({
+        row: 0,
+        field: 'File',
+        message: `No devices found in sheet "${sheet.sheetName}". Add one row per device under the header row.`,
+      });
+      return empty();
+    }
+    if (rows.length > MAX_IMPORT_ROWS) {
+      errors.push({
+        row: 0,
+        field: 'File',
+        message: `This file has ${rows.length} rows; the limit is ${MAX_IMPORT_ROWS} per import. Split it into smaller files.`,
+      });
+      return {
+        ...empty(),
+        check: { ...empty().check, totalRows: rows.length },
+      };
+    }
+
+    const reference = await this.loadReference(user.organizationId);
+    const today = new Date();
+    const drafts: Plan['drafts'] = [];
+    const seenTags = new Map<string, number>();
+
+    for (const sheetRow of rows) {
+      const result = checkRow(sheetRow, reference, today);
+      errors.push(...result.errors);
+      warnings.push(...result.warnings);
+      if (!result.draft) continue;
+
+      // Tags must be unique ignoring case, or scanning a label becomes ambiguous.
+      const key = result.draft.assetTagNumber.toLowerCase();
+      const firstRow = seenTags.get(key);
+      if (firstRow) {
+        errors.push({
+          row: sheetRow.row,
+          field: 'Asset Tag',
+          message: `Same tag as row ${firstRow}`,
+          value: result.draft.assetTagNumber,
+        });
+        continue;
+      }
+      seenTags.set(key, sheetRow.row);
+      drafts.push(result.draft);
+    }
+
+    // Existing devices: same organization and live -> update; anywhere else -> taken.
+    const existing = await this.findExistingTags(
+      drafts.map((d) => d.assetTagNumber),
+    );
+    for (const draft of drafts) {
+      const match = existing.get(draft.assetTagNumber.toLowerCase());
+      if (!match) continue;
+      if (
+        match.organizationId === user.organizationId &&
+        match.deletedAt === null
+      ) {
+        draft.existingId = match.id;
+        // Keep the tag exactly as it is stored, so the label still scans.
+        draft.assetTagNumber = match.assetTagNumber;
+      } else {
+        errors.push({
+          row: draft.row,
+          field: 'Asset Tag',
+          message: 'This asset tag is already in use',
+          value: draft.assetTagNumber,
         });
       }
     }
 
-    // Price validation
-    if (purchasePrice) {
-      const price = parseFloat(String(purchasePrice));
-      if (isNaN(price) || price < 0) {
-        errors.push({
-          row: rowNum,
-          field: 'Purchase Price',
-          message: 'Invalid price value',
-          value: purchasePrice,
-        });
+    const valid = errors.length === 0;
+    const toUpdate = drafts.filter((d) => d.existingId).length;
+    return {
+      drafts,
+      check: {
+        valid,
+        totalRows: rows.length,
+        toCreate: valid ? drafts.length - toUpdate : 0,
+        toUpdate: valid ? toUpdate : 0,
+        errors,
+        warnings,
+        preview: drafts.slice(0, PREVIEW_ROWS).map((d) => ({
+          row: d.row,
+          action: d.existingId ? 'update' : 'create',
+          assetTagNumber: d.assetTagNumber,
+          equipmentName: d.equipmentName,
+          facility: d.facilityName,
+          department: d.departmentName,
+          status: labelOf(ASSET_FORM_ENUMS.assetStatus, d.assetStatus),
+          category: labelOf(ASSET_FORM_ENUMS.deviceCategory, d.deviceCategory),
+        })),
+      },
+    };
+  }
+
+  private async loadReference(
+    organizationId: string,
+  ): Promise<ImportReference> {
+    const [facilities, departments] = await Promise.all([
+      this.prisma.facility.findMany({
+        where: { organizationId, isActive: true },
+        select: { id: true, facilityCode: true, facilityName: true },
+        orderBy: { facilityCode: 'asc' },
+      }),
+      this.prisma.department.findMany({
+        where: { facility: { organizationId, isActive: true } },
+        select: {
+          id: true,
+          facilityId: true,
+          departmentCode: true,
+          departmentName: true,
+        },
+      }),
+    ]);
+    return { facilities, departments };
+  }
+
+  /** Existing assets with any of these tags (ignoring case), keyed by lower-case tag. */
+  private async findExistingTags(tags: string[]) {
+    const found = new Map<
+      string,
+      {
+        id: string;
+        assetTagNumber: string;
+        organizationId: string;
+        deletedAt: Date | null;
+      }
+    >();
+    for (let i = 0; i < tags.length; i += 500) {
+      const chunk = tags.slice(i, i + 500);
+      if (chunk.length === 0) continue;
+      const rows = await this.prisma.asset.findMany({
+        where: {
+          OR: chunk.map((tag) => ({
+            assetTagNumber: { equals: tag, mode: 'insensitive' as const },
+          })),
+        },
+        select: {
+          id: true,
+          assetTagNumber: true,
+          organizationId: true,
+          deletedAt: true,
+        },
+      });
+      for (const r of rows) {
+        const key = r.assetTagNumber.toLowerCase();
+        const current = found.get(key);
+        // Prefer a live asset over a deleted one with the same tag.
+        if (!current || (current.deletedAt !== null && r.deletedAt === null))
+          found.set(key, r);
       }
     }
-
-    return errors;
-  }
-
-  /**
-   * Import a single asset row into the database
-   */
-  private async importAsset(row: AssetRow, user: AuthUser, rowIndex?: number): Promise<void> {
-    // Extract values using flexible column matching
-    let assetTag = this.getRowValue(row, 'Asset Tag');
-    const serialNumber = this.getRowValue(row, 'Serial Number');
-    const manufacturerName = this.getRowValue(row, 'Manufacturer') || 'Unknown';
-    const modelNumber = this.getRowValue(row, 'Model Number') || 'Unknown';
-    const facilityCode = this.getRowValue(row, 'Facility Code') || 'DEFAULT';
-    const departmentCode = this.getRowValue(row, 'Department Code');
-    const status = this.getRowValue(row, 'Status');
-    const condition = this.getRowValue(row, 'Condition');
-    const acquisitionDate = this.getRowValue(row, 'Acquisition Date');
-    const installationDate = this.getRowValue(row, 'Installation Date');
-    const warrantyExpiry = this.getRowValue(row, 'Warranty Expiry');
-    const purchasePrice = this.getRowValue(row, 'Purchase Price');
-    const udi = this.getRowValue(row, 'UDI');
-    const rtlsTagId = this.getRowValue(row, 'RTLS Tag ID');
-    const bleBeaconId = this.getRowValue(row, 'BLE Beacon ID');
-    const notes = this.getRowValue(row, 'Notes');
-
-    // Auto-generate Asset Tag if missing but Serial Number is present
-    if (!assetTag) {
-      assetTag = this.generateAssetTag(row, rowIndex || 0);
-      this.logger.log(`Auto-generated Asset Tag: ${assetTag} for Serial Number: ${serialNumber}`);
-    }
-
-    // Resolve or create related entities
-    const facility = await this.getOrCreateFacility(facilityCode, user.organizationId);
-    const department = departmentCode
-      ? await this.getOrCreateDepartment(departmentCode, facility.id)
-      : null;
-    const manufacturer = await this.getOrCreateManufacturer(manufacturerName);
-
-    const assetStatus = this.mapStatus(status || 'AVAILABLE') as AssetStatus;
-    const assetCondition = this.mapCondition(condition || 'good');
-
-    // Parse purchase cost - handle formats like "1.25 Lakh", "10 lakh", etc.
-    const parsedCost = this.parsePurchasePrice(purchasePrice);
-
-    // Update only this organization's live asset with this tag (one conditional
-    // write, so no race can touch another organization's or a deleted asset).
-    const { count } = await this.prisma.asset.updateMany({
-      where: {
-        assetTagNumber: assetTag,
-        organizationId: user.organizationId,
-        deletedAt: null,
-      },
-      data: {
-        serialNumber: serialNumber || undefined,
-        manufacturer: manufacturerName,
-        modelNumber: modelNumber,
-        assetStatus,
-        currentFacilityId: facility.id,
-        updatedAt: new Date(),
-        updatedById: user.userId,
-      },
-    });
-    if (count > 0) {
-      return;
-    }
-
-    try {
-      await this.prisma.asset.create({ data: {
-        id: uuidv4(),
-        organizationId: user.organizationId,
-        assetTagNumber: assetTag,
-        equipmentName: `${manufacturerName} ${modelNumber}`,
-        manufacturer: manufacturerName,
-        modelNumber: modelNumber,
-        serialNumber: serialNumber || '',
-        deviceCategory: 'OTHER', // Default, can be enhanced
-        assetStatus,
-        criticalityLevel: 'MEDIUM', // Default
-        currentFacilityId: facility.id,
-        usefulLifeYears: 10, // Default
-        riskClassification: RiskClassification.CLASS_I, // Default
-        purchaseDate: this.parseDate(acquisitionDate) || new Date(),
-        installationDate: this.parseDate(installationDate),
-        warrantyEndDate: this.parseDate(warrantyExpiry),
-        purchaseCost: parsedCost,
-        udiDeviceIdentifier: udi || null,
-        rfidTagId: rtlsTagId || null,
-        bleBeaconMac: bleBeaconId || null,
-        notes: notes || null,
-        primaryCustodianId: user.userId,
-        custodianDepartmentId: department?.id || facility.id,
-        createdById: user.userId,
-        updatedById: user.userId,
-      } });
-    } catch (error) {
-      // The tag exists elsewhere (another organization, or a deleted asset whose
-      // tag stays reserved so its history remains unambiguous).
-      if ((error as { code?: string }).code === 'P2002') {
-        throw new Error(`Asset tag ${assetTag} is already in use`);
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * Parse purchase price from various formats (e.g., "1.25 Lakh", "10 lakh", "125000")
-   */
-  private parsePurchasePrice(value: any): number {
-    if (!value) return 0;
-
-    const str = String(value).toLowerCase().trim();
-
-    // Handle "lakh" format (1 lakh = 100,000)
-    const lakhMatch = str.match(/^([\d.]+)\s*lakh?s?$/i);
-    if (lakhMatch) {
-      return parseFloat(lakhMatch[1]) * 100000;
-    }
-
-    // Handle "crore" format (1 crore = 10,000,000)
-    const croreMatch = str.match(/^([\d.]+)\s*crore?s?$/i);
-    if (croreMatch) {
-      return parseFloat(croreMatch[1]) * 10000000;
-    }
-
-    // Remove currency symbols and commas
-    const cleaned = str.replace(/[₹$,\s]/g, '');
-    const parsed = parseFloat(cleaned);
-
-    return isNaN(parsed) ? 0 : parsed;
-  }
-
-  // ============================================================================
-  // HELPER METHODS
-  // ============================================================================
-
-  private async getOrCreateFacility(code: string, organizationId: string) {
-    const facility = await this.prisma.facility.findFirst({
-      where: { organizationId, facilityName: { contains: code, mode: 'insensitive' } },
-    });
-
-    if (facility) {
-      return facility;
-    }
-
-    // Create new facility
-    return this.prisma.facility.create({
-      data: {
-        id: uuidv4(),
-        organizationId,
-        facilityName: code,
-        facilityCode: code.toUpperCase().replace(/\s+/g, '_'),
-        timezone: 'UTC',
-      },
-    });
-  }
-
-  private async getOrCreateDepartment(code: string, facilityId: string) {
-    const department = await this.prisma.department.findFirst({
-      where: {
-        facilityId,
-        departmentCode: { equals: code, mode: 'insensitive' },
-      },
-    });
-
-    if (department) {
-      return department;
-    }
-
-    return this.prisma.department.create({
-      data: {
-        id: uuidv4(),
-        facilityId,
-        departmentName: code,
-        departmentCode: code.toUpperCase(),
-      },
-    });
-  }
-
-  private async getOrCreateManufacturer(name: string): Promise<string> {
-    // Manufacturer is stored as a string field in Asset model
-    // No separate Manufacturer model exists in current schema
-    return name;
-  }
-
-  private mapStatus(status: string): string {
-    if (!status) return 'AVAILABLE';
-
-    // Normalize: lowercase and replace spaces/underscores
-    const normalized = status.toLowerCase().replace(/[\s_-]+/g, '_').trim();
-
-    const statusMap: Record<string, string> = {
-      available: 'AVAILABLE',
-      in_use: 'IN_USE',
-      inuse: 'IN_USE',
-      maintenance: 'MAINTENANCE',
-      repair: 'REPAIR',
-      under_repair: 'REPAIR',
-      decommissioned: 'DECOMMISSIONED',
-      quarantine: 'QUARANTINE',
-      retired: 'DECOMMISSIONED',
-      active: 'IN_USE',
-    };
-    return statusMap[normalized] || 'AVAILABLE';
-  }
-
-  private mapCondition(condition: string): string {
-    if (!condition) return 'GOOD';
-
-    // Normalize: lowercase and trim
-    const normalized = condition.toLowerCase().trim();
-
-    const conditionMap: Record<string, string> = {
-      excellent: 'EXCELLENT',
-      good: 'GOOD',
-      fair: 'FAIR',
-      poor: 'POOR',
-      critical: 'CRITICAL',
-      unknown: 'UNKNOWN',
-      new: 'EXCELLENT',
-      'like new': 'EXCELLENT',
-      'very good': 'EXCELLENT',
-      ok: 'FAIR',
-      okay: 'FAIR',
-      bad: 'POOR',
-    };
-    return conditionMap[normalized] || 'GOOD';
-  }
-
-  private isValidDate(value: any): boolean {
-    if (!value) return true;
-    const date = new Date(value);
-    return !isNaN(date.getTime());
-  }
-
-  private parseDate(value: any): Date | null {
-    if (!value) return null;
-    const date = new Date(value);
-    return isNaN(date.getTime()) ? null : date;
-  }
-
-  private parseYesNo(value: any): boolean {
-    if (!value) return false;
-    const str = String(value).toLowerCase();
-    return str === 'yes' || str === 'true' || str === '1' || str === 'y';
+    return found;
   }
 
   /**
    * Export assets to Excel format
    */
-  async exportToExcel(organizationId: string, facilityId?: string): Promise<Buffer> {
+  async exportToExcel(
+    organizationId: string,
+    facilityId?: string,
+  ): Promise<Buffer> {
     const whereClause = {
       organizationId,
       ...(facilityId ? { currentFacilityId: facilityId } : {}),
@@ -628,19 +443,19 @@ export class ExcelImportService {
     const excelData = assets.map((a) => ({
       'Asset Tag': a.assetTagNumber,
       'Serial Number': a.serialNumber,
-      'Manufacturer': a.manufacturer,
+      Manufacturer: a.manufacturer,
       'Model Number': a.modelNumber,
-      'Facility': a.currentFacility?.facilityName || '',
-      'Status': a.assetStatus,
+      Facility: a.currentFacility?.facilityName || '',
+      Status: a.assetStatus,
       'Acquisition Date': a.purchaseDate,
       'Installation Date': a.installationDate,
       'Warranty Expiry': a.warrantyEndDate,
       'Purchase Price': a.purchaseCost,
-      'UDI': a.udiDeviceIdentifier,
+      UDI: a.udiDeviceIdentifier,
       'RTLS Tracked': a.rfidTagId || a.bleBeaconMac ? 'Yes' : 'No',
       'RTLS Tag ID': a.rfidTagId,
       'BLE Beacon ID': a.bleBeaconMac,
-      'Notes': a.notes,
+      Notes: a.notes,
     }));
 
     const ws = XLSX.utils.json_to_sheet(excelData);
@@ -652,122 +467,83 @@ export class ExcelImportService {
   }
 
   /**
-   * Generate a blank Excel template for asset import
+   * Blank template: an entry sheet with only the header row (no example to
+   * delete), an instructions sheet, and the allowed values for each list.
    */
   async generateTemplate(): Promise<Buffer> {
-    // Create workbook
     const wb = XLSX.utils.book_new();
 
-    // Define the template headers based on AssetRow interface
-    const headers = [
-      'Asset Tag*',
-      'Serial Number',
-      'Barcode',
-      'Asset Category*',
-      'Asset Type*',
-      'Manufacturer*',
-      'Model Number*',
-      'Facility Code*',
-      'Department Code',
-      'Location Code',
-      'Status*',
-      'Condition*',
-      'Acquisition Date',
-      'Installation Date',
-      'Warranty Expiry',
-      'Purchase Price',
-      'UDI',
-      'Lot Number',
-      'Is FDA Regulated',
-      'Is RTLS Tracked',
-      'RTLS Tag ID',
-      'BLE Beacon ID',
-      'Notes',
-    ];
+    const headers = IMPORT_COLUMNS.map((c) =>
+      c.required ? `${c.header}*` : c.header,
+    );
+    const entry = XLSX.utils.aoa_to_sheet([headers]);
+    entry['!cols'] = headers.map((h) => ({ wch: Math.max(h.length + 2, 16) }));
+    XLSX.utils.book_append_sheet(wb, entry, 'Asset Entry');
 
-    // Create worksheet with headers
-    const ws = XLSX.utils.aoa_to_sheet([headers]);
-
-    // Set column widths for better readability
-    const colWidths = headers.map((header) => ({
-      wch: Math.max(header.length + 2, 15),
-    }));
-    ws['!cols'] = colWidths;
-
-    // Add example row with instructions
-    const exampleRow = [
-      'ASSET-001',
-      'SN123456',
-      'BC789',
-      'Medical Equipment',
-      'Ventilator',
-      'Philips',
-      'V60',
-      'FACILITY-001',
-      'ICU',
-      'ICU-ROOM-101',
-      'Available',
-      'Excellent',
-      '2024-01-15',
-      '2024-01-20',
-      '2025-01-15',
-      '50000',
-      'UDI123456',
-      'LOT001',
-      'Yes',
-      'Yes',
-      'RFID-001',
-      'BLE-001',
-      'Sample asset entry',
-    ];
-    XLSX.utils.sheet_add_aoa(ws, [exampleRow], { origin: -1 });
-
-    // Add instructions sheet
     const instructions = [
-      ['BioTrakr Asset Import Template'],
+      ['BioTrakr asset import'],
       [],
-      ['Instructions:'],
-      ['1. Required fields are marked with *'],
-      ['2. Status values: Available, In_Use, Maintenance, Repair, Decommissioned, Quarantine'],
-      ['3. Condition values: Excellent, Good, Fair, Poor, Critical'],
-      ['4. Date format: YYYY-MM-DD (e.g., 2024-01-15)'],
-      ['5. Yes/No fields: Use "Yes" or "No"'],
-      ['6. Delete the example row before importing'],
+      [
+        '1. Fill in one row per device on the "Asset Entry" sheet. Columns marked * are required.',
+      ],
+      [
+        '2. Use the exact words from the "Allowed Values" sheet for Category, Status, Criticality and Risk Class.',
+      ],
+      [
+        '3. Facility Code and Department Code must already exist in BioTrakr (Settings).',
+      ],
+      ['4. Dates: YYYY-MM-DD (e.g. 2024-01-15), or an Excel date.'],
+      [
+        '5. A row whose Asset Tag already exists in your organization updates that device.',
+      ],
+      [
+        '6. Upload, then press "Check file". Nothing is saved until every row is valid and you press Import.',
+      ],
       [],
-      ['Column Descriptions:'],
-      ['Asset Tag*: Unique identifier for the asset'],
-      ['Serial Number: Manufacturer serial number'],
-      ['Barcode: Barcode identifier'],
-      ['Asset Category*: Category of the asset (e.g., Medical Equipment)'],
-      ['Asset Type*: Specific type (e.g., Ventilator, Monitor)'],
-      ['Manufacturer*: Manufacturer name'],
-      ['Model Number*: Model identifier'],
-      ['Facility Code*: Code of the facility'],
-      ['Department Code: Department code'],
-      ['Location Code: Location within facility'],
-      ['Status*: Current status of the asset'],
-      ['Condition*: Physical condition'],
-      ['Acquisition Date: Date asset was acquired'],
-      ['Installation Date: Date asset was installed'],
-      ['Warranty Expiry: Warranty expiration date'],
-      ['Purchase Price: Purchase cost in rupees'],
-      ['UDI: Unique Device Identifier'],
-      ['Lot Number: Lot/batch number'],
-      ['Is FDA Regulated: Yes/No'],
-      ['Is RTLS Tracked: Yes/No'],
-      ['RTLS Tag ID: RFID tag identifier'],
-      ['BLE Beacon ID: Bluetooth beacon MAC address'],
-      ['Notes: Additional notes'],
+      ['Column', 'Required', 'What to enter'],
+      ...IMPORT_COLUMNS.map((c) => [c.header, c.required ? 'Yes' : '', c.help]),
+      [],
+      ['Example row'],
+      [
+        'ASSET-001 (this tag is never imported)',
+        'ICU ventilator',
+        'Philips',
+        'V60',
+        'SN123456',
+        'Life Support',
+        'Critical',
+        'Class II',
+        'Active',
+        'CG',
+        'ICU',
+        '2024-01-15',
+      ],
     ];
     const wsInstructions = XLSX.utils.aoa_to_sheet(instructions);
-    wsInstructions['!cols'] = [{ wch: 50 }];
-
-    // Append sheets to workbook - use 'Asset Entry' to match importer expectations
-    XLSX.utils.book_append_sheet(wb, ws, 'Asset Entry');
+    wsInstructions['!cols'] = [{ wch: 28 }, { wch: 10 }, { wch: 70 }];
     XLSX.utils.book_append_sheet(wb, wsInstructions, 'Instructions');
 
-    // Write to buffer
-    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-    return buffer;
+    const lists = [
+      ['Category', 'Status', 'Criticality', 'Risk Class'],
+      ...Array.from(
+        {
+          length: Math.max(
+            ASSET_FORM_ENUMS.deviceCategory.length,
+            ASSET_FORM_ENUMS.assetStatus.length,
+          ),
+        },
+        (_, i) => [
+          ASSET_FORM_ENUMS.deviceCategory[i]?.label ?? '',
+          ASSET_FORM_ENUMS.assetStatus[i]?.label ?? '',
+          ASSET_FORM_ENUMS.criticalityLevel[i]?.label ?? '',
+          ASSET_FORM_ENUMS.riskClassification[i]?.label ?? '',
+        ],
+      ),
+    ];
+    const wsLists = XLSX.utils.aoa_to_sheet(lists);
+    wsLists['!cols'] = [{ wch: 22 }, { wch: 18 }, { wch: 14 }, { wch: 12 }];
+    XLSX.utils.book_append_sheet(wb, wsLists, 'Allowed Values');
+
+    return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
   }
 }

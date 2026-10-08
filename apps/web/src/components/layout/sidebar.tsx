@@ -1,5 +1,6 @@
 'use client';
 
+import type { Route } from 'next';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -165,7 +166,7 @@ export function Sidebar() {
             const Icon = item.icon;
 
             return (
-              <Link key={item.name} href={item.href}>
+              <Link key={item.name} href={item.href as Route}>
                 <div
                   className={cn(
                     'group flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200',
@@ -247,7 +248,7 @@ export function Sidebar() {
           const isActive = pathname === item.href;
 
           return (
-            <Link key={item.name} href={item.href}>
+            <Link key={item.name} href={item.href as Route}>
               <div className={cn(
                 'flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200',
                 isActive

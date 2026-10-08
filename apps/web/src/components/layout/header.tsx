@@ -1,5 +1,6 @@
 'use client';
 
+import type { Route } from 'next';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -58,7 +59,7 @@ export function Header({ title, subtitle, actions }: HeaderProps) {
     if (option.action) {
       option.action();
     } else {
-      router.push(option.href);
+      router.push(option.href as Route);
     }
   };
 

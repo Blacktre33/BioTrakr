@@ -23,16 +23,45 @@ export interface ImportError {
   value?: any;
 }
 
+export interface ImportWarning {
+  /** Excel row number; 0 means the file as a whole. */
+  row: number;
+  message: string;
+}
+
+/** Result of an import: every row is saved, or none are. */
 export interface ImportResult {
   success: boolean;
   totalRows: number;
   imported: number;
+  created: number;
+  updated: number;
+  /** Rows with at least one error. */
   failed: number;
   errors: ImportError[];
-  warnings?: Array<{
-    row: number;
-    message: string;
-  }>;
+  warnings: ImportWarning[];
+}
+
+export interface ImportPreviewRow {
+  row: number;
+  action: "create" | "update";
+  assetTagNumber: string;
+  equipmentName: string;
+  facility: string;
+  department: string;
+  status: string;
+  category: string;
+}
+
+/** Result of checking a file before import. Nothing is saved. */
+export interface ImportCheck {
+  valid: boolean;
+  totalRows: number;
+  toCreate: number;
+  toUpdate: number;
+  errors: ImportError[];
+  warnings: ImportWarning[];
+  preview: ImportPreviewRow[];
 }
 
 export async function createAssetScan(
@@ -88,11 +117,11 @@ export async function downloadAssetTemplate(): Promise<Blob> {
 /**
  * Validate Excel file without importing
  */
-export async function validateExcelFile(file: File): Promise<ImportResult> {
+export async function validateExcelFile(file: File): Promise<ImportCheck> {
   const formData = new FormData();
   formData.append("file", file);
 
-  const { data } = await api.post<ImportResult>("/v1/assets/validate", formData, {
+  const { data } = await api.post<ImportCheck>("/v1/assets/validate", formData, {
     headers: {
       "Content-Type": "multipart/form-data",
     },

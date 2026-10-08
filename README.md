@@ -105,6 +105,15 @@ For the fastest path, print each label's QR code as a link:
 the label then opens the device directly (after sign-in). Plain tag numbers,
 asset ids and `biotrakr://asset/<id>` payloads also work.
 
+### Bulk import from Excel
+
+Assets → Import. Choosing a file checks every row first (`POST
+/api/v1/assets/validate`, which never writes) and lists problems by row and
+column, with a preview. Import (`POST /api/v1/assets/import`) saves all rows
+in one transaction or none. Category, status, criticality and risk class
+must match the template's Allowed Values sheet; facilities and departments
+must already exist. Limits: 5 MB, 2,000 rows per file.
+
 ### Service Entry Points
 
 Run individual apps when iterating on specific surfaces:
