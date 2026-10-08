@@ -118,7 +118,7 @@ export class AssetsService {
     return this.prisma.asset.findMany({
       skip: params.skip ?? 0,
       take: Math.min(params.take ?? 20, MAX_PAGE_SIZE),
-      where: { organizationId: user.organizationId },
+      where: { organizationId: user.organizationId, deletedAt: null },
       orderBy: { assetTagNumber: 'asc' },
       include: {
         currentFacility: true,
@@ -129,7 +129,7 @@ export class AssetsService {
 
   async findOne(id: string, user: AuthUser): Promise<Asset | null> {
     return this.prisma.asset.findFirst({
-      where: { id, organizationId: user.organizationId },
+      where: { id, organizationId: user.organizationId, deletedAt: null },
       include: {
         currentFacility: true,
         currentBuilding: true,
@@ -169,9 +169,25 @@ export class AssetsService {
     });
   }
 
-  async remove(id: string, user: AuthUser): Promise<Asset> {
+  /**
+   * Soft delete: the asset disappears from the registry but the row and all of
+   * its history are kept for audit. The asset tag stays reserved.
+   */
+  async remove(
+    id: string,
+    user: AuthUser,
+  ): Promise<{ id: string; deletedAt: Date }> {
     await this.getOwnedAssetOrThrow(id, user);
-    return this.prisma.asset.delete({ where: { id } });
+    const now = new Date();
+    return this.prisma.asset.update({
+      where: { id },
+      data: {
+        deletedAt: now,
+        deletedById: user.userId,
+        updatedById: user.userId,
+      },
+      select: { id: true, deletedAt: true },
+    }) as Promise<{ id: string; deletedAt: Date }>;
   }
 
   async createAssetScan(
@@ -205,13 +221,13 @@ export class AssetsService {
     });
   }
 
-  /** 404s for assets that don't exist *or* belong to another organization. */
+  /** 404s for assets that don't exist, are soft-deleted, or belong to another organization. */
   private async getOwnedAssetOrThrow(
     id: string,
     user: AuthUser,
   ): Promise<{ id: string }> {
     const asset = await this.prisma.asset.findFirst({
-      where: { id, organizationId: user.organizationId },
+      where: { id, organizationId: user.organizationId, deletedAt: null },
       select: { id: true },
     });
     if (!asset) {

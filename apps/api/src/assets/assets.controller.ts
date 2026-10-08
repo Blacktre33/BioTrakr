@@ -101,9 +101,11 @@ export class AssetsController {
   }
 
   @Delete(':id')
-  @Roles(...ASSET_EDITOR_ROLES)
-  @ApiOperation({ summary: 'Delete an asset' })
-  @ApiOkResponse({ description: 'The deleted asset' })
+  @Roles('admin')
+  @ApiOperation({
+    summary: 'Soft-delete an asset (admin only); its history is kept',
+  })
+  @ApiOkResponse({ description: 'The deleted asset id and deletion time' })
   async remove(
     @Param('id', new ParseUUIDPipe()) id: string,
     @CurrentUser() user: AuthUser,

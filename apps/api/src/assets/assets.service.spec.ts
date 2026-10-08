@@ -35,7 +35,7 @@ describe('AssetsService', () => {
       ).rejects.toBeInstanceOf(NotFoundException);
       expect(prisma.asset.findFirst).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 'asset-id', organizationId: 'org-1' },
+          where: { id: 'asset-id', organizationId: 'org-1', deletedAt: null },
         }),
       );
       expect(prisma.assetScanLog.create).not.toHaveBeenCalled();

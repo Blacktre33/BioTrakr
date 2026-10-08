@@ -677,7 +677,7 @@ model LocationHistory {
   trackingMethod      TrackingMethod
   recordedByUserId    String?
 
-  asset               Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  asset               Asset           @relation(fields: [assetId], references: [id], onDelete: Restrict) // history outlives the asset; assets are soft-deleted
   facility            Facility?       @relation(fields: [facilityId], references: [id])
   building            Building?       @relation(fields: [buildingId], references: [id])
   floor               Floor?          @relation(fields: [floorId], references: [id])
@@ -705,7 +705,7 @@ model UsageLog {
   usageCycles         Int             @default(1)
   notes               String?
 
-  asset               Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  asset               Asset           @relation(fields: [assetId], references: [id], onDelete: Restrict) // history outlives the asset; assets are soft-deleted
   operator            User?           @relation(fields: [operatorId], references: [id])
   department          Department?     @relation(fields: [departmentId], references: [id])
 
@@ -727,7 +727,7 @@ model IoTSensorReading {
   unit                String?
   status              String?
 
-  asset               Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  asset               Asset           @relation(fields: [assetId], references: [id], onDelete: Restrict) // history outlives the asset; assets are soft-deleted
 
   @@index([sensorId, timestamp(sort: Desc)])
   @@index([assetId, timestamp(sort: Desc)])
@@ -748,7 +748,7 @@ model PredictiveScoreHistory {
   confidenceScore         Decimal?        @db.Decimal(5, 2)
   contributingFactors     Json?
 
-  asset                   Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  asset                   Asset           @relation(fields: [assetId], references: [id], onDelete: Restrict) // history outlives the asset; assets are soft-deleted
 
   @@index([assetId, timestamp(sort: Desc)])
   @@index([timestamp])
@@ -931,7 +931,7 @@ model MaintenanceHistory {
   createdByUserId         String
   updatedAt               DateTime        @updatedAt
 
-  asset                   Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  asset                   Asset           @relation(fields: [assetId], references: [id], onDelete: Restrict) // history outlives the asset; assets are soft-deleted
   assignedTechnician      User?           @relation("MaintenanceAssignedTechnician", fields: [assignedTechnicianId], references: [id])
   vendor                  Vendor?         @relation(fields: [vendorId], references: [id])
   createdBy               User            @relation("MaintenanceCreatedBy", fields: [createdByUserId], references: [id])
@@ -984,7 +984,7 @@ model ComplianceEvent {
   createdAt                   DateTime        @default(now())
   createdByUserId             String
 
-  asset                       Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  asset                       Asset           @relation(fields: [assetId], references: [id], onDelete: Restrict) // history outlives the asset; assets are soft-deleted
   createdBy                   User            @relation(fields: [createdByUserId], references: [id])
 
   @@index([assetId, eventDate(sort: Desc)])
@@ -1015,7 +1015,7 @@ model AlertHistory {
   notificationMethod      String?
   metadata                Json?
 
-  asset                   Asset?          @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  asset                   Asset?          @relation(fields: [assetId], references: [id], onDelete: Restrict) // history outlives the asset; assets are soft-deleted
   acknowledgedBy          User?           @relation("AlertAcknowledgedBy", fields: [acknowledgedByUserId], references: [id])
   resolvedBy              User?           @relation("AlertResolvedBy", fields: [resolvedByUserId], references: [id])
   escalatedTo             User?           @relation("AlertEscalatedTo", fields: [escalatedToUserId], references: [id])
@@ -1042,7 +1042,7 @@ model AssignmentHistory {
   locationAtAssignment    String?
   notes                   String?
 
-  asset                   Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  asset                   Asset           @relation(fields: [assetId], references: [id], onDelete: Restrict) // history outlives the asset; assets are soft-deleted
   assignedToUser          User?           @relation("AssignedTo", fields: [assignedToUserId], references: [id])
   assignedToDepartment    Department?     @relation(fields: [assignedToDepartmentId], references: [id])
   assignedBy              User            @relation("AssignedBy", fields: [assignedByUserId], references: [id])
@@ -1068,7 +1068,7 @@ model TransferHistory {
   receivedAt              DateTime?
   notes                   String?
 
-  asset                   Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  asset                   Asset           @relation(fields: [assetId], references: [id], onDelete: Restrict) // history outlives the asset; assets are soft-deleted
   fromFacility            Facility?       @relation("TransferFrom", fields: [fromFacilityId], references: [id])
   toFacility              Facility        @relation("TransferTo", fields: [toFacilityId], references: [id])
   fromRoom                Room?           @relation("TransferFromRoom", fields: [fromRoomId], references: [id])
@@ -1097,7 +1097,7 @@ model TrainingRecord {
   attachments             Json?
   createdAt               DateTime        @default(now())
 
-  asset                   Asset?          @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  asset                   Asset?          @relation(fields: [assetId], references: [id], onDelete: Restrict) // history outlives the asset; assets are soft-deleted
   user                    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([assetId, trainingDate(sort: Desc)])
@@ -1144,7 +1144,7 @@ model MediaAttachment {
   uploadedByUserId        String?
   uploadedAt              DateTime        @default(now())
 
-  asset                   Asset?          @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  asset                   Asset?          @relation(fields: [assetId], references: [id], onDelete: Restrict) // history outlives the asset; assets are soft-deleted
   uploadedBy              User?           @relation(fields: [uploadedByUserId], references: [id])
 
   @@index([assetId])
@@ -1203,7 +1203,7 @@ model AssetScanLog {
   locationHint            String?
   createdAt               DateTime        @default(now())
 
-  asset                   Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  asset                   Asset           @relation(fields: [assetId], references: [id], onDelete: Restrict) // history outlives the asset; assets are soft-deleted
 
   @@index([assetId, createdAt])
   @@map("asset_scan_logs")

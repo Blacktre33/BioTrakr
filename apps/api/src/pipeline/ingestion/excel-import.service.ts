@@ -400,10 +400,14 @@ export class ExcelImportService {
     // Asset tags are globally unique; never let one organization overwrite another's asset.
     const existing = await this.prisma.asset.findUnique({
       where: { assetTagNumber: assetTag },
-      select: { organizationId: true },
+      select: { organizationId: true, deletedAt: true },
     });
     if (existing && existing.organizationId !== user.organizationId) {
       throw new Error(`Asset tag ${assetTag} is already in use`);
+    }
+    if (existing?.deletedAt) {
+      // Tags of deleted assets stay reserved so their history remains unambiguous.
+      throw new Error(`Asset tag ${assetTag} belongs to a deleted asset`);
     }
 
     // Create asset using Prisma

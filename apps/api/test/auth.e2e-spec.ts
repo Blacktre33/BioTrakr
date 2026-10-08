@@ -11,12 +11,28 @@ const ASSET_A = '11111111-1111-4111-8111-111111111111';
 const ASSET_B = '22222222-2222-4222-8222-222222222222';
 const FACILITY_A = '33333333-3333-4333-8333-333333333333';
 
-const assets = [
-  { id: ASSET_A, organizationId: ORG_A, assetTagNumber: 'VENT-A' },
-  { id: ASSET_B, organizationId: ORG_B, assetTagNumber: 'VENT-B' },
-];
-
 function buildPrisma() {
+  // Fresh rows per test, since soft-delete tests mutate them.
+  const assets: Array<{
+    id: string;
+    organizationId: string;
+    assetTagNumber: string;
+    deletedAt: Date | null;
+    deletedById?: string;
+  }> = [
+    {
+      id: ASSET_A,
+      organizationId: ORG_A,
+      assetTagNumber: 'VENT-A',
+      deletedAt: null,
+    },
+    {
+      id: ASSET_B,
+      organizationId: ORG_B,
+      assetTagNumber: 'VENT-B',
+      deletedAt: null,
+    },
+  ];
   const users = [
     {
       id: 'u-admin',
@@ -36,13 +52,26 @@ function buildPrisma() {
     row: Record<string, unknown>,
     where: Record<string, unknown> = {},
   ) =>
-    Object.entries(where).every(
-      ([k, v]) => v === undefined || typeof v === 'object' || row[k] === v,
+    Object.entries(where).every(([k, v]) =>
+      v === null
+        ? row[k] == null
+        : v === undefined || typeof v === 'object' || row[k] === v,
     );
 
   return {
     users,
+    assets,
     asset: {
+      update: jest.fn(async ({ where, data, select }) => {
+        const row = assets.find((a) => a.id === where.id)!;
+        Object.assign(row, data);
+        return select
+          ? Object.fromEntries(
+              Object.keys(select).map((k) => [k, (row as never)[k]]),
+            )
+          : row;
+      }),
+      delete: jest.fn(),
       findMany: jest.fn(async ({ where }) =>
         assets.filter((a) => matchesWhere(a, where)),
       ),
@@ -75,7 +104,7 @@ function buildPrisma() {
     },
     usageLog: {
       findMany: jest.fn<
-        Promise<never[]>,
+        Promise<unknown[]>,
         [{ where: Record<string, unknown> }]
       >(async () => []),
     },
@@ -184,6 +213,7 @@ describe('Authentication and authorization (e2e)', () => {
       expect(res.body.map((a: { id: string }) => a.id)).toEqual([ASSET_A]);
       expect(prisma.asset.findMany.mock.calls[0][0].where).toEqual({
         organizationId: ORG_A,
+        deletedAt: null,
       });
     });
 
@@ -319,6 +349,69 @@ describe('Authentication and authorization (e2e)', () => {
         .send({ ...event, assetId: ASSET_A })
         .expect(201);
       expect(prisma.locationHistory.create).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('soft delete', () => {
+    it('only admins may delete', async () => {
+      for (const role of [
+        'engineer',
+        'technician',
+        'viewer',
+        'integration',
+      ] as const) {
+        await request(app.getHttpServer())
+          .delete(`/api/assets/${ASSET_A}`)
+          .set(bearer(role))
+          .expect(403);
+      }
+      expect(prisma.asset.update).not.toHaveBeenCalled();
+    });
+
+    it('marks the asset deleted, keeps the row, and hides it afterwards', async () => {
+      const res = await request(app.getHttpServer())
+        .delete(`/api/assets/${ASSET_A}`)
+        .set(bearer('admin'))
+        .expect(200);
+      expect(res.body.id).toBe(ASSET_A);
+      expect(new Date(res.body.deletedAt).getTime()).toBeLessThanOrEqual(
+        Date.now(),
+      );
+
+      // Never a hard delete.
+      expect(prisma.asset.delete).not.toHaveBeenCalled();
+      expect(prisma.assets.find((a) => a.id === ASSET_A)).toMatchObject({
+        deletedById: 'user-admin',
+      });
+
+      const list = await request(app.getHttpServer())
+        .get('/api/assets')
+        .set(bearer('viewer'))
+        .expect(200);
+      expect(list.body).toEqual([]);
+
+      await request(app.getHttpServer())
+        .get(`/api/assets/${ASSET_A}`)
+        .set(bearer('viewer'))
+        .expect(404);
+      await request(app.getHttpServer())
+        .post(`/api/assets/${ASSET_A}/scans`)
+        .set(bearer('technician'))
+        .send({ qrPayload: 'x' })
+        .expect(404);
+      // Deleting twice is a 404, not a second timestamp.
+      await request(app.getHttpServer())
+        .delete(`/api/assets/${ASSET_A}`)
+        .set(bearer('admin'))
+        .expect(404);
+    });
+
+    it("cannot delete another organization's asset", async () => {
+      await request(app.getHttpServer())
+        .delete(`/api/assets/${ASSET_B}`)
+        .set(bearer('admin'))
+        .expect(404);
+      expect(prisma.asset.update).not.toHaveBeenCalled();
     });
   });
 
