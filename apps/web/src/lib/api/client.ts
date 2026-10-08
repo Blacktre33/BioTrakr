@@ -63,8 +63,10 @@ api.interceptors.response.use(
   async (error: AxiosError<{ message?: string | string[] }>) => {
     const original = error.config as RetriableConfig | undefined;
 
-    // Expired access token: refresh once and replay the request.
-    if (error.response?.status === 401 && original && !original._retried) {
+    // Expired access token: refresh once and replay the request. Never for
+    // /auth/* itself, or a wrong password would revive an old stored session.
+    const isAuthRoute = original?.url?.startsWith("/auth/") ?? false;
+    if (error.response?.status === 401 && original && !original._retried && !isAuthRoute) {
       original._retried = true;
       const session = await refreshSession();
       if (session) {

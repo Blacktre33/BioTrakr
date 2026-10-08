@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -108,7 +109,15 @@ export class AssetsService {
       updatedById: user.userId,
     };
 
-    return this.prisma.asset.create({ data });
+    try {
+      return await this.prisma.asset.create({ data });
+    } catch (error) {
+      // Asset tags are unique across the platform (including deleted assets).
+      if ((error as { code?: string }).code === 'P2002') {
+        throw new ConflictException('This asset tag number is already in use');
+      }
+      throw error;
+    }
   }
 
   async findAll(
@@ -154,19 +163,21 @@ export class AssetsService {
     updateAssetDto: UpdateAssetDto,
     user: AuthUser,
   ): Promise<Asset> {
-    await this.getOwnedAssetOrThrow(id, user);
     await this.assertReferencesInOrganization(user.organizationId, {
       facilityId: updateAssetDto.currentFacilityId,
       roomId: updateAssetDto.currentRoomId,
     });
 
-    return this.prisma.asset.update({
-      where: { id },
-      data: {
-        ...updateAssetDto,
-        updatedById: user.userId,
-      },
+    // One conditional write: cannot land on another organization's asset or
+    // on one that was deleted in the meantime.
+    const { count } = await this.prisma.asset.updateMany({
+      where: { id, organizationId: user.organizationId, deletedAt: null },
+      data: { ...updateAssetDto, updatedById: user.userId },
     });
+    if (count === 0) {
+      throw new NotFoundException(`Asset ${id} not found`);
+    }
+    return (await this.findOne(id, user))!;
   }
 
   /**
@@ -177,17 +188,17 @@ export class AssetsService {
     id: string,
     user: AuthUser,
   ): Promise<{ id: string; deletedAt: Date }> {
-    await this.getOwnedAssetOrThrow(id, user);
-    const now = new Date();
-    return this.prisma.asset.update({
-      where: { id },
-      data: {
-        deletedAt: now,
-        deletedById: user.userId,
-        updatedById: user.userId,
-      },
-      select: { id: true, deletedAt: true },
-    }) as Promise<{ id: string; deletedAt: Date }>;
+    const deletedAt = new Date();
+    // Conditional on deletedAt: null, so a repeat delete is a 404 and never
+    // overwrites who deleted it and when.
+    const { count } = await this.prisma.asset.updateMany({
+      where: { id, organizationId: user.organizationId, deletedAt: null },
+      data: { deletedAt, deletedById: user.userId, updatedById: user.userId },
+    });
+    if (count === 0) {
+      throw new NotFoundException(`Asset ${id} not found`);
+    }
+    return { id, deletedAt };
   }
 
   async createAssetScan(

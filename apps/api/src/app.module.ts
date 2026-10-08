@@ -6,6 +6,7 @@ import { AssetsModule } from './assets/assets.module';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { RolesGuard } from './auth/roles.guard';
+import { THROTTLERS } from './auth/throttling';
 import { IngestionModule } from './pipeline/ingestion.module';
 import { PrismaModule } from './database/prisma.module';
 import { AppController } from './app.controller';
@@ -13,9 +14,8 @@ import { AppService } from './app.service';
 
 @Module({
   imports: [
-    // Default: 300 requests per minute per client IP. Credential endpoints
-    // override this with a much lower limit.
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
+    // Per-user / per-IP limits; see auth/throttling.ts.
+    ThrottlerModule.forRoot(THROTTLERS),
     PrismaModule,
     AuthModule,
     IngestionModule,

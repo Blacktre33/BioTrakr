@@ -104,7 +104,10 @@ export class IngestionController {
       `Ingesting RTLS: ${event.eventType} for asset ${event.assetId}`,
     );
 
-    const success = await this.ingestionService.ingestRTLSEvent(event);
+    const success = await this.ingestionService.ingestRTLSEvent(
+      event,
+      user.organizationId,
+    );
     if (!success) {
       throw new BadRequestException('Failed to ingest RTLS event');
     }
@@ -122,7 +125,7 @@ export class IngestionController {
   ): Promise<IngestionResponseDto> {
     this.logger.log(`Ingesting RTLS batch: ${batch.events.length} events`);
     return this.processBatch(batch.events, user, (event) =>
-      this.ingestionService.ingestRTLSEvent(event),
+      this.ingestionService.ingestRTLSEvent(event, user.organizationId),
     );
   }
 

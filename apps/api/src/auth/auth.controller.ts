@@ -1,6 +1,5 @@
 import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { Throttle } from '@nestjs/throttler';
 import { IsEmail, IsString, MaxLength, MinLength } from 'class-validator';
 
 import type { AuthUser } from './auth-user';
@@ -26,16 +25,12 @@ export class RefreshDto {
   refreshToken!: string;
 }
 
-/** 5 attempts per minute per client on credential endpoints. */
-const CREDENTIAL_THROTTLE = { default: { limit: 5, ttl: 60_000 } };
-
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Public()
-  @Throttle(CREDENTIAL_THROTTLE)
   @Post('login')
   @HttpCode(200)
   @ApiOperation({
@@ -46,7 +41,6 @@ export class AuthController {
   }
 
   @Public()
-  @Throttle(CREDENTIAL_THROTTLE)
   @Post('refresh')
   @HttpCode(200)
   @ApiOperation({ summary: 'Exchange a refresh token for a new token pair' })

@@ -6,11 +6,24 @@ import { Activity, Lock, Mail } from 'lucide-react';
 
 import { Button, Card, Input, Label } from '@/components/ui';
 import { api, ApiError } from '@/lib/api/client';
-import { setSession, type Session } from '@/lib/auth/session';
+import { clearSession, setSession, type Session } from '@/lib/auth/session';
 
-/** Only allow redirects back into this app (no open redirects). */
+/**
+ * Only allow redirects back into this app. Parsing with URL (instead of
+ * prefix checks) also catches tricks like "/\evil.com" or "/%09/evil.com",
+ * which browsers resolve to another site.
+ */
 function safeNext(raw: string | null): string {
-  return raw && raw.startsWith('/') && !raw.startsWith('//') ? raw : '/dashboard';
+  if (!raw) return '/dashboard';
+  try {
+    const url = new URL(raw, window.location.origin);
+    if (url.origin !== window.location.origin || url.pathname === '/login') {
+      return '/dashboard';
+    }
+    return url.pathname + url.search + url.hash;
+  } catch {
+    return '/dashboard';
+  }
 }
 
 function LoginForm() {
@@ -25,6 +38,7 @@ function LoginForm() {
     event.preventDefault();
     setError(null);
     setSubmitting(true);
+    clearSession(); // a new sign-in never reuses a previous user's tokens
     try {
       const { data } = await api.post<Session>('/auth/login', { email, password });
       setSession(data);

@@ -1064,7 +1064,7 @@ ALTER TABLE "assets" ADD CONSTRAINT "assets_updatedById_fkey" FOREIGN KEY ("upda
 ALTER TABLE "assets" ADD CONSTRAINT "assets_deletedById_fkey" FOREIGN KEY ("deletedById") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "location_history" ADD CONSTRAINT "location_history_assetId_fkey" FOREIGN KEY ("assetId") REFERENCES "assets"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "location_history" ADD CONSTRAINT "location_history_assetId_fkey" FOREIGN KEY ("assetId") REFERENCES "assets"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "location_history" ADD CONSTRAINT "location_history_facilityId_fkey" FOREIGN KEY ("facilityId") REFERENCES "facilities"("id") ON DELETE SET NULL ON UPDATE CASCADE;
@@ -1082,7 +1082,7 @@ ALTER TABLE "location_history" ADD CONSTRAINT "location_history_roomId_fkey" FOR
 ALTER TABLE "location_history" ADD CONSTRAINT "location_history_recordedByUserId_fkey" FOREIGN KEY ("recordedByUserId") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "usage_logs" ADD CONSTRAINT "usage_logs_assetId_fkey" FOREIGN KEY ("assetId") REFERENCES "assets"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "usage_logs" ADD CONSTRAINT "usage_logs_assetId_fkey" FOREIGN KEY ("assetId") REFERENCES "assets"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "usage_logs" ADD CONSTRAINT "usage_logs_operatorId_fkey" FOREIGN KEY ("operatorId") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
@@ -1091,10 +1091,10 @@ ALTER TABLE "usage_logs" ADD CONSTRAINT "usage_logs_operatorId_fkey" FOREIGN KEY
 ALTER TABLE "usage_logs" ADD CONSTRAINT "usage_logs_departmentId_fkey" FOREIGN KEY ("departmentId") REFERENCES "departments"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "iot_sensor_readings" ADD CONSTRAINT "iot_sensor_readings_assetId_fkey" FOREIGN KEY ("assetId") REFERENCES "assets"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "iot_sensor_readings" ADD CONSTRAINT "iot_sensor_readings_assetId_fkey" FOREIGN KEY ("assetId") REFERENCES "assets"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "predictive_scores_history" ADD CONSTRAINT "predictive_scores_history_assetId_fkey" FOREIGN KEY ("assetId") REFERENCES "assets"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "predictive_scores_history" ADD CONSTRAINT "predictive_scores_history_assetId_fkey" FOREIGN KEY ("assetId") REFERENCES "assets"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "asset_telemetry" ADD CONSTRAINT "asset_telemetry_asset_id_fkey" FOREIGN KEY ("asset_id") REFERENCES "assets"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -1106,7 +1106,7 @@ ALTER TABLE "maintenance_events" ADD CONSTRAINT "maintenance_events_asset_id_fke
 ALTER TABLE "error_events" ADD CONSTRAINT "error_events_asset_id_fkey" FOREIGN KEY ("asset_id") REFERENCES "assets"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "maintenance_history" ADD CONSTRAINT "maintenance_history_assetId_fkey" FOREIGN KEY ("assetId") REFERENCES "assets"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "maintenance_history" ADD CONSTRAINT "maintenance_history_assetId_fkey" FOREIGN KEY ("assetId") REFERENCES "assets"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "maintenance_history" ADD CONSTRAINT "maintenance_history_assignedTechnicianId_fkey" FOREIGN KEY ("assignedTechnicianId") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
@@ -1121,13 +1121,13 @@ ALTER TABLE "maintenance_history" ADD CONSTRAINT "maintenance_history_createdByU
 ALTER TABLE "spare_parts" ADD CONSTRAINT "spare_parts_supplierId_fkey" FOREIGN KEY ("supplierId") REFERENCES "vendors"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "compliance_events" ADD CONSTRAINT "compliance_events_assetId_fkey" FOREIGN KEY ("assetId") REFERENCES "assets"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "compliance_events" ADD CONSTRAINT "compliance_events_assetId_fkey" FOREIGN KEY ("assetId") REFERENCES "assets"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "compliance_events" ADD CONSTRAINT "compliance_events_createdByUserId_fkey" FOREIGN KEY ("createdByUserId") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "alert_history" ADD CONSTRAINT "alert_history_assetId_fkey" FOREIGN KEY ("assetId") REFERENCES "assets"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "alert_history" ADD CONSTRAINT "alert_history_assetId_fkey" FOREIGN KEY ("assetId") REFERENCES "assets"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "alert_history" ADD CONSTRAINT "alert_history_acknowledgedByUserId_fkey" FOREIGN KEY ("acknowledgedByUserId") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
@@ -1139,7 +1139,7 @@ ALTER TABLE "alert_history" ADD CONSTRAINT "alert_history_resolvedByUserId_fkey"
 ALTER TABLE "alert_history" ADD CONSTRAINT "alert_history_escalatedToUserId_fkey" FOREIGN KEY ("escalatedToUserId") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "assignment_history" ADD CONSTRAINT "assignment_history_assetId_fkey" FOREIGN KEY ("assetId") REFERENCES "assets"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "assignment_history" ADD CONSTRAINT "assignment_history_assetId_fkey" FOREIGN KEY ("assetId") REFERENCES "assets"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "assignment_history" ADD CONSTRAINT "assignment_history_assignedToUserId_fkey" FOREIGN KEY ("assignedToUserId") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
@@ -1154,7 +1154,7 @@ ALTER TABLE "assignment_history" ADD CONSTRAINT "assignment_history_assignedByUs
 ALTER TABLE "assignment_history" ADD CONSTRAINT "assignment_history_locationAtAssignment_fkey" FOREIGN KEY ("locationAtAssignment") REFERENCES "rooms"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "transfer_history" ADD CONSTRAINT "transfer_history_assetId_fkey" FOREIGN KEY ("assetId") REFERENCES "assets"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "transfer_history" ADD CONSTRAINT "transfer_history_assetId_fkey" FOREIGN KEY ("assetId") REFERENCES "assets"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "transfer_history" ADD CONSTRAINT "transfer_history_fromFacilityId_fkey" FOREIGN KEY ("fromFacilityId") REFERENCES "facilities"("id") ON DELETE SET NULL ON UPDATE CASCADE;
@@ -1178,7 +1178,7 @@ ALTER TABLE "transfer_history" ADD CONSTRAINT "transfer_history_approvedByUserId
 ALTER TABLE "transfer_history" ADD CONSTRAINT "transfer_history_receivedByUserId_fkey" FOREIGN KEY ("receivedByUserId") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "training_records" ADD CONSTRAINT "training_records_assetId_fkey" FOREIGN KEY ("assetId") REFERENCES "assets"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "training_records" ADD CONSTRAINT "training_records_assetId_fkey" FOREIGN KEY ("assetId") REFERENCES "assets"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "training_records" ADD CONSTRAINT "training_records_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -1190,7 +1190,7 @@ ALTER TABLE "asset_relationships" ADD CONSTRAINT "asset_relationships_parentAsse
 ALTER TABLE "asset_relationships" ADD CONSTRAINT "asset_relationships_childAssetId_fkey" FOREIGN KEY ("childAssetId") REFERENCES "assets"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "media_attachments" ADD CONSTRAINT "media_attachments_assetId_fkey" FOREIGN KEY ("assetId") REFERENCES "assets"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "media_attachments" ADD CONSTRAINT "media_attachments_assetId_fkey" FOREIGN KEY ("assetId") REFERENCES "assets"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "media_attachments" ADD CONSTRAINT "media_attachments_uploadedByUserId_fkey" FOREIGN KEY ("uploadedByUserId") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
@@ -1199,5 +1199,5 @@ ALTER TABLE "media_attachments" ADD CONSTRAINT "media_attachments_uploadedByUser
 ALTER TABLE "telemetry_ingest_events" ADD CONSTRAINT "telemetry_ingest_events_assetId_fkey" FOREIGN KEY ("assetId") REFERENCES "assets"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "asset_scan_logs" ADD CONSTRAINT "asset_scan_logs_assetId_fkey" FOREIGN KEY ("assetId") REFERENCES "assets"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "asset_scan_logs" ADD CONSTRAINT "asset_scan_logs_assetId_fkey" FOREIGN KEY ("assetId") REFERENCES "assets"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 

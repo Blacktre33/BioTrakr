@@ -82,28 +82,36 @@ export class AuthService {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
+    // A password lockout guards against guessing; it deliberately does not end
+    // sessions that are already signed in (otherwise anyone could log a user
+    // out by mistyping their password). Deactivated accounts are refused.
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    const locked =
-      user?.accountLockedUntil && user.accountLockedUntil > new Date();
-    if (!user || !user.isActive || locked || !normalizeRole(user.role)) {
+    if (!user || !user.isActive || !normalizeRole(user.role)) {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
     return { ...this.issueTokens(user), user: this.publicProfile(user) };
   }
 
+  /**
+   * Atomic increment, so many parallel wrong guesses cannot all read the same
+   * count and slip past the lockout.
+   */
   private async recordFailedLogin(user: User): Promise<void> {
-    const attempts = user.failedLoginAttempts + 1;
-    const lock = attempts >= MAX_FAILED_LOGINS;
-    await this.prisma.user.update({
+    const { failedLoginAttempts } = await this.prisma.user.update({
       where: { id: user.id },
-      data: {
-        failedLoginAttempts: lock ? 0 : attempts,
-        accountLockedUntil: lock
-          ? new Date(Date.now() + LOCKOUT_MINUTES * 60_000)
-          : undefined,
-      },
+      data: { failedLoginAttempts: { increment: 1 } },
+      select: { failedLoginAttempts: true },
     });
+    if (failedLoginAttempts >= MAX_FAILED_LOGINS) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          failedLoginAttempts: 0,
+          accountLockedUntil: new Date(Date.now() + LOCKOUT_MINUTES * 60_000),
+        },
+      });
+    }
   }
 
   private issueTokens(user: User): TokenPair {

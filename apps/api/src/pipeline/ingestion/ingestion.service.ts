@@ -165,7 +165,10 @@ export class IngestionService {
   // RTLS INGESTION
   // ============================================================================
 
-  async ingestRTLSEvent(event: RTLSEventDto): Promise<boolean> {
+  async ingestRTLSEvent(
+    event: RTLSEventDto,
+    organizationId: string,
+  ): Promise<boolean> {
     try {
       // Map SourceType to TrackingMethod enum
       const trackingMethodMap: Record<
@@ -197,7 +200,11 @@ export class IngestionService {
 
       // Update asset location if high confidence
       if (event.confidence && event.confidence >= 0.8 && event.locationId) {
-        await this.updateAssetLocation(event.assetId, event.locationId);
+        await this.updateAssetLocation(
+          event.assetId,
+          event.locationId,
+          organizationId,
+        );
       }
 
       return true;
@@ -398,10 +405,24 @@ export class IngestionService {
   private async updateAssetLocation(
     assetId: string,
     locationId: string,
+    organizationId: string,
   ): Promise<void> {
-    // Update asset's current room location
-    await this.prisma.asset.update({
-      where: { id: assetId },
+    // Only move the asset into a room of its own organization.
+    const roomInOrg = await this.prisma.room.count({
+      where: {
+        id: locationId,
+        floor: { building: { facility: { organizationId } } },
+      },
+    });
+    if (roomInOrg === 0) {
+      this.logger.warn(
+        `RTLS event for asset ${assetId} named a room outside its organization; location not updated`,
+      );
+      return;
+    }
+
+    await this.prisma.asset.updateMany({
+      where: { id: assetId, organizationId, deletedAt: null },
       data: {
         currentRoomId: locationId,
         lastSeenTimestamp: new Date(),

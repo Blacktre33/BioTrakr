@@ -10,6 +10,8 @@ import { bearer, createTestApp, ORG_A, ORG_B } from './helpers';
 const ASSET_A = '11111111-1111-4111-8111-111111111111';
 const ASSET_B = '22222222-2222-4222-8222-222222222222';
 const FACILITY_A = '33333333-3333-4333-8333-333333333333';
+const ROOM_A = '66666666-6666-4666-8666-666666666666';
+const ROOM_OF_ORG_B = '77777777-7777-4777-8777-777777777777';
 
 function buildPrisma() {
   // Fresh rows per test, since soft-delete tests mutate them.
@@ -62,14 +64,11 @@ function buildPrisma() {
     users,
     assets,
     asset: {
-      update: jest.fn(async ({ where, data, select }) => {
-        const row = assets.find((a) => a.id === where.id)!;
-        Object.assign(row, data);
-        return select
-          ? Object.fromEntries(
-              Object.keys(select).map((k) => [k, (row as never)[k]]),
-            )
-          : row;
+      update: jest.fn(),
+      updateMany: jest.fn(async ({ where, data }) => {
+        const rows = assets.filter((a) => matchesWhere(a, where));
+        rows.forEach((row) => Object.assign(row, data));
+        return { count: rows.length };
       }),
       delete: jest.fn(),
       findMany: jest.fn(async ({ where }) =>
@@ -82,7 +81,14 @@ function buildPrisma() {
         async ({ where }) =>
           assets.filter((a) => matchesWhere(a, where)).length,
       ),
-      create: jest.fn(async ({ data }) => ({ id: 'new', ...data })),
+      create: jest.fn(async ({ data }) => {
+        if (assets.some((a) => a.assetTagNumber === data.assetTagNumber)) {
+          throw Object.assign(new Error('Unique constraint failed'), {
+            code: 'P2002',
+          });
+        }
+        return { id: 'new', ...data };
+      }),
     },
     facility: {
       count: jest.fn(async ({ where }) =>
@@ -90,7 +96,10 @@ function buildPrisma() {
       ),
     },
     department: { count: jest.fn(async () => 1) },
-    room: { count: jest.fn(async () => 1) },
+    room: {
+      // ROOM_A belongs to ORG_A; anything else belongs to another organization.
+      count: jest.fn(async ({ where }) => (where.id === ROOM_A ? 1 : 0)),
+    },
     assetScanLog: {
       findMany: jest.fn(async () => []),
       create: jest.fn(async ({ data }) => ({
@@ -125,13 +134,18 @@ function buildPrisma() {
         async ({ where }) => users.find((u) => u.id === where.id) ?? null,
       ),
       update: jest.fn(async ({ where, data }) => {
-        const u = users.find((x) => x.id === where.id)!;
-        Object.assign(
-          u,
-          Object.fromEntries(
-            Object.entries(data).filter(([, v]) => v !== undefined),
-          ),
-        );
+        const u = users.find((x) => x.id === where.id)! as Record<
+          string,
+          unknown
+        >;
+        for (const [key, value] of Object.entries(data)) {
+          if (value === undefined) continue;
+          // Support Prisma's atomic { increment: n }.
+          u[key] =
+            value && typeof value === 'object' && 'increment' in value
+              ? (u[key] as number) + (value as { increment: number }).increment
+              : value;
+        }
         return u;
       }),
     },
@@ -350,6 +364,77 @@ describe('Authentication and authorization (e2e)', () => {
         .expect(201);
       expect(prisma.locationHistory.create).toHaveBeenCalledTimes(1);
     });
+
+    it("never moves an asset into another organization's room", async () => {
+      const event = {
+        timestamp: '2026-10-08T10:00:00Z',
+        assetId: ASSET_A,
+        facilityId: FACILITY_A,
+        tagId: 't1',
+        sourceType: 'ble',
+        eventType: 'position_update',
+        confidence: 0.95,
+      };
+      await request(app.getHttpServer())
+        .post('/api/api/v1/ingest/rtls')
+        .set(bearer('integration'))
+        .send({ ...event, locationId: ROOM_OF_ORG_B })
+        .expect(201);
+      expect(prisma.asset.updateMany).not.toHaveBeenCalled();
+
+      await request(app.getHttpServer())
+        .post('/api/api/v1/ingest/rtls')
+        .set(bearer('integration'))
+        .send({ ...event, locationId: ROOM_A })
+        .expect(201);
+      expect(prisma.asset.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: ASSET_A, organizationId: ORG_A, deletedAt: null },
+        }),
+      );
+    });
+
+    it('rejects oversized ingestion batches', async () => {
+      const one = {
+        timestamp: '2026-10-08T10:00:00Z',
+        assetId: ASSET_A,
+        facilityId: FACILITY_A,
+        tagId: 't1',
+        sourceType: 'ble',
+        eventType: 'position_update',
+      };
+      await request(app.getHttpServer())
+        .post('/api/api/v1/ingest/rtls/batch')
+        .set(bearer('integration'))
+        .send({ events: Array.from({ length: 501 }, () => one) })
+        .expect(400);
+    });
+  });
+
+  describe('asset tags', () => {
+    it('returns 409, not 500, for a tag that is already in use', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/api/assets')
+        .set(bearer('engineer'))
+        .send({
+          assetTagNumber: 'VENT-B', // owned by another organization
+          equipmentName: 'Pump',
+          manufacturer: 'BD',
+          modelNumber: 'A1',
+          serialNumber: 'S1',
+          deviceCategory: 'THERAPEUTIC',
+          criticalityLevel: 'HIGH',
+          riskClassification: 'CLASS_II',
+          purchaseDate: '2024-01-15T00:00:00Z',
+          purchaseCost: 10,
+          usefulLifeYears: 5,
+          currentFacilityId: FACILITY_A,
+          primaryCustodianId: '44444444-4444-4444-8444-444444444444',
+          custodianDepartmentId: '55555555-5555-4555-8555-555555555555',
+        })
+        .expect(409);
+      expect(res.body.message).not.toContain('VENT-B');
+    });
   });
 
   describe('soft delete', () => {
@@ -365,7 +450,7 @@ describe('Authentication and authorization (e2e)', () => {
           .set(bearer(role))
           .expect(403);
       }
-      expect(prisma.asset.update).not.toHaveBeenCalled();
+      expect(prisma.asset.updateMany).not.toHaveBeenCalled();
     });
 
     it('marks the asset deleted, keeps the row, and hides it afterwards', async () => {
@@ -411,7 +496,7 @@ describe('Authentication and authorization (e2e)', () => {
         .delete(`/api/assets/${ASSET_B}`)
         .set(bearer('admin'))
         .expect(404);
-      expect(prisma.asset.update).not.toHaveBeenCalled();
+      expect(prisma.assets.find((a) => a.id === ASSET_B)?.deletedAt).toBeNull();
     });
   });
 
@@ -479,7 +564,7 @@ describe('Authentication and authorization (e2e)', () => {
         .expect((res) => expect([401, 429]).toContain(res.status));
     });
 
-    it('rate-limits credential attempts', async () => {
+    it('rate-limits repeated attempts on one email', async () => {
       const statuses: number[] = [];
       for (let i = 0; i < 7; i++) {
         const res = await request(app.getHttpServer())
@@ -487,7 +572,42 @@ describe('Authentication and authorization (e2e)', () => {
           .send({ email: 'nobody@a.test', password: 'x' });
         statuses.push(res.status);
       }
-      expect(statuses).toContain(429);
+      expect(statuses.slice(0, 5).every((s) => s === 401)).toBe(true);
+      expect(statuses.slice(5)).toEqual([429, 429]);
+    });
+
+    it("one person's failed attempts do not block a colleague on the same IP", async () => {
+      for (let i = 0; i < 6; i++) {
+        await request(app.getHttpServer())
+          .post('/api/auth/login')
+          .send({ email: 'typo@a.test', password: 'x' });
+      }
+      await request(app.getHttpServer())
+        .post('/api/auth/login')
+        .send({ email: 'admin@a.test', password: 'CorrectHorse1!' })
+        .expect(200);
+    });
+
+    it('caps attempts per IP across many emails (password spraying)', async () => {
+      const statuses: number[] = [];
+      for (let i = 0; i < 32; i++) {
+        const res = await request(app.getHttpServer())
+          .post('/api/auth/login')
+          .send({ email: `spray${i}@a.test`, password: 'x' });
+        statuses.push(res.status);
+      }
+      expect(statuses.slice(0, 30).every((s) => s === 401)).toBe(true);
+      expect(statuses.slice(30)).toEqual([429, 429]);
+    });
+
+    it('signed-in users are rate-limited per user, not per shared IP', async () => {
+      // Each user gets their own 300/min budget; well under it here.
+      for (const role of ['viewer', 'technician'] as const) {
+        await request(app.getHttpServer())
+          .get('/api/assets')
+          .set(bearer(role))
+          .expect(200);
+      }
     });
   });
 });

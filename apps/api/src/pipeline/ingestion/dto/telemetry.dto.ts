@@ -12,7 +12,11 @@ import {
   IsDateString,
   IsArray,
   ArrayMinSize,
+  ArrayMaxSize,
 } from 'class-validator';
+
+/** Each event costs several queries; keep one request bounded. */
+export const MAX_BATCH_SIZE = 500;
 import { Type } from 'class-transformer';
 import {
   EventSeverity,
@@ -371,6 +375,7 @@ export class ErrorEventDto {
 export class BatchTelemetryDto {
   @IsArray()
   @ArrayMinSize(1)
+  @ArrayMaxSize(MAX_BATCH_SIZE)
   @ValidateNested({ each: true })
   @Type(() => TelemetryEventDto)
   events: TelemetryEventDto[];
@@ -379,6 +384,7 @@ export class BatchTelemetryDto {
 export class BatchRTLSDto {
   @IsArray()
   @ArrayMinSize(1)
+  @ArrayMaxSize(MAX_BATCH_SIZE)
   @ValidateNested({ each: true })
   @Type(() => RTLSEventDto)
   events: RTLSEventDto[];
@@ -387,6 +393,7 @@ export class BatchRTLSDto {
 export class BatchMaintenanceDto {
   @IsArray()
   @ArrayMinSize(1)
+  @ArrayMaxSize(MAX_BATCH_SIZE)
   @ValidateNested({ each: true })
   @Type(() => MaintenanceEventDto)
   events: MaintenanceEventDto[];

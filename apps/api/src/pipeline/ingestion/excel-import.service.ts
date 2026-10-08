@@ -397,23 +397,30 @@ export class ExcelImportService {
     // Parse purchase cost - handle formats like "1.25 Lakh", "10 lakh", etc.
     const parsedCost = this.parsePurchasePrice(purchasePrice);
 
-    // Asset tags are globally unique; never let one organization overwrite another's asset.
-    const existing = await this.prisma.asset.findUnique({
-      where: { assetTagNumber: assetTag },
-      select: { organizationId: true, deletedAt: true },
+    // Update only this organization's live asset with this tag (one conditional
+    // write, so no race can touch another organization's or a deleted asset).
+    const { count } = await this.prisma.asset.updateMany({
+      where: {
+        assetTagNumber: assetTag,
+        organizationId: user.organizationId,
+        deletedAt: null,
+      },
+      data: {
+        serialNumber: serialNumber || undefined,
+        manufacturer: manufacturerName,
+        modelNumber: modelNumber,
+        assetStatus,
+        currentFacilityId: facility.id,
+        updatedAt: new Date(),
+        updatedById: user.userId,
+      },
     });
-    if (existing && existing.organizationId !== user.organizationId) {
-      throw new Error(`Asset tag ${assetTag} is already in use`);
-    }
-    if (existing?.deletedAt) {
-      // Tags of deleted assets stay reserved so their history remains unambiguous.
-      throw new Error(`Asset tag ${assetTag} belongs to a deleted asset`);
+    if (count > 0) {
+      return;
     }
 
-    // Create asset using Prisma
-    await this.prisma.asset.upsert({
-      where: { assetTagNumber: assetTag },
-      create: {
+    try {
+      await this.prisma.asset.create({ data: {
         id: uuidv4(),
         organizationId: user.organizationId,
         assetTagNumber: assetTag,
@@ -439,17 +446,15 @@ export class ExcelImportService {
         custodianDepartmentId: department?.id || facility.id,
         createdById: user.userId,
         updatedById: user.userId,
-      },
-      update: {
-        serialNumber: serialNumber || undefined,
-        manufacturer: manufacturerName,
-        modelNumber: modelNumber,
-        assetStatus,
-        currentFacilityId: facility.id,
-        updatedAt: new Date(),
-        updatedById: user.userId,
-      },
-    });
+      } });
+    } catch (error) {
+      // The tag exists elsewhere (another organization, or a deleted asset whose
+      // tag stays reserved so its history remains unambiguous).
+      if ((error as { code?: string }).code === 'P2002') {
+        throw new Error(`Asset tag ${assetTag} is already in use`);
+      }
+      throw error;
+    }
   }
 
   /**
