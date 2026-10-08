@@ -1,0 +1,75 @@
+name: API CI
+
+on:
+  push:
+    paths:
+      - 'apps/api/**'
+      - 'packages/**'
+      - '.github/workflows/api-ci.yml'
+  pull_request:
+    paths:
+      - 'apps/api/**'
+      - 'packages/**'
+
+jobs:
+  database:
+    name: Migrations and schema drift
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: timescale/timescaledb:latest-pg15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: biotrakr_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/biotrakr_ci
+      SHADOW_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/biotrakr_shadow
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      # The committed lockfile is out of sync with package.json (overrides);
+      # switch to --frozen-lockfile once it is regenerated.
+      - run: pnpm install --no-frozen-lockfile --filter @biotrakr/api...
+      - name: Create shadow database
+        run: PGPASSWORD=postgres psql -h localhost -U postgres -c "CREATE DATABASE biotrakr_shadow"
+      - name: Apply migrations to an empty database
+        run: pnpm --filter @biotrakr/api run db:migrate
+      - name: Fail if migrations and schema.prisma disagree
+        run: pnpm --filter @biotrakr/api run db:drift
+      - name: Confirm TimescaleDB hypertables exist
+        run: |
+          n=$(PGPASSWORD=postgres psql -h localhost -U postgres -d biotrakr_ci -Atc \
+            "select count(*) from timescaledb_information.hypertables where hypertable_schema='public'")
+          echo "hypertables: $n"
+          test "$n" -eq 7
+
+  test:
+    name: Typecheck and unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --no-frozen-lockfile --filter @biotrakr/api...
+      - run: pnpm --filter @biotrakr/api exec prisma generate
+      - run: pnpm --filter @biotrakr/api exec tsc --noEmit -p tsconfig.build.json
+      - run: pnpm --filter @biotrakr/api test

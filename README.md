@@ -54,19 +54,25 @@ biotrakr/
 # Install dependencies
 pnpm install
 
-# Start infrastructure (PostgreSQL, Redis, etc.)
+# Copy environment defaults
+cp .env.example apps/api/.env
+
+# Start infrastructure (PostgreSQL/TimescaleDB, Redis, etc.)
 docker-compose up -d
 
-# Run database migrations
+# Apply database migrations and load demo data
 cd apps/api
-pnpm prisma migrate dev
+pnpm db:migrate
+pnpm prisma:seed
 
 # Start all services in development mode (via Turborepo)
 pnpm dev
-
-# Or run the ML service + tracking stack via Docker
-docker-compose up ml-service mlflow
 ```
+
+> If your Docker volume was created from the old migrations, reset it once:
+> `docker-compose down -v && docker-compose up -d`. See
+> [`apps/api/prisma/README.md`](./apps/api/prisma/README.md) for the migration
+> workflow and drift check.
 
 ### Service Entry Points
 
