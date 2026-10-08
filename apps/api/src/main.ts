@@ -3,11 +3,25 @@ import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 
-import { loadApiConfig } from '@biotrakr/config';
+import { loadApiConfig, loadSecurityConfig } from '@biotrakr/config';
 
 import { AppModule } from './app.module';
 
+/** The placeholder shipped in .env.example; never acceptable in production. */
+const EXAMPLE_JWT_SECRET = 'your-super-secret-jwt-key-change-in-production';
+
+function assertSecurityConfig(nodeEnv: string): void {
+  // Throws (and stops startup) if JWT_SECRET is missing or shorter than 32 characters.
+  const { jwtSecret } = loadSecurityConfig();
+  if (nodeEnv === 'production' && jwtSecret === EXAMPLE_JWT_SECRET) {
+    throw new Error(
+      'JWT_SECRET is still the .env.example placeholder; set a real secret.',
+    );
+  }
+}
+
 async function bootstrap(): Promise<void> {
+  assertSecurityConfig(loadApiConfig().nodeEnv);
   const app = await NestFactory.create(AppModule);
 
   // Fix for BigInt serialization (Prisma uses BigInt)

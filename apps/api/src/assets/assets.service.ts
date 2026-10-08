@@ -1,17 +1,29 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import type { Prisma, Asset, AssetScanLog } from '@prisma/client';
+
+import type { AuthUser } from '../auth/auth-user';
 import { PrismaService } from '../database/prisma.service';
 import { CreateAssetScanDto } from './dto/create-asset-scan.dto';
 import { CreateAssetDto, UpdateAssetDto } from './dto/create-asset.dto';
+
+export const MAX_PAGE_SIZE = 100;
+
+interface OrgReferences {
+  facilityId?: string | null;
+  departmentId?: string | null;
+  custodianId?: string | null;
+  roomId?: string | null;
+}
 
 @Injectable()
 export class AssetsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  // Mock user ID for now
-  private readonly MOCK_USER_ID = '00000000-0000-0000-0000-000000000000';
-
-  async create(createAssetDto: CreateAssetDto): Promise<Asset> {
+  async create(createAssetDto: CreateAssetDto, user: AuthUser): Promise<Asset> {
     // Extract AMC/CMC tracking fields that aren't in the schema
     const {
       amcInitialCost,
@@ -28,72 +40,86 @@ export class AssetsService {
       cmcIncreasePercentage,
       notes,
       ...baseDto
-    } = createAssetDto as any;
+    } = createAssetDto;
+
+    await this.assertReferencesInOrganization(user.organizationId, {
+      facilityId: baseDto.currentFacilityId,
+      departmentId: baseDto.custodianDepartmentId,
+      custodianId: baseDto.primaryCustodianId,
+    });
 
     // Build contract tracking data to store in notes (for fields not in schema)
-    const contractTracking: any = {};
-    
-    // AMC tracking fields (initial cost, years paid, increases) - not in schema
-    if (amcInitialCost || amcYearsPaid || amcIncreaseAmount || amcIncreasePercentage) {
+    const contractTracking: Record<string, Record<string, unknown>> = {};
+
+    if (
+      amcInitialCost ||
+      amcYearsPaid ||
+      amcIncreaseAmount ||
+      amcIncreasePercentage
+    ) {
       contractTracking.amc = {};
       if (amcInitialCost) contractTracking.amc.initialCost = amcInitialCost;
       if (amcYearsPaid) contractTracking.amc.yearsPaid = amcYearsPaid;
-      if (amcIncreaseAmount) contractTracking.amc.increaseAmount = amcIncreaseAmount;
-      if (amcIncreasePercentage) contractTracking.amc.increasePercentage = amcIncreasePercentage;
+      if (amcIncreaseAmount)
+        contractTracking.amc.increaseAmount = amcIncreaseAmount;
+      if (amcIncreasePercentage)
+        contractTracking.amc.increasePercentage = amcIncreasePercentage;
     }
-    
+
     // All CMC data (schema only has cmcProviderId, no cost/date fields)
-    if (cmcCostAnnual || cmcContractNumber || cmcStartDate || cmcEndDate || cmcInitialCost || cmcYearsPaid || cmcIncreaseAmount || cmcIncreasePercentage) {
+    if (
+      cmcCostAnnual ||
+      cmcContractNumber ||
+      cmcStartDate ||
+      cmcEndDate ||
+      cmcInitialCost ||
+      cmcYearsPaid ||
+      cmcIncreaseAmount ||
+      cmcIncreasePercentage
+    ) {
       contractTracking.cmc = {};
       if (cmcCostAnnual) contractTracking.cmc.costAnnual = cmcCostAnnual;
-      if (cmcContractNumber) contractTracking.cmc.contractNumber = cmcContractNumber;
+      if (cmcContractNumber)
+        contractTracking.cmc.contractNumber = cmcContractNumber;
       if (cmcStartDate) contractTracking.cmc.startDate = cmcStartDate;
       if (cmcEndDate) contractTracking.cmc.endDate = cmcEndDate;
       if (cmcInitialCost) contractTracking.cmc.initialCost = cmcInitialCost;
       if (cmcYearsPaid) contractTracking.cmc.yearsPaid = cmcYearsPaid;
-      if (cmcIncreaseAmount) contractTracking.cmc.increaseAmount = cmcIncreaseAmount;
-      if (cmcIncreasePercentage) contractTracking.cmc.increasePercentage = cmcIncreasePercentage;
+      if (cmcIncreaseAmount)
+        contractTracking.cmc.increaseAmount = cmcIncreaseAmount;
+      if (cmcIncreasePercentage)
+        contractTracking.cmc.increasePercentage = cmcIncreasePercentage;
     }
 
-    // Combine notes with contract tracking data
     let finalNotes = notes || '';
     if (Object.keys(contractTracking).length > 0) {
       const trackingJson = JSON.stringify(contractTracking, null, 2);
-      finalNotes = finalNotes 
+      finalNotes = finalNotes
         ? `${finalNotes}\n\n[CONTRACT_TRACKING]\n${trackingJson}`
         : `[CONTRACT_TRACKING]\n${trackingJson}`;
     }
 
-    // We use UncheckedCreateInput implicitly by spreading the DTO which contains foreign key IDs
-    // instead of relation objects.
-    // Note: amcCostAnnual, amcContractNumber, amcStartDate, amcEndDate are stored in schema fields
-    // All tracking data (initial cost, years paid, increases) and CMC data stored in notes
     const data: Prisma.AssetUncheckedCreateInput = {
       ...baseDto,
       notes: finalNotes || undefined,
-      createdById: this.MOCK_USER_ID,
-      updatedById: this.MOCK_USER_ID,
+      // Ownership and audit fields always come from the caller's token.
+      organizationId: user.organizationId,
+      createdById: user.userId,
+      updatedById: user.userId,
     };
 
-    return this.prisma.asset.create({
-      data: data as unknown as Prisma.AssetCreateInput, // Cast needed due to Prisma XOR types
-    });
+    return this.prisma.asset.create({ data });
   }
 
-  async findAll(params: {
-    skip?: number;
-    take?: number;
-    cursor?: Prisma.AssetWhereUniqueInput;
-    where?: Prisma.AssetWhereInput;
-    orderBy?: Prisma.AssetOrderByWithRelationInput;
-  }): Promise<Asset[]> {
-    const { skip, take, cursor, where, orderBy } = params;
+  async findAll(
+    user: AuthUser,
+    params: { skip?: number; take?: number } = {},
+  ): Promise<Asset[]> {
     return this.prisma.asset.findMany({
-      skip,
-      take,
-      cursor,
-      where,
-      orderBy,
+      skip: params.skip ?? 0,
+      take: Math.min(params.take ?? 20, MAX_PAGE_SIZE),
+      where: { organizationId: user.organizationId },
+      orderBy: { assetTagNumber: 'asc' },
       include: {
         currentFacility: true,
         currentRoom: true,
@@ -101,9 +127,9 @@ export class AssetsService {
     });
   }
 
-  async findOne(id: string): Promise<Asset | null> {
-    return this.prisma.asset.findUnique({
-      where: { id },
+  async findOne(id: string, user: AuthUser): Promise<Asset | null> {
+    return this.prisma.asset.findFirst({
+      where: { id, organizationId: user.organizationId },
       include: {
         currentFacility: true,
         currentBuilding: true,
@@ -123,48 +149,38 @@ export class AssetsService {
     });
   }
 
-  async update(id: string, updateAssetDto: UpdateAssetDto): Promise<Asset> {
-    try {
-      return await this.prisma.asset.update({
-        where: { id },
-        data: {
-          ...updateAssetDto,
-          updatedById: this.MOCK_USER_ID,
-        },
-      });
-    } catch (error) {
-      if (error.code === 'P2025') {
-        throw new NotFoundException(`Asset #${id} not found`);
-      }
-      throw error;
-    }
+  async update(
+    id: string,
+    updateAssetDto: UpdateAssetDto,
+    user: AuthUser,
+  ): Promise<Asset> {
+    await this.getOwnedAssetOrThrow(id, user);
+    await this.assertReferencesInOrganization(user.organizationId, {
+      facilityId: updateAssetDto.currentFacilityId,
+      roomId: updateAssetDto.currentRoomId,
+    });
+
+    return this.prisma.asset.update({
+      where: { id },
+      data: {
+        ...updateAssetDto,
+        updatedById: user.userId,
+      },
+    });
   }
 
-  async remove(id: string): Promise<Asset> {
-    try {
-      return await this.prisma.asset.delete({
-        where: { id },
-      });
-    } catch (error) {
-      if (error.code === 'P2025') {
-        throw new NotFoundException(`Asset #${id} not found`);
-      }
-      throw error;
-    }
+  async remove(id: string, user: AuthUser): Promise<Asset> {
+    await this.getOwnedAssetOrThrow(id, user);
+    return this.prisma.asset.delete({ where: { id } });
   }
 
   async createAssetScan(
     assetId: string,
     payload: CreateAssetScanDto,
+    user: AuthUser,
   ): Promise<AssetScanLog> {
-    // Fail fast if the asset ID is invalid; avoids orphaning scan rows and returns a clean 404.
-    const asset = await this.prisma.asset.findUnique({
-      where: { id: assetId },
-    });
-
-    if (!asset) {
-      throw new NotFoundException(`Asset ${assetId} does not exist.`);
-    }
+    // Fail fast if the asset is unknown (or another organization's); returns a clean 404.
+    await this.getOwnedAssetOrThrow(assetId, user);
 
     const data: Prisma.AssetScanLogCreateInput = {
       asset: { connect: { id: assetId } },
@@ -173,25 +189,89 @@ export class AssetsService {
       locationHint: payload.locationHint ?? null,
     };
 
-    // Persist the scan log with a relational connect instead of writing the FK manually.
     return this.prisma.assetScanLog.create({ data });
   }
 
-  async listAssetScans(assetId: string): Promise<AssetScanLog[]> {
-    // Re-run the lightweight existence check so consumers get a 404 instead of an empty list for bad IDs.
-    const asset = await this.prisma.asset.findUnique({
-      where: { id: assetId },
-      select: { id: true },
-    });
+  async listAssetScans(
+    assetId: string,
+    user: AuthUser,
+  ): Promise<AssetScanLog[]> {
+    await this.getOwnedAssetOrThrow(assetId, user);
 
-    if (!asset) {
-      throw new NotFoundException(`Asset ${assetId} does not exist.`);
-    }
-
-    // Return newest-first so the UI can render the freshest scan at the top.
+    // Newest first so the UI can render the freshest scan at the top.
     return this.prisma.assetScanLog.findMany({
       where: { assetId },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  /** 404s for assets that don't exist *or* belong to another organization. */
+  private async getOwnedAssetOrThrow(
+    id: string,
+    user: AuthUser,
+  ): Promise<{ id: string }> {
+    const asset = await this.prisma.asset.findFirst({
+      where: { id, organizationId: user.organizationId },
+      select: { id: true },
+    });
+    if (!asset) {
+      throw new NotFoundException(`Asset ${id} not found`);
+    }
+    return asset;
+  }
+
+  /** Rejects references to facilities, departments, rooms or users outside the caller's organization. */
+  private async assertReferencesInOrganization(
+    organizationId: string,
+    refs: OrgReferences,
+  ): Promise<void> {
+    const checks: Array<[string, Promise<number>]> = [];
+
+    if (refs.facilityId) {
+      checks.push([
+        'currentFacilityId',
+        this.prisma.facility.count({
+          where: { id: refs.facilityId, organizationId },
+        }),
+      ]);
+    }
+    if (refs.departmentId) {
+      checks.push([
+        'custodianDepartmentId',
+        this.prisma.department.count({
+          where: { id: refs.departmentId, facility: { organizationId } },
+        }),
+      ]);
+    }
+    if (refs.custodianId) {
+      checks.push([
+        'primaryCustodianId',
+        this.prisma.user.count({
+          where: { id: refs.custodianId, organizationId },
+        }),
+      ]);
+    }
+    if (refs.roomId) {
+      checks.push([
+        'currentRoomId',
+        this.prisma.room.count({
+          where: {
+            id: refs.roomId,
+            floor: { building: { facility: { organizationId } } },
+          },
+        }),
+      ]);
+    }
+
+    const results = await Promise.all(checks.map(([, count]) => count));
+    const missing = checks
+      .filter((_, i) => results[i] === 0)
+      .map(([field]) => field);
+    if (missing.length > 0) {
+      throw new BadRequestException({
+        message: 'Referenced records were not found in your organization',
+        fields: missing,
+      });
+    }
   }
 }

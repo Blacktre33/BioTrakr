@@ -147,7 +147,7 @@ export interface CreateAssetPayload {
   purchaseDate: string;
   purchaseCost: number;
   usefulLifeYears: number;
-  organizationId: string;
+  // organizationId comes from the signed-in user's token; never sent by the client.
   currentFacilityId: string;
   primaryCustodianId: string;
   custodianDepartmentId: string;

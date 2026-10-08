@@ -19,8 +19,13 @@ import {
   ApiConsumes,
   ApiBody,
   ApiQuery,
+  ApiBearerAuth,
 } from '@nestjs/swagger';
-import { Response, Request } from 'express';
+import { Response } from 'express';
+
+import type { AuthUser } from '../../auth/auth-user';
+import { CurrentUser, Roles } from '../../auth/decorators';
+import { ASSET_EDITOR_ROLES, STAFF_ROLES } from '../../auth/roles';
 import { ExcelImportService, ImportResult } from './excel-import.service';
 
 export interface UploadedMulterFile {
@@ -33,6 +38,8 @@ export interface UploadedMulterFile {
 }
 
 @ApiTags('Excel Import/Export')
+@ApiBearerAuth()
+@Roles(...STAFF_ROLES)
 @Controller('v1/assets')
 export class ExcelImportController {
   private readonly logger = new Logger(ExcelImportController.name);
@@ -43,6 +50,7 @@ export class ExcelImportController {
    * Import assets from Excel file
    */
   @Post('import')
+  @Roles(...ASSET_EDITOR_ROLES)
   @HttpCode(HttpStatus.OK)
   @UseInterceptors(FileInterceptor('file'))
   @ApiOperation({ summary: 'Import assets from Excel file' })
@@ -86,6 +94,7 @@ export class ExcelImportController {
   @ApiResponse({ status: 400, description: 'Invalid file or validation errors' })
   async importAssets(
     @UploadedFile() file: UploadedMulterFile,
+    @CurrentUser() user: AuthUser,
   ): Promise<ImportResult> {
     if (!file) {
       throw new BadRequestException('No file uploaded');
@@ -103,7 +112,7 @@ export class ExcelImportController {
 
     this.logger.log(`Importing assets from file: ${file.originalname}`);
 
-    const result = await this.excelImportService.importFromExcel(file.buffer);
+    const result = await this.excelImportService.importFromExcel(file.buffer, user);
 
     return result;
   }
@@ -127,11 +136,12 @@ export class ExcelImportController {
   })
   async exportAssets(
     @Res() res: Response,
+    @CurrentUser() user: AuthUser,
     @Query('facilityId') facilityId?: string,
   ) {
     this.logger.log(`Exporting assets${facilityId ? ` for facility ${facilityId}` : ''}`);
 
-    const buffer = await this.excelImportService.exportToExcel(facilityId);
+    const buffer = await this.excelImportService.exportToExcel(user.organizationId, facilityId);
 
     const filename = `biotrakr_assets_${new Date().toISOString().split('T')[0]}.xlsx`;
 
@@ -174,6 +184,7 @@ export class ExcelImportController {
    * Validate Excel file without importing
    */
   @Post('validate')
+  @Roles(...ASSET_EDITOR_ROLES)
   @HttpCode(HttpStatus.OK)
   @UseInterceptors(FileInterceptor('file'))
   @ApiOperation({ summary: 'Validate Excel file without importing' })
@@ -195,6 +206,7 @@ export class ExcelImportController {
   })
   async validateFile(
     @UploadedFile() file: UploadedMulterFile,
+    @CurrentUser() user: AuthUser,
   ) {
     if (!file) {
       throw new BadRequestException('No file uploaded');
@@ -203,8 +215,8 @@ export class ExcelImportController {
     // For validation only, we would parse and validate without inserting
     // This is a simplified version - in production, refactor to separate validation
     
-    const result = await this.excelImportService.importFromExcel(file.buffer);
-    
+    const result = await this.excelImportService.importFromExcel(file.buffer, user);
+
     // Return validation results without actually committing
     // In a real implementation, wrap the import in a transaction and rollback
     

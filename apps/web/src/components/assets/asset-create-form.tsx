@@ -100,9 +100,8 @@ export function AssetCreateForm({ open, onOpenChange, onAssetCreated }: AssetCre
         cmcIncreasePercentage = ((cmcIncreaseAmount / cmcInitial) * 100).toFixed(2);
       }
 
-      // TODO: These should come from user context/auth in production
-      // For now, using placeholder UUIDs that match the backend mock user ID pattern
-      const MOCK_ORG_ID = '00000000-0000-0000-0000-000000000001';
+      // TODO(data-entry workstream): replace with facility/custodian/department pickers.
+      // The organization is taken from the signed-in user's token by the API.
       const MOCK_FACILITY_ID = '00000000-0000-0000-0000-000000000002';
       const MOCK_USER_ID = '00000000-0000-0000-0000-000000000000';
       const MOCK_DEPT_ID = '00000000-0000-0000-0000-000000000003';
@@ -120,8 +119,6 @@ export function AssetCreateForm({ open, onOpenChange, onAssetCreated }: AssetCre
         purchaseDate: formData.purchaseDate || undefined,
         purchaseCost: formData.purchaseCost ? parseFloat(formData.purchaseCost) : undefined,
         usefulLifeYears: parseInt(formData.usefulLifeYears, 10),
-        // Required fields - should come from auth/user context
-        organizationId: MOCK_ORG_ID,
         currentFacilityId: MOCK_FACILITY_ID,
         primaryCustodianId: MOCK_USER_ID,
         custodianDepartmentId: MOCK_DEPT_ID,

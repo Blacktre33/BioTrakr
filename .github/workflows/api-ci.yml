@@ -73,3 +73,5 @@ jobs:
       - run: pnpm --filter @biotrakr/api exec prisma generate
       - run: pnpm --filter @biotrakr/api exec tsc --noEmit -p tsconfig.build.json
       - run: pnpm --filter @biotrakr/api test
+      # Boots the real app (guards, routes, validation) on a mocked database.
+      - run: pnpm --filter @biotrakr/api run test:e2e

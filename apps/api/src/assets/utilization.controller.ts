@@ -1,10 +1,14 @@
-import { Controller, Get, Query, Param, ParseUUIDPipe, ParseEnumPipe } from '@nestjs/common';
+import { Controller, Get, Query, Param, ParseUUIDPipe } from '@nestjs/common';
 import {
+  ApiBearerAuth,
   ApiTags,
   ApiOperation,
   ApiOkResponse,
   ApiQuery,
 } from '@nestjs/swagger';
+import type { AuthUser } from '../auth/auth-user';
+import { CurrentUser, Roles } from '../auth/decorators';
+import { STAFF_ROLES } from '../auth/roles';
 import { UtilizationService } from './utilization.service';
 import {
   UtilizationSummaryDto,
@@ -17,6 +21,8 @@ import {
 } from './dto/utilization.dto';
 
 @ApiTags('utilization')
+@ApiBearerAuth()
+@Roles(...STAFF_ROLES)
 @Controller('v1/assets/utilization')
 export class UtilizationController {
   constructor(private readonly utilizationService: UtilizationService) {}
@@ -30,6 +36,7 @@ export class UtilizationController {
   @ApiQuery({ name: 'departmentId', required: false, type: String, description: 'Filter by department ID' })
   @ApiQuery({ name: 'facilityId', required: false, type: String, description: 'Filter by facility ID' })
   async getSummary(
+    @CurrentUser() user: AuthUser,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('category') category?: string,
@@ -37,6 +44,7 @@ export class UtilizationController {
     @Query('facilityId') facilityId?: string,
   ): Promise<UtilizationSummaryDto> {
     return this.utilizationService.getSummary({
+      organizationId: user.organizationId,
       startDate: startDate ? new Date(startDate) : undefined,
       endDate: endDate ? new Date(endDate) : undefined,
       category,
@@ -54,6 +62,7 @@ export class UtilizationController {
   @ApiQuery({ name: 'departmentId', required: false, type: String })
   @ApiQuery({ name: 'facilityId', required: false, type: String })
   async getByAsset(
+    @CurrentUser() user: AuthUser,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('category') category?: string,
@@ -61,6 +70,7 @@ export class UtilizationController {
     @Query('facilityId') facilityId?: string,
   ): Promise<AssetUtilizationDto[]> {
     return this.utilizationService.getByAsset({
+      organizationId: user.organizationId,
       startDate: startDate ? new Date(startDate) : undefined,
       endDate: endDate ? new Date(endDate) : undefined,
       category,
@@ -77,12 +87,14 @@ export class UtilizationController {
   @ApiQuery({ name: 'departmentId', required: false, type: String })
   @ApiQuery({ name: 'facilityId', required: false, type: String })
   async getByCategory(
+    @CurrentUser() user: AuthUser,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('departmentId') departmentId?: string,
     @Query('facilityId') facilityId?: string,
   ): Promise<CategoryUtilizationDto[]> {
     return this.utilizationService.getByCategory({
+      organizationId: user.organizationId,
       startDate: startDate ? new Date(startDate) : undefined,
       endDate: endDate ? new Date(endDate) : undefined,
       departmentId,
@@ -97,11 +109,13 @@ export class UtilizationController {
   @ApiQuery({ name: 'endDate', required: false, type: String })
   @ApiQuery({ name: 'facilityId', required: false, type: String })
   async getByDepartment(
+    @CurrentUser() user: AuthUser,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('facilityId') facilityId?: string,
   ): Promise<DepartmentUtilizationDto[]> {
     return this.utilizationService.getByDepartment({
+      organizationId: user.organizationId,
       startDate: startDate ? new Date(startDate) : undefined,
       endDate: endDate ? new Date(endDate) : undefined,
       facilityId,
@@ -118,6 +132,7 @@ export class UtilizationController {
   @ApiQuery({ name: 'departmentId', required: false, type: String })
   @ApiQuery({ name: 'facilityId', required: false, type: String })
   async getTrends(
+    @CurrentUser() user: AuthUser,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('granularity') granularity?: 'day' | 'week' | 'month',
@@ -127,6 +142,7 @@ export class UtilizationController {
   ): Promise<UtilizationTrendDto[]> {
     return this.utilizationService.getTrends(
       {
+        organizationId: user.organizationId,
         startDate: startDate ? new Date(startDate) : undefined,
         endDate: endDate ? new Date(endDate) : undefined,
         category,
@@ -147,6 +163,7 @@ export class UtilizationController {
   @ApiQuery({ name: 'category', required: false, type: String })
   @ApiQuery({ name: 'facilityId', required: false, type: String })
   async getIdleAssets(
+    @CurrentUser() user: AuthUser,
     @Query('maxUtilization') maxUtilization?: string,
     @Query('minDaysIdle') minDaysIdle?: string,
     @Query('startDate') startDate?: string,
@@ -158,6 +175,7 @@ export class UtilizationController {
       maxUtilization ? parseFloat(maxUtilization) : 30,
       minDaysIdle ? parseFloat(minDaysIdle) : 7,
       {
+        organizationId: user.organizationId,
         startDate: startDate ? new Date(startDate) : undefined,
         endDate: endDate ? new Date(endDate) : undefined,
         category,
@@ -172,11 +190,13 @@ export class UtilizationController {
   @ApiQuery({ name: 'startDate', required: false, type: String })
   @ApiQuery({ name: 'endDate', required: false, type: String })
   async getAssetDetails(
+    @CurrentUser() user: AuthUser,
     @Param('assetId', new ParseUUIDPipe()) assetId: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
   ): Promise<AssetUtilizationDetailsDto> {
     return this.utilizationService.getAssetDetails(assetId, {
+      organizationId: user.organizationId,
       startDate: startDate ? new Date(startDate) : undefined,
       endDate: endDate ? new Date(endDate) : undefined,
     });

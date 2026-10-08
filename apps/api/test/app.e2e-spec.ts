@@ -1,31 +1,25 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
-import * as request from 'supertest';
-import { AppModule } from './../src/app.module';
+import request from 'supertest';
 
-describe('AppController (e2e)', () => {
+import { createTestApp } from './helpers';
+
+describe('Health (e2e)', () => {
   let app: INestApplication;
 
-  beforeAll(() => {
-    // Ensure mandatory configuration variables exist while running the e2e
-    // suite; the actual values are inconsequential for these tests.
-    process.env.CLIENT_URL = process.env.CLIENT_URL ?? 'http://127.0.0.1:3000';
-    process.env.DATABASE_URL = process.env.DATABASE_URL ?? 'postgresql://test';
+  beforeAll(async () => {
+    app = await createTestApp({});
   });
 
-  beforeEach(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-
-    app = moduleFixture.createNestApplication();
-    await app.init();
+  afterAll(async () => {
+    await app.close();
   });
 
-  it('/ (GET)', () => {
-    return request(app.getHttpServer())
-      .get('/')
-      .expect(200)
-      .expect('Hello World!');
+  it('GET /api/health is public and reveals no configuration', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/health')
+      .expect(200);
+    expect(res.body.status).toBe('ok');
+    expect(res.body).not.toHaveProperty('clientUrl');
+    expect(res.body).not.toHaveProperty('environment');
   });
 });

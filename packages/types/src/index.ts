@@ -315,7 +315,9 @@ export type UserRole =
   | "engineer"
   | "technician"
   | "clinical_staff"
-  | "viewer";
+  | "viewer"
+  /** Machine account for RTLS/telemetry gateways; ingestion endpoints only. */
+  | "integration";
 
 export interface Permission {
   name: string;

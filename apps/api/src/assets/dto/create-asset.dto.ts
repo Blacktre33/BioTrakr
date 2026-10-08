@@ -74,9 +74,7 @@ export class CreateAssetDto {
   @Min(1)
   usefulLifeYears: number;
 
-  @ApiProperty({ description: 'Organization ID' })
-  @IsUUID()
-  organizationId: string;
+  // organizationId is taken from the caller's access token, never the request body.
 
   @ApiProperty({ description: 'Current Facility ID' })
   @IsUUID()

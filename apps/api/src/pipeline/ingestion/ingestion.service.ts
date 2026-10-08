@@ -47,6 +47,19 @@ export class IngestionService {
 
   constructor(private readonly prisma: PrismaService) {}
 
+  /** True if both the asset and the facility belong to the given organization. */
+  async isInOrganization(
+    organizationId: string,
+    assetId: string,
+    facilityId: string,
+  ): Promise<boolean> {
+    const [assets, facilities] = await Promise.all([
+      this.prisma.asset.count({ where: { id: assetId, organizationId, deletedAt: null } }),
+      this.prisma.facility.count({ where: { id: facilityId, organizationId } }),
+    ]);
+    return assets > 0 && facilities > 0;
+  }
+
   // ============================================================================
   // TELEMETRY INGESTION
   // ============================================================================

@@ -69,6 +69,25 @@ pnpm prisma:seed
 pnpm dev
 ```
 
+Sign in at http://localhost:3000/login with a seeded account, e.g.
+`admin@demo.hospital.com` / `Admin123!` (development only).
+
+### Authentication and roles
+
+Every API route except `GET /api/health`, `POST /api/auth/login` and
+`POST /api/auth/refresh` requires `Authorization: Bearer <access token>`.
+Data is always scoped to the caller's organization.
+
+| Role | Can |
+|---|---|
+| `admin` | Everything, including ingestion |
+| `engineer` | Read; create/edit assets; Excel import |
+| `technician`, `clinical_staff` | Read; record QR scans |
+| `viewer` | Read only |
+| `integration` | Ingestion endpoints only (RTLS/telemetry gateways) |
+
+`JWT_SECRET` must be at least 32 characters; the API refuses to start without it.
+
 > If your Docker volume was created from the old migrations, reset it once:
 > `docker-compose down -v && docker-compose up -d`. See
 > [`apps/api/prisma/README.md`](./apps/api/prisma/README.md) for the migration

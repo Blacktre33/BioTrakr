@@ -1,8 +1,11 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import * as XLSX from 'xlsx';
-import { v4 as uuidv4 } from 'uuid';
+// Built-in; the `uuid` package (v13) is ESM-only and cannot be required from this CommonJS build.
+import { randomUUID as uuidv4 } from 'crypto';
 import { AssetStatus, RiskClassification } from '@prisma/client';
+
+import type { AuthUser } from '../../auth/auth-user';
 
 interface AssetRow {
   'Asset Tag*': string;
@@ -159,10 +162,7 @@ export class ExcelImportService {
   /**
    * Import assets from Excel file buffer
    */
-  async importFromExcel(
-    fileBuffer: Buffer,
-    userId?: string,
-  ): Promise<ImportResult> {
+  async importFromExcel(fileBuffer: Buffer, user: AuthUser): Promise<ImportResult> {
     const result: ImportResult = {
       success: false,
       totalRows: 0,
@@ -249,7 +249,7 @@ export class ExcelImportService {
           }
 
           // Import the asset
-          await this.importAsset(row as AssetRow, userId, i);
+          await this.importAsset(row as AssetRow, user, i);
           result.imported++;
         } catch (error) {
           result.errors.push({
@@ -359,7 +359,7 @@ export class ExcelImportService {
   /**
    * Import a single asset row into the database
    */
-  private async importAsset(row: AssetRow, userId?: string, rowIndex?: number): Promise<void> {
+  private async importAsset(row: AssetRow, user: AuthUser, rowIndex?: number): Promise<void> {
     // Extract values using flexible column matching
     let assetTag = this.getRowValue(row, 'Asset Tag');
     const serialNumber = this.getRowValue(row, 'Serial Number');
@@ -385,7 +385,7 @@ export class ExcelImportService {
     }
 
     // Resolve or create related entities
-    const facility = await this.getOrCreateFacility(facilityCode);
+    const facility = await this.getOrCreateFacility(facilityCode, user.organizationId);
     const department = departmentCode
       ? await this.getOrCreateDepartment(departmentCode, facility.id)
       : null;
@@ -397,12 +397,21 @@ export class ExcelImportService {
     // Parse purchase cost - handle formats like "1.25 Lakh", "10 lakh", etc.
     const parsedCost = this.parsePurchasePrice(purchasePrice);
 
+    // Asset tags are globally unique; never let one organization overwrite another's asset.
+    const existing = await this.prisma.asset.findUnique({
+      where: { assetTagNumber: assetTag },
+      select: { organizationId: true },
+    });
+    if (existing && existing.organizationId !== user.organizationId) {
+      throw new Error(`Asset tag ${assetTag} is already in use`);
+    }
+
     // Create asset using Prisma
     await this.prisma.asset.upsert({
       where: { assetTagNumber: assetTag },
       create: {
         id: uuidv4(),
-        organizationId: facility.organizationId || uuidv4(), // Default org if not set
+        organizationId: user.organizationId,
         assetTagNumber: assetTag,
         equipmentName: `${manufacturerName} ${modelNumber}`,
         manufacturer: manufacturerName,
@@ -422,10 +431,10 @@ export class ExcelImportService {
         rfidTagId: rtlsTagId || null,
         bleBeaconMac: bleBeaconId || null,
         notes: notes || null,
-        primaryCustodianId: userId || uuidv4(), // Default user
+        primaryCustodianId: user.userId,
         custodianDepartmentId: department?.id || facility.id,
-        createdById: userId || uuidv4(),
-        updatedById: userId || uuidv4(),
+        createdById: user.userId,
+        updatedById: user.userId,
       },
       update: {
         serialNumber: serialNumber || undefined,
@@ -434,7 +443,7 @@ export class ExcelImportService {
         assetStatus,
         currentFacilityId: facility.id,
         updatedAt: new Date(),
-        updatedById: userId || uuidv4(),
+        updatedById: user.userId,
       },
     });
   }
@@ -470,9 +479,9 @@ export class ExcelImportService {
   // HELPER METHODS
   // ============================================================================
 
-  private async getOrCreateFacility(code: string) {
+  private async getOrCreateFacility(code: string, organizationId: string) {
     const facility = await this.prisma.facility.findFirst({
-      where: { facilityName: { contains: code, mode: 'insensitive' } },
+      where: { organizationId, facilityName: { contains: code, mode: 'insensitive' } },
     });
 
     if (facility) {
@@ -483,7 +492,7 @@ export class ExcelImportService {
     return this.prisma.facility.create({
       data: {
         id: uuidv4(),
-        organizationId: uuidv4(), // Default org - should be set properly
+        organizationId,
         facilityName: code,
         facilityCode: code.toUpperCase().replace(/\s+/g, '_'),
         timezone: 'UTC',
@@ -584,8 +593,11 @@ export class ExcelImportService {
   /**
    * Export assets to Excel format
    */
-  async exportToExcel(facilityId?: string): Promise<Buffer> {
-    const whereClause = facilityId ? { currentFacilityId: facilityId } : {};
+  async exportToExcel(organizationId: string, facilityId?: string): Promise<Buffer> {
+    const whereClause = {
+      organizationId,
+      ...(facilityId ? { currentFacilityId: facilityId } : {}),
+    };
 
     const assets = await this.prisma.asset.findMany({
       where: {

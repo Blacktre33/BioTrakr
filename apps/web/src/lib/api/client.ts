@@ -1,8 +1,9 @@
-import axios from "axios";
+import axios, { AxiosError, type InternalAxiosRequestConfig } from "axios";
 
-// Hardcoded base URL for now to ensure it works with the running API server
-// In production, this should come from env vars or config
-const API_BASE_URL = "http://localhost:3001/api";
+import { clearSession, getSession, redirectToLogin, setSession, type Session } from "@/lib/auth/session";
+
+// Set NEXT_PUBLIC_API_URL for any non-local deployment.
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api";
 
 export interface ApiErrorPayload {
   message: string;
@@ -24,50 +25,79 @@ export class ApiError extends Error {
 export const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 15_000,
-  withCredentials: true,
 });
+
+// Attach the signed-in user's access token to every request.
+api.interceptors.request.use((config) => {
+  const token = getSession()?.accessToken;
+  if (token) {
+    config.headers.set("Authorization", `Bearer ${token}`);
+  }
+  return config;
+});
+
+let refreshing: Promise<Session | null> | null = null;
+
+/** Exchanges the refresh token once, even if several requests expire together. */
+function refreshSession(): Promise<Session | null> {
+  const current = getSession();
+  if (!current) return Promise.resolve(null);
+
+  refreshing ??= axios
+    .post<Session>(`${API_BASE_URL}/auth/refresh`, { refreshToken: current.refreshToken })
+    .then(({ data }) => {
+      setSession(data);
+      return data;
+    })
+    .catch(() => null)
+    .finally(() => {
+      refreshing = null;
+    });
+  return refreshing;
+}
+
+type RetriableConfig = InternalAxiosRequestConfig & { _retried?: boolean };
 
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    // Handle network errors (API server not running, CORS, etc.)
-    if (!error.response) {
-      const isNetworkError = error.code === 'ECONNREFUSED' || error.code === 'ERR_NETWORK' || error.message === 'Network Error';
-      const message = isNetworkError
-        ? `Cannot connect to API server at ${API_BASE_URL}. Please ensure the API server is running on port 3001.`
-        : error.message || "An unexpected error occurred while communicating with the API.";
-      
-      const payload: ApiErrorPayload = {
-        message,
-        statusCode: undefined,
-        details: {
-          code: error.code,
-          originalError: error.message,
-        },
-      };
+  async (error: AxiosError<{ message?: string | string[] }>) => {
+    const original = error.config as RetriableConfig | undefined;
 
-      return Promise.reject(new ApiError(payload));
+    // Expired access token: refresh once and replay the request.
+    if (error.response?.status === 401 && original && !original._retried) {
+      original._retried = true;
+      const session = await refreshSession();
+      if (session) {
+        original.headers.set("Authorization", `Bearer ${session.accessToken}`);
+        return api(original);
+      }
+      clearSession();
+      redirectToLogin();
     }
 
-    // Handle HTTP errors (4xx, 5xx)
-    const payload: ApiErrorPayload = {
-      message:
-        error.response?.data?.message ??
-        error.message ??
-        "An unexpected error occurred while communicating with the API.",
-      statusCode: error.response?.status,
-      details: error.response?.data,
-    };
+    // Network errors (API server not running, CORS, etc.)
+    if (!error.response) {
+      const isNetworkError = error.code === "ECONNREFUSED" || error.code === "ERR_NETWORK";
+      return Promise.reject(
+        new ApiError({
+          message: isNetworkError
+            ? `Cannot connect to API server at ${API_BASE_URL}. Please ensure the API server is running.`
+            : error.message || "An unexpected error occurred while communicating with the API.",
+          details: { code: error.code, originalError: error.message },
+        }),
+      );
+    }
 
-    return Promise.reject(new ApiError(payload));
-  }
+    const raw = error.response.data?.message;
+    return Promise.reject(
+      new ApiError({
+        message:
+          (Array.isArray(raw) ? raw.join("; ") : raw) ??
+          error.message ??
+          "An unexpected error occurred while communicating with the API.",
+        statusCode: error.response.status,
+        details: error.response.data,
+      }),
+    );
+  },
 );
-
-export function setAuthToken(token?: string | null) {
-  if (token) {
-    api.defaults.headers.common.Authorization = `Bearer ${token}`;
-  } else {
-    delete api.defaults.headers.common.Authorization;
-  }
-}
-

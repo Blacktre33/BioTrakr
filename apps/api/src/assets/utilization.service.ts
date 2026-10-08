@@ -1,4 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
+
 import { PrismaService } from '../database/prisma.service';
 import {
   UtilizationSummaryDto,
@@ -10,7 +12,11 @@ import {
   AssetUtilizationDetailsDto,
 } from './dto/utilization.dto';
 
-interface UtilizationFilters {
+export interface UtilizationFilters {
+  /** Always set from the caller's token; every query is scoped to it. */
+  organizationId: string;
+  /** Restricts usage logs to one asset (used by the asset detail view). */
+  assetId?: string;
   startDate?: Date;
   endDate?: Date;
   category?: string;
@@ -22,7 +28,7 @@ interface UtilizationFilters {
 export class UtilizationService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getSummary(filters?: UtilizationFilters): Promise<UtilizationSummaryDto> {
+  async getSummary(filters: UtilizationFilters): Promise<UtilizationSummaryDto> {
     const { startDate, endDate } = this.getDateRange(filters);
 
     // Get all usage logs in the date range
@@ -33,16 +39,9 @@ export class UtilizationService {
           lte: endDate,
         },
         ...(filters?.departmentId && { departmentId: filters.departmentId }),
-        ...(filters?.category && {
-          asset: {
-            deviceCategory: filters.category as any,
-          },
-        }),
-        ...(filters?.facilityId && {
-          asset: {
-            currentFacilityId: filters.facilityId,
-          },
-        }),
+        ...(filters.assetId && { assetId: filters.assetId }),
+        // One combined filter: separate `asset:` spreads would overwrite each other.
+        asset: this.assetScope(filters),
       },
       include: {
         asset: {
@@ -81,10 +80,8 @@ export class UtilizationService {
     // Get total assets count
     const totalAssetsCount = await this.prisma.asset.count({
       where: {
-        deletedAt: null,
+        ...this.assetScope(filters),
         assetStatus: { in: ['ACTIVE', 'IN_SERVICE'] },
-        ...(filters?.category && { deviceCategory: filters.category as any }),
-        ...(filters?.facilityId && { currentFacilityId: filters.facilityId }),
       },
     });
 
@@ -132,16 +129,14 @@ export class UtilizationService {
     };
   }
 
-  async getByAsset(filters?: UtilizationFilters): Promise<AssetUtilizationDto[]> {
+  async getByAsset(filters: UtilizationFilters): Promise<AssetUtilizationDto[]> {
     const { startDate, endDate } = this.getDateRange(filters);
 
     // Get all assets with usage logs
     const assets = await this.prisma.asset.findMany({
       where: {
-        deletedAt: null,
+        ...this.assetScope(filters),
         assetStatus: { in: ['ACTIVE', 'IN_SERVICE'] },
-        ...(filters?.category && { deviceCategory: filters.category as any }),
-        ...(filters?.facilityId && { currentFacilityId: filters.facilityId }),
         usageLogs: {
           some: {
             sessionStartTime: {
@@ -219,15 +214,14 @@ export class UtilizationService {
     });
   }
 
-  async getByCategory(filters?: UtilizationFilters): Promise<CategoryUtilizationDto[]> {
+  async getByCategory(filters: UtilizationFilters): Promise<CategoryUtilizationDto[]> {
     const { startDate, endDate } = this.getDateRange(filters);
 
     // Get all categories with assets
     const categories = await this.prisma.asset.findMany({
       where: {
-        deletedAt: null,
+        ...this.assetScope({ ...filters, category: undefined }),
         assetStatus: { in: ['ACTIVE', 'IN_SERVICE'] },
-        ...(filters?.facilityId && { currentFacilityId: filters.facilityId }),
       },
       select: {
         deviceCategory: true,
@@ -287,12 +281,13 @@ export class UtilizationService {
     }).sort((a, b) => b.averageUtilization - a.averageUtilization);
   }
 
-  async getByDepartment(filters?: UtilizationFilters): Promise<DepartmentUtilizationDto[]> {
+  async getByDepartment(filters: UtilizationFilters): Promise<DepartmentUtilizationDto[]> {
     const { startDate, endDate } = this.getDateRange(filters);
 
     // Get departments with usage logs
     const departments = await this.prisma.department.findMany({
       where: {
+        facility: { organizationId: filters.organizationId },
         ...(filters?.facilityId && { facilityId: filters.facilityId }),
         usageLogs: {
           some: {
@@ -300,6 +295,7 @@ export class UtilizationService {
               gte: startDate,
               lte: endDate,
             },
+            asset: this.assetScope({ organizationId: filters.organizationId }),
           },
         },
       },
@@ -310,6 +306,7 @@ export class UtilizationService {
               gte: startDate,
               lte: endDate,
             },
+            asset: this.assetScope({ organizationId: filters.organizationId }),
           },
         },
       },
@@ -350,7 +347,7 @@ export class UtilizationService {
   }
 
   async getTrends(
-    filters?: UtilizationFilters,
+    filters: UtilizationFilters,
     granularity: 'day' | 'week' | 'month' = 'day',
   ): Promise<UtilizationTrendDto[]> {
     const { startDate, endDate } = this.getDateRange(filters);
@@ -363,16 +360,9 @@ export class UtilizationService {
           lte: endDate,
         },
         ...(filters?.departmentId && { departmentId: filters.departmentId }),
-        ...(filters?.category && {
-          asset: {
-            deviceCategory: filters.category as any,
-          },
-        }),
-        ...(filters?.facilityId && {
-          asset: {
-            currentFacilityId: filters.facilityId,
-          },
-        }),
+        ...(filters.assetId && { assetId: filters.assetId }),
+        // One combined filter: separate `asset:` spreads would overwrite each other.
+        asset: this.assetScope(filters),
       },
       include: {
         asset: {
@@ -434,17 +424,15 @@ export class UtilizationService {
   async getIdleAssets(
     maxUtilization: number = 30,
     minDaysIdle: number = 7,
-    filters?: UtilizationFilters,
+    filters: UtilizationFilters,
   ): Promise<IdleAssetDto[]> {
     const { startDate, endDate } = this.getDateRange(filters);
 
     // Get all assets
     const assets = await this.prisma.asset.findMany({
       where: {
-        deletedAt: null,
+        ...this.assetScope(filters),
         assetStatus: { in: ['ACTIVE', 'IN_SERVICE'] },
-        ...(filters?.category && { deviceCategory: filters.category as any }),
-        ...(filters?.facilityId && { currentFacilityId: filters.facilityId }),
       },
       include: {
         usageLogs: {
@@ -523,9 +511,9 @@ export class UtilizationService {
     return idleAssets.sort((a, b) => (b.daysSinceLastUse || 0) - (a.daysSinceLastUse || 0));
   }
 
-  async getAssetDetails(assetId: string, filters?: UtilizationFilters): Promise<AssetUtilizationDetailsDto> {
-    const asset = await this.prisma.asset.findUnique({
-      where: { id: assetId },
+  async getAssetDetails(assetId: string, filters: UtilizationFilters): Promise<AssetUtilizationDetailsDto> {
+    const asset = await this.prisma.asset.findFirst({
+      where: { id: assetId, organizationId: filters.organizationId, deletedAt: null },
       include: {
         usageLogs: {
           orderBy: {
@@ -536,7 +524,7 @@ export class UtilizationService {
     });
 
     if (!asset) {
-      throw new Error(`Asset ${assetId} not found`);
+      throw new NotFoundException(`Asset ${assetId} not found`);
     }
 
     const { startDate, endDate } = this.getDateRange(filters);
@@ -588,7 +576,7 @@ export class UtilizationService {
     const peakUsageDay = peakUsageDayEntry ? parseInt(peakUsageDayEntry[0], 10) : 0;
 
     // Get trends (daily)
-    const trends = await this.getTrends({ ...filters }, 'day');
+    const trends = await this.getTrends({ ...filters, assetId }, 'day');
     const assetTrends = trends.map((trend) => ({
       ...trend,
       utilization: trend.utilization, // This will be recalculated for single asset
@@ -609,7 +597,17 @@ export class UtilizationService {
     };
   }
 
-  private getDateRange(filters?: UtilizationFilters): { startDate: Date; endDate: Date } {
+  /** Asset filter shared by every query: caller's organization, not deleted, optional category/facility. */
+  private assetScope(filters: Partial<UtilizationFilters> & { organizationId: string }): Prisma.AssetWhereInput {
+    return {
+      organizationId: filters.organizationId,
+      deletedAt: null,
+      ...(filters.category && { deviceCategory: filters.category as Prisma.EnumDeviceCategoryFilter['equals'] }),
+      ...(filters.facilityId && { currentFacilityId: filters.facilityId }),
+    };
+  }
+
+  private getDateRange(filters: UtilizationFilters): { startDate: Date; endDate: Date } {
     const endDate = filters?.endDate || new Date();
     const startDate = filters?.startDate || new Date(endDate.getTime() - 30 * 24 * 60 * 60 * 1000); // Default 30 days
     return { startDate, endDate };
