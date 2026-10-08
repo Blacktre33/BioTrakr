@@ -16,6 +16,17 @@ This document provides examples for using the BioTrakr data ingestion service. T
 | `/api/v1/ingest/maintenance/batch` | POST | Batch maintenance events |
 | `/api/v1/ingest/error` | POST | Single error event |
 
+### Authentication and errors
+
+Every request needs `Authorization: Bearer <access token>` for a user with the
+`integration` (or `admin`) role. Events are accepted only for assets and
+facilities in that user's organization.
+
+- `400` – the event failed validation; the body lists the reasons in `errors`.
+- `404` – the asset or facility is not in your organization.
+- `5xx` – storage failed; retry the event.
+- Batches return `201` with per-event results (`processed`, `failed`, `errors[]` with each failed index). At most 500 events per batch.
+
 ---
 
 ## Example: Telemetry Event
@@ -25,6 +36,7 @@ This document provides examples for using the BioTrakr data ingestion service. T
 ```bash
 curl -X POST http://localhost:3000/api/v1/ingest/telemetry \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
   -d '{
     "name": "asset.infusion_pump.temperature.reading_celsius",
     "timestamp": "2025-11-18T14:32:00.000Z",
@@ -77,6 +89,7 @@ curl -X POST http://localhost:3000/api/v1/ingest/telemetry \
 ```bash
 curl -X POST http://localhost:3000/api/v1/ingest/telemetry/batch \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
   -d '{
     "events": [
       {
@@ -130,6 +143,7 @@ curl -X POST http://localhost:3000/api/v1/ingest/telemetry/batch \
 ```bash
 curl -X POST http://localhost:3000/api/v1/ingest/rtls \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
   -d '{
     "timestamp": "2025-11-18T14:32:05.000Z",
     "assetId": "550e8400-e29b-41d4-a716-446655440002",
@@ -162,6 +176,7 @@ curl -X POST http://localhost:3000/api/v1/ingest/rtls \
 ```bash
 curl -X POST http://localhost:3000/api/v1/ingest/maintenance \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
   -d '{
     "timestamp": "2025-11-18T10:00:00.000Z",
     "assetId": "550e8400-e29b-41d4-a716-446655440002",
@@ -194,6 +209,7 @@ curl -X POST http://localhost:3000/api/v1/ingest/maintenance \
 ```bash
 curl -X POST http://localhost:3000/api/v1/ingest/error \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
   -d '{
     "timestamp": "2025-11-18T14:45:00.000Z",
     "assetId": "550e8400-e29b-41d4-a716-446655440002",
@@ -236,6 +252,7 @@ Following the `{domain}.{entity}.{action}.{metric_type}` pattern:
 import axios from 'axios';
 
 const INGESTION_URL = 'http://localhost:3000/api/v1/ingest';
+const TOKEN = process.env.BIOTRAKR_TOKEN; // integration-role access token
 
 interface TelemetryEvent {
   name: string;
@@ -260,7 +277,9 @@ interface TelemetryEvent {
 
 async function sendTelemetry(event: TelemetryEvent): Promise<void> {
   try {
-    const response = await axios.post(`${INGESTION_URL}/telemetry`, event);
+    const response = await axios.post(`${INGESTION_URL}/telemetry`, event, {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
     console.log(`Ingested: ${event.name}`, response.data);
   } catch (error) {
     console.error(`Failed to ingest: ${event.name}`, error.response?.data);

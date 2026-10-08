@@ -21,12 +21,21 @@ function buildPrisma() {
     assetTagNumber: string;
     deletedAt: Date | null;
     deletedById?: string;
+    pmFrequencyDays?: number | null;
+    lastPmDate?: Date | null;
+    nextPmDueDate?: Date | null;
+    currentRoomId?: string | null;
+    lastSeenTimestamp?: Date | null;
+    assetStatus?: string;
   }> = [
     {
       id: ASSET_A,
       organizationId: ORG_A,
       assetTagNumber: 'VENT-A',
       deletedAt: null,
+      pmFrequencyDays: 30,
+      lastPmDate: null,
+      lastSeenTimestamp: null,
     },
     {
       id: ASSET_B,
@@ -50,15 +59,30 @@ function buildPrisma() {
     },
   ];
 
-  const matchesWhere = (
+  // Enough of Prisma's `where` for these tests: equality, null, OR, lt/lte.
+  // Other operators match everything.
+  function matchesWhere(
     row: Record<string, unknown>,
     where: Record<string, unknown> = {},
-  ) =>
-    Object.entries(where).every(([k, v]) =>
-      v === null
-        ? row[k] == null
-        : v === undefined || typeof v === 'object' || row[k] === v,
-    );
+  ): boolean {
+    return Object.entries(where).every(([k, v]) => {
+      if (k === 'OR') {
+        return (v as Record<string, unknown>[]).some((w) =>
+          matchesWhere(row, w),
+        );
+      }
+      if (v === undefined) return true;
+      if (v === null) return row[k] == null;
+      if (typeof v === 'object' && !(v instanceof Date)) {
+        const cond = v as { lt?: Date; lte?: Date };
+        const value = row[k] as Date | null | undefined;
+        if (cond.lt) return value != null && value < cond.lt;
+        if (cond.lte) return value != null && value <= cond.lte;
+        return true;
+      }
+      return row[k] === v;
+    });
+  }
 
   return {
     users,
@@ -118,6 +142,9 @@ function buildPrisma() {
       >(async () => []),
     },
     locationHistory: { create: jest.fn(async ({ data }) => data) },
+    assetTelemetry: { create: jest.fn(async ({ data }) => data) },
+    maintenanceEvent: { create: jest.fn(async ({ data }) => data) },
+    errorEvent: { create: jest.fn(async ({ data }) => data) },
     user: {
       count: jest.fn(async ({ where }) =>
         where.organizationId === ORG_A ? 1 : 0,
@@ -332,7 +359,7 @@ describe('Authentication and authorization (e2e)', () => {
       ['clinical_staff', 'post', `/api/assets/${ASSET_A}/scans`, 201],
       ['viewer', 'post', `/api/assets/${ASSET_A}/scans`, 403],
       ['integration', 'get', '/api/assets', 403],
-      ['viewer', 'post', '/api/api/v1/ingest/rtls', 403],
+      ['viewer', 'post', '/api/v1/ingest/rtls', 403],
     ] as const)('%s %s %s -> %d', async (role, method, url, status) => {
       await request(app.getHttpServer())
         [method](url)
@@ -351,14 +378,14 @@ describe('Authentication and authorization (e2e)', () => {
         eventType: 'position_update',
       };
       await request(app.getHttpServer())
-        .post('/api/api/v1/ingest/rtls')
+        .post('/api/v1/ingest/rtls')
         .set(bearer('integration'))
         .send(event)
         .expect(404);
       expect(prisma.locationHistory.create).not.toHaveBeenCalled();
 
       await request(app.getHttpServer())
-        .post('/api/api/v1/ingest/rtls')
+        .post('/api/v1/ingest/rtls')
         .set(bearer('integration'))
         .send({ ...event, assetId: ASSET_A })
         .expect(201);
@@ -376,22 +403,27 @@ describe('Authentication and authorization (e2e)', () => {
         confidence: 0.95,
       };
       await request(app.getHttpServer())
-        .post('/api/api/v1/ingest/rtls')
+        .post('/api/v1/ingest/rtls')
         .set(bearer('integration'))
         .send({ ...event, locationId: ROOM_OF_ORG_B })
         .expect(201);
       expect(prisma.asset.updateMany).not.toHaveBeenCalled();
 
       await request(app.getHttpServer())
-        .post('/api/api/v1/ingest/rtls')
+        .post('/api/v1/ingest/rtls')
         .set(bearer('integration'))
         .send({ ...event, locationId: ROOM_A })
         .expect(201);
       expect(prisma.asset.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: ASSET_A, organizationId: ORG_A, deletedAt: null },
+          where: expect.objectContaining({
+            id: ASSET_A,
+            organizationId: ORG_A,
+            deletedAt: null,
+          }),
         }),
       );
+      expect(prisma.assets[0].currentRoomId).toBe(ROOM_A);
     });
 
     it('rejects oversized ingestion batches', async () => {
@@ -404,10 +436,188 @@ describe('Authentication and authorization (e2e)', () => {
         eventType: 'position_update',
       };
       await request(app.getHttpServer())
-        .post('/api/api/v1/ingest/rtls/batch')
+        .post('/api/v1/ingest/rtls/batch')
         .set(bearer('integration'))
         .send({ events: Array.from({ length: 501 }, () => one) })
         .expect(400);
+    });
+  });
+
+  describe('ingestion', () => {
+    const post = (path: string, body: object) =>
+      request(app.getHttpServer())
+        .post(`/api/v1/ingest/${path}`)
+        .set(bearer('integration'))
+        .send(body);
+
+    const telemetry = {
+      name: 'device.ventilator.reading.pressure',
+      timestamp: '2026-10-08T10:00:00Z',
+      facilityId: FACILITY_A,
+      assetId: ASSET_A,
+      environment: 'test',
+      serviceName: 'gateway',
+      assetCategory: 'life_support',
+      assetType: 'ventilator',
+      eventCategory: 'operational',
+      severity: 'info',
+      value: 0,
+      unit: 'cmH2O',
+    };
+
+    it('stores zero readings and scores as zero, not as missing', async () => {
+      await post('telemetry', {
+        ...telemetry,
+        labels: {
+          healthScore: 0,
+          anomalyDetected: false,
+          failureProbability: 0,
+        },
+      }).expect(201);
+
+      expect(prisma.assetTelemetry.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          metricValue: 0,
+          healthScore: 0,
+          anomalyDetected: false,
+          failureProbability: 0,
+          severity: 'INFO',
+          time: new Date('2026-10-08T10:00:00Z'),
+        }),
+      });
+    });
+
+    it('returns 400 with the reasons for an invalid event', async () => {
+      const res = await post('telemetry', {
+        ...telemetry,
+        name: 'pressure',
+        labels: { healthScore: 42.5 },
+      }).expect(400);
+
+      expect(res.body.errors).toEqual([
+        expect.stringContaining('Invalid metric name format'),
+        expect.stringContaining('Health score must be a whole number'),
+      ]);
+      expect(prisma.assetTelemetry.create).not.toHaveBeenCalled();
+    });
+
+    it('sets PM dates from when the work was done and never moves them back', async () => {
+      const done = '2026-09-01T08:00:00Z';
+      await post('maintenance', {
+        timestamp: done,
+        assetId: ASSET_A,
+        facilityId: FACILITY_A,
+        eventType: 'pm_completed',
+        cost: 0,
+      }).expect(201);
+
+      expect(prisma.maintenanceEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ cost: 0, time: new Date(done) }),
+      });
+      const asset = prisma.assets[0];
+      expect(asset.lastPmDate).toEqual(new Date(done));
+      // The asset's own 30-day PM frequency, counted from the completion time.
+      expect(asset.nextPmDueDate).toEqual(new Date('2026-10-01T08:00:00Z'));
+
+      // A late-arriving older PM record must not roll the dates back.
+      await post('maintenance', {
+        timestamp: '2026-08-01T08:00:00Z',
+        assetId: ASSET_A,
+        facilityId: FACILITY_A,
+        eventType: 'pm_completed',
+      }).expect(201);
+      expect(asset.lastPmDate).toEqual(new Date(done));
+      expect(asset.nextPmDueDate).toEqual(new Date('2026-10-01T08:00:00Z'));
+    });
+
+    it('ignores RTLS fixes older than the last one applied', async () => {
+      const fix = {
+        assetId: ASSET_A,
+        facilityId: FACILITY_A,
+        tagId: 't1',
+        sourceType: 'ble',
+        eventType: 'position_update',
+        confidence: 0.9,
+        locationId: ROOM_A,
+        coordinates: { x: 0, y: 0 },
+      };
+      await post('rtls', { ...fix, timestamp: '2026-10-08T10:00:00Z' }).expect(
+        201,
+      );
+      await post('rtls', { ...fix, timestamp: '2026-10-08T09:00:00Z' }).expect(
+        201,
+      );
+
+      expect(prisma.assets[0].lastSeenTimestamp).toEqual(
+        new Date('2026-10-08T10:00:00Z'),
+      );
+      // Both fixes are still kept in the location history, with x/y of 0.
+      expect(prisma.locationHistory.create).toHaveBeenCalledTimes(2);
+      expect(prisma.locationHistory.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ coordinatesX: 0, coordinatesY: 0 }),
+      });
+    });
+
+    it('quarantines a device on a critical fault that needs intervention', async () => {
+      await post('error', {
+        timestamp: '2026-10-08T10:00:00Z',
+        assetId: ASSET_A,
+        facilityId: FACILITY_A,
+        errorCode: 'E42',
+        severity: 'critical',
+        requiresIntervention: true,
+      }).expect(201);
+
+      expect(prisma.errorEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          severity: 'CRITICAL',
+          errorCode: 'E42',
+        }),
+      });
+      expect(prisma.assets[0].assetStatus).toBe('QUARANTINED');
+      expect(prisma.assets[1].assetStatus).toBeUndefined();
+    });
+
+    it('reports per-event results in a batch without leaking database errors', async () => {
+      prisma.assetTelemetry.create
+        .mockImplementationOnce(async ({ data }) => data)
+        .mockImplementationOnce(async () => {
+          throw new Error('relation "asset_telemetry" does not exist');
+        });
+
+      const res = await post('telemetry/batch', {
+        events: [
+          telemetry,
+          telemetry,
+          { ...telemetry, assetId: ASSET_B }, // another organization's asset
+          { ...telemetry, name: 'bad' },
+        ],
+      }).expect(201);
+
+      expect(res.body).toEqual({
+        success: false,
+        processed: 1,
+        failed: 3,
+        errors: [
+          { index: 1, message: 'Storage failed; retry this event' },
+          {
+            index: 2,
+            message: 'Asset or facility not found in your organization',
+          },
+          {
+            index: 3,
+            message: expect.stringContaining('Invalid metric name format'),
+          },
+        ],
+      });
+      expect(JSON.stringify(res.body)).not.toContain('asset_telemetry');
+    });
+
+    it('lets a storage failure on a single event surface as a 5xx so gateways retry', async () => {
+      prisma.assetTelemetry.create.mockImplementationOnce(async () => {
+        throw new Error('connection lost');
+      });
+      await post('telemetry', telemetry).expect(500);
     });
   });
 

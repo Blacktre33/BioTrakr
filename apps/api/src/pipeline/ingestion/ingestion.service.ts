@@ -1,41 +1,57 @@
 import { Injectable, Logger } from '@nestjs/common';
+import type {
+  Prisma,
+  TelemetryFailureType,
+  TelemetryHealthStatus,
+  TelemetryLabelSource,
+  TelemetrySeverity,
+} from '@prisma/client';
+
 import { PrismaService } from '../../database/prisma.service';
 import {
   TelemetryEventDto,
   RTLSEventDto,
   MaintenanceEventDto,
   ErrorEventDto,
-  BatchTelemetryDto,
-  IngestionResponseDto,
 } from './dto/telemetry.dto';
-import { EventSeverity, HealthStatus, FailureType } from './enums';
+import { EventSeverity, HealthStatus } from './enums';
+
+/** Rejected by the labeling rules; the caller should get a 400 with these messages. */
+export class IngestionValidationError extends Error {
+  constructor(readonly errors: string[]) {
+    super(`Validation failed: ${errors.join('; ')}`);
+  }
+}
+
+/** Used when PM frequency is not recorded on the asset. */
+export const DEFAULT_PM_INTERVAL_DAYS = 90;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Enhanced Ingestion Service
+ * DTO enums carry the lower-case database values (e.g. "critical"); the
+ * Prisma enums use upper-case names (CRITICAL) mapped to those values.
+ */
+function toPrismaEnum<T extends string>(
+  value: string | undefined | null,
+): T | null {
+  return value ? (value.toUpperCase() as T) : null;
+}
+
+/**
+ * Ingestion service
  *
- * Implements telemetry ingestion following BioTrakr labeling standards.
- * Uses Prisma for database access instead of TypeORM.
+ * Writes telemetry, RTLS, maintenance and error events following the
+ * BioTrakr telemetry labeling guide. Callers must have checked that the
+ * event's asset and facility belong to their organization
+ * (see isInOrganization); every asset update here is scoped again.
  */
 @Injectable()
 export class IngestionService {
   private readonly logger = new Logger(IngestionService.name);
 
-  // Valid enum values for validation
   private readonly validSeverities = Object.values(EventSeverity);
   private readonly validHealthStatuses = Object.values(HealthStatus);
-  private readonly validFailureTypes = Object.values(FailureType);
 
-  // Valid asset categories (from labeling guide)
-  private readonly validAssetCategories = [
-    'diagnostic_imaging',
-    'life_support',
-    'surgical',
-    'laboratory',
-    'patient_care',
-    'infrastructure',
-  ];
-
-  // Valid event categories
   private readonly validEventCategories = [
     'location',
     'maintenance',
@@ -54,266 +70,191 @@ export class IngestionService {
     facilityId: string,
   ): Promise<boolean> {
     const [assets, facilities] = await Promise.all([
-      this.prisma.asset.count({ where: { id: assetId, organizationId, deletedAt: null } }),
+      this.prisma.asset.count({
+        where: { id: assetId, organizationId, deletedAt: null },
+      }),
       this.prisma.facility.count({ where: { id: facilityId, organizationId } }),
     ]);
     return assets > 0 && facilities > 0;
   }
 
   // ============================================================================
-  // TELEMETRY INGESTION
+  // TELEMETRY
   // ============================================================================
 
-  async ingestTelemetryEvent(event: TelemetryEventDto): Promise<boolean> {
-    try {
-      // Validate the event
-      const validationErrors = this.validateTelemetryEvent(event);
-      if (validationErrors.length > 0) {
-        this.logger.warn(
-          `Validation failed: ${JSON.stringify(validationErrors)}`,
-        );
-        return false;
-      }
-
-      // Insert into TimescaleDB using Prisma
-      // Note: This assumes asset_telemetry table exists from migrations
-      await this.prisma.$executeRaw`
-        INSERT INTO asset_telemetry (
-          time, "assetId", "facilityId",
-          asset_category, asset_type, department, risk_class,
-          metric_name, metric_value, metric_unit,
-          event_category, event_source, severity,
-          health_score, health_status, anomaly_detected,
-          failure_probability, predicted_failure_type, time_to_failure_hours,
-          label_source, label_confidence, model_version,
-          trace_id, service_name, raw_payload
-        ) VALUES (
-          ${new Date(event.timestamp)}::timestamptz,
-          ${event.assetId}::uuid,
-          ${event.facilityId}::uuid,
-          ${event.assetCategory},
-          ${event.assetType},
-          ${event.department || null},
-          null, -- risk_class - derived from asset_type
-          ${event.name},
-          ${event.value},
-          ${event.unit},
-          ${event.eventCategory},
-          ${event.serviceName},
-          ${event.severity},
-          ${event.labels?.healthScore || null},
-          ${event.labels?.healthStatus || null},
-          ${event.labels?.anomalyDetected || null},
-          ${event.labels?.failureProbability || null},
-          ${event.labels?.predictedFailureType || null},
-          ${event.labels?.timeToFailureHours || null},
-          ${event.labelMetadata?.labelSource || null},
-          ${event.labelMetadata?.labelConfidence || null},
-          ${event.labelMetadata?.modelVersion || null},
-          ${event.traceId || null},
-          ${event.serviceName},
-          ${event.rawPayload ? JSON.stringify(event.rawPayload) : null}::jsonb
-        )
-      `;
-
-      // Update asset health score if provided
-      if (event.labels?.healthScore !== undefined) {
-        await this.updateAssetHealthScore(
-          event.assetId,
-          event.labels.healthScore,
-        );
-      }
-
-      return true;
-    } catch (error) {
-      this.logger.error(
-        `Failed to ingest telemetry: ${error.message}`,
-        error.stack,
-      );
-      return false;
-    }
-  }
-
-  async ingestTelemetryBatch(
-    batch: BatchTelemetryDto,
-  ): Promise<IngestionResponseDto> {
-    const errors: Array<{ index: number; message: string }> = [];
-    let processed = 0;
-
-    for (let i = 0; i < batch.events.length; i++) {
-      try {
-        const success = await this.ingestTelemetryEvent(batch.events[i]);
-        if (success) {
-          processed++;
-        } else {
-          errors.push({ index: i, message: 'Ingestion failed' });
-        }
-      } catch (error) {
-        errors.push({ index: i, message: error.message || 'Unknown error' });
-      }
+  /** Throws IngestionValidationError for bad labels; database errors propagate. */
+  async ingestTelemetryEvent(event: TelemetryEventDto): Promise<void> {
+    const validationErrors = this.validateTelemetryEvent(event);
+    if (validationErrors.length > 0) {
+      throw new IngestionValidationError(validationErrors);
     }
 
-    return {
-      success: errors.length === 0,
-      processed,
-      failed: errors.length,
-      errors: errors.length > 0 ? errors : undefined,
-    };
+    // `??` (not `||`) everywhere: 0 and false are real readings, not "missing".
+    await this.prisma.assetTelemetry.create({
+      data: {
+        time: new Date(event.timestamp),
+        assetId: event.assetId,
+        facilityId: event.facilityId,
+        assetCategory: event.assetCategory,
+        assetType: event.assetType,
+        department: event.department ?? null,
+        metricName: event.name,
+        metricValue: event.value,
+        metricUnit: event.unit,
+        eventCategory: event.eventCategory,
+        eventSource: event.serviceName,
+        severity: toPrismaEnum<TelemetrySeverity>(event.severity),
+        healthScore: event.labels?.healthScore ?? null,
+        healthStatus: toPrismaEnum<TelemetryHealthStatus>(
+          event.labels?.healthStatus,
+        ),
+        anomalyDetected: event.labels?.anomalyDetected ?? null,
+        failureProbability: event.labels?.failureProbability ?? null,
+        predictedFailureType: toPrismaEnum<TelemetryFailureType>(
+          event.labels?.predictedFailureType,
+        ),
+        timeToFailureHours: event.labels?.timeToFailureHours ?? null,
+        labelSource: toPrismaEnum<TelemetryLabelSource>(
+          event.labelMetadata?.labelSource,
+        ),
+        labelConfidence: event.labelMetadata?.labelConfidence ?? null,
+        modelVersion: event.labelMetadata?.modelVersion ?? null,
+        traceId: event.traceId ?? null,
+        serviceName: event.serviceName,
+        rawPayload: (event.rawPayload as Prisma.InputJsonValue) ?? undefined,
+      },
+    });
   }
 
   // ============================================================================
-  // RTLS INGESTION
+  // RTLS
   // ============================================================================
 
   async ingestRTLSEvent(
     event: RTLSEventDto,
     organizationId: string,
-  ): Promise<boolean> {
-    try {
-      // Map SourceType to TrackingMethod enum
-      const trackingMethodMap: Record<
-        string,
-        'RFID' | 'BLE' | 'GPS' | 'MANUAL' | 'QR' | 'NFC'
-      > = {
-        rfid: 'RFID',
-        ble: 'BLE',
-        wifi: 'BLE', // Map WiFi to BLE as closest match
-        gps: 'GPS',
-        manual: 'MANUAL',
-        scan: 'QR',
-      };
+  ): Promise<void> {
+    const trackingMethodMap: Record<
+      string,
+      'RFID' | 'BLE' | 'GPS' | 'MANUAL' | 'QR' | 'NFC'
+    > = {
+      rfid: 'RFID',
+      ble: 'BLE',
+      wifi: 'BLE', // closest supported tracking method
+      gps: 'GPS',
+      manual: 'MANUAL',
+      scan: 'QR',
+    };
+    const eventTime = new Date(event.timestamp);
 
-      // Insert RTLS event into location_history table
-      await this.prisma.locationHistory.create({
-        data: {
-          assetId: event.assetId,
-          timestamp: new Date(event.timestamp),
-          coordinatesX: event.coordinates?.x || null,
-          coordinatesY: event.coordinates?.y || null,
-          coordinatesZ: event.coordinates?.z || null,
-          trackingMethod:
-            trackingMethodMap[event.sourceType.toLowerCase()] || 'MANUAL',
-          accuracyMeters: event.accuracyMeters || null,
-          // metadata: event.rawPayload || {}, // Not in schema
-        },
-      });
+    await this.prisma.locationHistory.create({
+      data: {
+        assetId: event.assetId,
+        timestamp: eventTime,
+        // A coordinate of 0 is a real position on the floor plan.
+        coordinatesX: event.coordinates?.x ?? null,
+        coordinatesY: event.coordinates?.y ?? null,
+        coordinatesZ: event.coordinates?.z ?? null,
+        trackingMethod:
+          trackingMethodMap[event.sourceType.toLowerCase()] ?? 'MANUAL',
+        accuracyMeters: event.accuracyMeters ?? null,
+        signalStrength:
+          event.signalStrengthDbm !== undefined
+            ? Math.round(event.signalStrengthDbm)
+            : null,
+      },
+    });
 
-      // Update asset location if high confidence
-      if (event.confidence && event.confidence >= 0.8 && event.locationId) {
-        await this.updateAssetLocation(
-          event.assetId,
-          event.locationId,
-          organizationId,
-        );
-      }
-
-      return true;
-    } catch (error) {
-      this.logger.error(
-        `Failed to ingest RTLS event: ${error.message}`,
-        error.stack,
+    // Move the asset only on high-confidence fixes.
+    if (
+      event.confidence !== undefined &&
+      event.confidence >= 0.8 &&
+      event.locationId
+    ) {
+      await this.updateAssetLocation(
+        event.assetId,
+        event.locationId,
+        organizationId,
+        eventTime,
       );
-      return false;
     }
   }
 
   // ============================================================================
-  // MAINTENANCE EVENT INGESTION
+  // MAINTENANCE
   // ============================================================================
 
-  async ingestMaintenanceEvent(event: MaintenanceEventDto): Promise<boolean> {
-    try {
-      // Insert maintenance event
-      // Note: This assumes maintenance_events table exists from migrations
-      await this.prisma.$executeRaw`
-        INSERT INTO maintenance_events (
-          time, "assetId", "facilityId", work_order_id,
-          event_type, maintenance_type,
-          failure_occurred, failure_type, failure_code, root_cause,
-          parts_replaced, labor_hours, downtime_hours, cost,
-          technician_id, notes, raw_payload
-        ) VALUES (
-          ${new Date(event.timestamp)}::timestamptz,
-          ${event.assetId}::uuid,
-          ${event.facilityId}::uuid,
-          ${event.workOrderId || null}::uuid,
-          ${event.eventType},
-          ${event.maintenanceType || null},
-          ${event.failureOccurred || false},
-          ${event.failureType || null},
-          ${event.failureCode || null},
-          ${event.rootCause || null},
-          ${event.partsReplaced ? JSON.stringify(event.partsReplaced) : null}::jsonb,
-          ${event.laborHours || null},
-          ${event.downtimeHours || null},
-          ${event.cost || null},
-          ${event.technicianId || null}::uuid,
-          ${event.notes || null},
-          ${event.rawPayload ? JSON.stringify(event.rawPayload) : null}::jsonb
-        )
-      `;
+  async ingestMaintenanceEvent(
+    event: MaintenanceEventDto,
+    organizationId: string,
+  ): Promise<void> {
+    const eventTime = new Date(event.timestamp);
 
-      // Update asset maintenance dates if PM completed
-      if (event.eventType === 'pm_completed') {
-        await this.updateAssetMaintenanceDates(event.assetId);
-      }
+    await this.prisma.maintenanceEvent.create({
+      data: {
+        time: eventTime,
+        assetId: event.assetId,
+        facilityId: event.facilityId,
+        workOrderId: event.workOrderId ?? null,
+        eventType: event.eventType,
+        maintenanceType: event.maintenanceType ?? null,
+        failureOccurred: event.failureOccurred ?? false,
+        failureType: toPrismaEnum<TelemetryFailureType>(event.failureType),
+        failureCode: event.failureCode ?? null,
+        rootCause: event.rootCause ?? null,
+        partsReplaced:
+          (event.partsReplaced as Prisma.InputJsonValue) ?? undefined,
+        laborHours: event.laborHours ?? null,
+        downtimeHours: event.downtimeHours ?? null,
+        cost: event.cost ?? null,
+        technicianId: event.technicianId ?? null,
+        notes: event.notes ?? null,
+        rawPayload: (event.rawPayload as Prisma.InputJsonValue) ?? undefined,
+      },
+    });
 
-      return true;
-    } catch (error) {
-      this.logger.error(
-        `Failed to ingest maintenance event: ${error.message}`,
-        error.stack,
+    if (event.eventType === 'pm_completed') {
+      await this.updateAssetMaintenanceDates(
+        event.assetId,
+        organizationId,
+        eventTime,
       );
-      return false;
     }
   }
 
   // ============================================================================
-  // ERROR EVENT INGESTION
+  // ERRORS
   // ============================================================================
 
-  async ingestErrorEvent(event: ErrorEventDto): Promise<boolean> {
-    try {
-      // Insert error event
-      // Note: This assumes error_events table exists from migrations
-      await this.prisma.$executeRaw`
-        INSERT INTO error_events (
-          time, "assetId", "facilityId",
-          error_code, error_message, error_category, severity,
-          component, operation, sensor_readings,
-          auto_recovered, requires_intervention, raw_payload
-        ) VALUES (
-          ${new Date(event.timestamp)}::timestamptz,
-          ${event.assetId}::uuid,
-          ${event.facilityId}::uuid,
-          ${event.errorCode},
-          ${event.errorMessage || null},
-          ${event.errorCategory || null},
-          ${event.severity},
-          ${event.component || null},
-          ${event.operation || null},
-          ${event.sensorReadings ? JSON.stringify(event.sensorReadings) : null}::jsonb,
-          ${event.autoRecovered || false},
-          ${event.requiresIntervention || false},
-          ${event.rawPayload ? JSON.stringify(event.rawPayload) : null}::jsonb
-        )
-      `;
+  async ingestErrorEvent(
+    event: ErrorEventDto,
+    organizationId: string,
+  ): Promise<void> {
+    await this.prisma.errorEvent.create({
+      data: {
+        time: new Date(event.timestamp),
+        assetId: event.assetId,
+        facilityId: event.facilityId,
+        errorCode: event.errorCode,
+        errorMessage: event.errorMessage ?? null,
+        errorCategory: event.errorCategory ?? null,
+        severity: toPrismaEnum<TelemetrySeverity>(event.severity)!,
+        component: event.component ?? null,
+        operation: event.operation ?? null,
+        sensorReadings:
+          (event.sensorReadings as Prisma.InputJsonValue) ?? undefined,
+        autoRecovered: event.autoRecovered ?? false,
+        requiresIntervention: event.requiresIntervention ?? false,
+        rawPayload: (event.rawPayload as Prisma.InputJsonValue) ?? undefined,
+      },
+    });
 
-      // Update asset condition if critical error
-      if (
-        event.severity === EventSeverity.CRITICAL &&
-        event.requiresIntervention
-      ) {
-        await this.updateAssetCondition(event.assetId, 'critical');
-      }
-
-      return true;
-    } catch (error) {
-      this.logger.error(
-        `Failed to ingest error event: ${error.message}`,
-        error.stack,
-      );
-      return false;
+    // A critical fault that needs intervention takes the device out of use.
+    if (
+      event.severity === EventSeverity.CRITICAL &&
+      event.requiresIntervention
+    ) {
+      await this.quarantineAsset(event.assetId, organizationId);
     }
   }
 
@@ -324,88 +265,65 @@ export class IngestionService {
   private validateTelemetryEvent(event: TelemetryEventDto): string[] {
     const errors: string[] = [];
 
-    // Validate metric name format (domain.entity.action.metric_type)
-    const nameParts = event.name.split('.');
-    if (nameParts.length < 3) {
+    // Metric name format: domain.entity.action[.metric_type]
+    if (event.name.split('.').length < 3) {
       errors.push(
         `Invalid metric name format: ${event.name}. Expected: domain.entity.action[.metric_type]`,
       );
     }
 
-    // Validate severity
     if (!this.validSeverities.includes(event.severity)) {
       errors.push(`Invalid severity: ${event.severity}`);
     }
 
-    // Validate event category
     if (!this.validEventCategories.includes(event.eventCategory)) {
       errors.push(`Invalid event category: ${event.eventCategory}`);
     }
 
-    // Validate ML labels if provided
     if (event.labels) {
-      if (event.labels.healthScore !== undefined) {
-        if (event.labels.healthScore < 0 || event.labels.healthScore > 100) {
-          errors.push(
-            `Health score must be 0-100: ${event.labels.healthScore}`,
-          );
-        }
-      }
-
-      if (
-        event.labels.healthStatus &&
-        !this.validHealthStatuses.includes(event.labels.healthStatus)
-      ) {
-        errors.push(`Invalid health status: ${event.labels.healthStatus}`);
-      }
-
-      if (event.labels.failureProbability !== undefined) {
+      const { healthScore, healthStatus, failureProbability } = event.labels;
+      if (healthScore !== undefined) {
         if (
-          event.labels.failureProbability < 0 ||
-          event.labels.failureProbability > 1
+          !Number.isInteger(healthScore) ||
+          healthScore < 0 ||
+          healthScore > 100
         ) {
           errors.push(
-            `Failure probability must be 0-1: ${event.labels.failureProbability}`,
+            `Health score must be a whole number 0-100: ${healthScore}`,
           );
         }
+      }
+      if (healthStatus && !this.validHealthStatuses.includes(healthStatus)) {
+        errors.push(`Invalid health status: ${healthStatus}`);
+      }
+      if (
+        failureProbability !== undefined &&
+        (failureProbability < 0 || failureProbability > 1)
+      ) {
+        errors.push(`Failure probability must be 0-1: ${failureProbability}`);
       }
     }
 
-    // Validate label metadata
-    if (event.labelMetadata?.labelConfidence !== undefined) {
-      if (
-        event.labelMetadata.labelConfidence < 0 ||
-        event.labelMetadata.labelConfidence > 1
-      ) {
-        errors.push(
-          `Label confidence must be 0-1: ${event.labelMetadata.labelConfidence}`,
-        );
-      }
+    const labelConfidence = event.labelMetadata?.labelConfidence;
+    if (
+      labelConfidence !== undefined &&
+      (labelConfidence < 0 || labelConfidence > 1)
+    ) {
+      errors.push(`Label confidence must be 0-1: ${labelConfidence}`);
     }
 
     return errors;
   }
 
   // ============================================================================
-  // ASSET UPDATE HELPERS
+  // ASSET UPDATE HELPERS (all scoped to the organization and to live assets)
   // ============================================================================
-
-  private async updateAssetHealthScore(
-    assetId: string,
-    healthScore: number,
-  ): Promise<void> {
-    // Note: Asset model doesn't have healthScore field directly
-    // Health scores are stored in telemetry/predictive_scores_history tables
-    // This could be updated to store in a custom field or computed view
-    this.logger.debug(
-      `Health score ${healthScore} for asset ${assetId} stored in telemetry`,
-    );
-  }
 
   private async updateAssetLocation(
     assetId: string,
     locationId: string,
     organizationId: string,
+    eventTime: Date,
   ): Promise<void> {
     // Only move the asset into a room of its own organization.
     const roomInOrg = await this.prisma.room.count({
@@ -421,124 +339,72 @@ export class IngestionService {
       return;
     }
 
+    // Ignore fixes older than the last one we applied (late or replayed events).
     await this.prisma.asset.updateMany({
+      where: {
+        id: assetId,
+        organizationId,
+        deletedAt: null,
+        OR: [
+          { lastSeenTimestamp: null },
+          { lastSeenTimestamp: { lte: eventTime } },
+        ],
+      },
+      data: { currentRoomId: locationId, lastSeenTimestamp: eventTime },
+    });
+  }
+
+  private async updateAssetMaintenanceDates(
+    assetId: string,
+    organizationId: string,
+    completedAt: Date,
+  ): Promise<void> {
+    const asset = await this.prisma.asset.findFirst({
       where: { id: assetId, organizationId, deletedAt: null },
+      select: { pmFrequencyDays: true },
+    });
+    if (!asset) return;
+
+    const intervalDays = asset.pmFrequencyDays ?? DEFAULT_PM_INTERVAL_DAYS;
+    // The PM dates come from when the work was done, not when the event arrived,
+    // and an older event never moves the dates backwards.
+    await this.prisma.asset.updateMany({
+      where: {
+        id: assetId,
+        organizationId,
+        deletedAt: null,
+        OR: [{ lastPmDate: null }, { lastPmDate: { lt: completedAt } }],
+      },
       data: {
-        currentRoomId: locationId,
-        lastSeenTimestamp: new Date(),
-        updatedAt: new Date(),
+        lastPmDate: completedAt,
+        nextPmDueDate: new Date(completedAt.getTime() + intervalDays * DAY_MS),
       },
     });
   }
 
-  private async updateAssetMaintenanceDates(assetId: string): Promise<void> {
-    // Get asset to determine PM interval
-    const asset = await this.prisma.asset.findUnique({
-      where: { id: assetId },
-      select: { id: true },
-    });
-
-    if (asset) {
-      const pmInterval = 90; // Default PM interval in days
-      await this.prisma.asset.update({
-        where: { id: assetId },
-        data: {
-          lastPmDate: new Date(),
-          nextPmDueDate: new Date(
-            Date.now() + pmInterval * 24 * 60 * 60 * 1000,
-          ),
-          updatedAt: new Date(),
-        },
-      });
-    }
-  }
-
-  private async updateAssetCondition(
+  private async quarantineAsset(
     assetId: string,
-    condition: string,
+    organizationId: string,
   ): Promise<void> {
-    // Note: Asset model uses assetStatus, not condition
-    // Update status based on condition severity
-    const statusMap: Record<string, 'IN_MAINTENANCE' | 'QUARANTINED'> = {
-      critical: 'QUARANTINED',
-      poor: 'IN_MAINTENANCE',
-      fair: 'IN_MAINTENANCE',
-    };
-
-    const newStatus = statusMap[condition.toLowerCase()];
-    if (newStatus) {
-      await this.prisma.asset.update({
-        where: { id: assetId },
-        data: {
-          assetStatus: newStatus,
-          updatedAt: new Date(),
-        },
-      });
-    }
+    await this.prisma.asset.updateMany({
+      where: { id: assetId, organizationId, deletedAt: null },
+      data: { assetStatus: 'QUARANTINED' },
+    });
   }
 
   // ============================================================================
-  // HEALTH SCORE CALCULATION
+  // HEALTH SCORE HELPERS
   // ============================================================================
 
   /**
-   * Map RUL (Remaining Useful Life) to health status
-   * Based on labeling guide time-to-failure windows
+   * Map RUL (remaining useful life, in hours) to health status.
+   * Based on labeling guide time-to-failure windows.
    */
   mapRulToHealthStatus(timeToFailureHours: number): HealthStatus {
-    if (timeToFailureHours <= 24) {
-      return HealthStatus.CRITICAL;
-    } else if (timeToFailureHours <= 168) {
-      // 1-7 days
-      return HealthStatus.POOR;
-    } else if (timeToFailureHours <= 720) {
-      // 7-30 days
-      return HealthStatus.FAIR;
-    } else if (timeToFailureHours <= 2160) {
-      // 30-90 days
-      return HealthStatus.GOOD;
-    } else {
-      return HealthStatus.EXCELLENT;
-    }
-  }
-
-  /**
-   * Calculate health score from various metrics
-   */
-  calculateHealthScore(metrics: {
-    operatingHours?: number;
-    expectedLifeHours?: number;
-    errorCount24h?: number;
-    daysSinceLastPm?: number;
-    pmIntervalDays?: number;
-    failureProbability?: number;
-  }): number {
-    let score = 100;
-
-    // Operating hours factor (0-25 points)
-    if (metrics.operatingHours && metrics.expectedLifeHours) {
-      const usageRatio = metrics.operatingHours / metrics.expectedLifeHours;
-      score -= Math.min(25, usageRatio * 30);
-    }
-
-    // Error count factor (0-25 points)
-    if (metrics.errorCount24h) {
-      score -= Math.min(25, metrics.errorCount24h * 5);
-    }
-
-    // PM overdue factor (0-25 points)
-    if (metrics.daysSinceLastPm && metrics.pmIntervalDays) {
-      const overdueRatio = metrics.daysSinceLastPm / metrics.pmIntervalDays;
-      if (overdueRatio > 1) {
-        score -= Math.min(25, (overdueRatio - 1) * 20);
-      }
-    }
-
-    // ML prediction factor (0-25 points)
-    if (metrics.failureProbability) {
-      score -= metrics.failureProbability * 25;
-    }
-
-    return Math.max(0, Math.round(score));
+    if (timeToFailureHours <= 24) return HealthStatus.CRITICAL;
+    if (timeToFailureHours <= 168) return HealthStatus.POOR; // 1-7 days
+    if (timeToFailureHours <= 720) return HealthStatus.FAIR; // 7-30 days
+    if (timeToFailureHours <= 2160) return HealthStatus.GOOD; // 30-90 days
+    return HealthStatus.EXCELLENT;
   }
 }

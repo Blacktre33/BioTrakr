@@ -14,9 +14,6 @@ import {
   ArrayMinSize,
   ArrayMaxSize,
 } from 'class-validator';
-
-/** Each event costs several queries; keep one request bounded. */
-export const MAX_BATCH_SIZE = 500;
 import { Type } from 'class-transformer';
 import {
   EventSeverity,
@@ -24,9 +21,11 @@ import {
   LabelSource,
   FailureType,
   EventCategory,
-  AssetCategory,
   SourceType,
 } from '../enums';
+
+/** Each event costs several queries; keep one request bounded. */
+export const MAX_BATCH_SIZE = 500;
 
 // ============================================================================
 // ML Labels DTO (from labeling guide)
