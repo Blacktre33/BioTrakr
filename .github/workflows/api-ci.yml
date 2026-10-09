@@ -50,15 +50,26 @@ jobs:
         run: pnpm --filter @biotrakr/api run db:migrate
       - name: Fail if migrations and schema.prisma disagree
         working-directory: apps/api
-        # On drift, the SQL that would fix it is shown as annotations on the
-        # run (readable without downloading the log).
+        # Prisma's shadow database never reports extensions, so a diff from
+        # migrations always "adds" them; those lines are ignored here and the
+        # extensions are checked directly in the next step. Any other
+        # difference fails, and the SQL is shown as annotations on the run.
         run: |
-          if pnpm run db:drift; then exit 0; fi
           npx prisma migrate diff --from-migrations prisma/migrations \
             --to-schema-datamodel prisma/schema.prisma \
-            --shadow-database-url "$SHADOW_DATABASE_URL" --script > drift.sql || true
-          grep -v '^\s*$' drift.sql | head -60 | while IFS= read -r line; do echo "::error title=Schema drift::$line"; done
-          exit 1
+            --shadow-database-url "$SHADOW_DATABASE_URL" --script > drift.sql
+          grep -vE '^\s*$|^-- |^CREATE EXTENSION IF NOT EXISTS ' drift.sql > drift-real.sql || true
+          if [ -s drift-real.sql ]; then
+            head -60 drift-real.sql | while IFS= read -r line; do echo "::error title=Schema drift::$line"; done
+            exit 1
+          fi
+          echo "Migrations match schema.prisma"
+      - name: Confirm the extensions are installed
+        run: |
+          n=$(PGPASSWORD=postgres psql -h localhost -U postgres -d biotrakr_ci -Atc \
+            "select count(*) from pg_extension where extname in ('uuid-ossp','pg_trgm','timescaledb')")
+          echo "extensions: $n"
+          test "$n" -eq 3
       - name: Confirm TimescaleDB hypertables exist
         run: |
           n=$(PGPASSWORD=postgres psql -h localhost -U postgres -d biotrakr_ci -Atc \
