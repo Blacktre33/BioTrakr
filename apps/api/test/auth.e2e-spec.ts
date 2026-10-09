@@ -280,7 +280,8 @@ describe('Authentication and authorization (e2e)', () => {
         .get('/api/assets')
         .set(bearer('viewer'))
         .expect(200);
-      expect(res.body.map((a: { id: string }) => a.id)).toEqual([ASSET_A]);
+      expect(res.body.items.map((a: { id: string }) => a.id)).toEqual([ASSET_A]);
+      expect(res.body.total).toBe(1);
       expect(prisma.asset.findMany.mock.calls[0][0].where).toEqual({
         organizationId: ORG_A,
         deletedAt: null,
@@ -759,7 +760,7 @@ describe('Authentication and authorization (e2e)', () => {
         .get('/api/assets')
         .set(bearer('viewer'))
         .expect(200);
-      expect(list.body).toEqual([]);
+      expect(list.body).toEqual({ total: 0, items: [] });
 
       await request(app.getHttpServer())
         .get(`/api/assets/${ASSET_A}`)

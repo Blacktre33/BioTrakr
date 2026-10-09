@@ -167,7 +167,12 @@ export interface Asset {
   } | null;
   currentRoom?: {
     id: string;
-    roomNumber: string;
+    roomName: string;
+    roomCode: string;
+  } | null;
+  custodianDepartment?: {
+    id: string;
+    departmentName: string;
   } | null;
 }
 
@@ -252,24 +257,42 @@ export async function getStatusHistory(assetId: string): Promise<StatusChange[]>
   return data;
 }
 
+export type AssetSort = "tag" | "name" | "status" | "nextPm" | "updated";
+
 export interface ListAssetsParams {
   skip?: number;
   take?: number;
   search?: string;
-  status?: string;
-  category?: string;
+  /** Database values, e.g. ["QUARANTINED", "IN_MAINTENANCE"]. */
+  status?: string[];
+  category?: string[];
+  criticality?: string[];
   facilityId?: string;
+  departmentId?: string;
+  pmOverdue?: boolean;
+  sort?: AssetSort;
+  order?: "asc" | "desc";
+}
+
+export interface AssetPage {
+  total: number;
+  items: Asset[];
 }
 
 /**
  * List all assets with optional pagination and filters
  */
-export async function listAssets(params?: ListAssetsParams): Promise<Asset[]> {
-  const queryParams = new URLSearchParams();
-  if (params?.skip !== undefined) queryParams.append('skip', params.skip.toString());
-  if (params?.take !== undefined) queryParams.append('take', params.take.toString());
-  
-  const { data } = await api.get<Asset[]>(`/assets?${queryParams.toString()}`);
+export async function listAssets(params: ListAssetsParams = {}): Promise<AssetPage> {
+  const query: Record<string, string> = {};
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === "" || value === false) continue;
+    if (Array.isArray(value)) {
+      if (value.length) query[key] = value.join(",");
+    } else {
+      query[key] = String(value);
+    }
+  }
+  const { data } = await api.get<AssetPage>("/assets", { params: query });
   return data;
 }
 

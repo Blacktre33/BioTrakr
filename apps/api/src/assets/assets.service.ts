@@ -10,6 +10,7 @@ import type { AuthUser } from '../auth/auth-user';
 import { PrismaService } from '../database/prisma.service';
 import { CreateAssetScanDto } from './dto/create-asset-scan.dto';
 import { CreateAssetDto, UpdateAssetDto } from './dto/create-asset.dto';
+import type { AssetSort, ListAssetsQuery } from './dto/list-assets.query';
 
 export const MAX_PAGE_SIZE = 100;
 
@@ -137,20 +138,64 @@ export class AssetsService {
     }
   }
 
-  async findAll(
-    user: AuthUser,
-    params: { skip?: number; take?: number } = {},
-  ): Promise<Asset[]> {
-    return this.prisma.asset.findMany({
-      skip: params.skip ?? 0,
-      take: Math.min(params.take ?? 20, MAX_PAGE_SIZE),
-      where: { organizationId: user.organizationId, deletedAt: null },
-      orderBy: { assetTagNumber: 'asc' },
-      include: {
-        currentFacility: true,
-        currentRoom: true,
-      },
-    });
+  /** One page of the organization's devices, with the total for paging. */
+  async findAll(user: AuthUser, query: ListAssetsQuery = {}) {
+    const and: Prisma.AssetWhereInput[] = [];
+    const search = query.search?.trim();
+    if (search) {
+      const contains = { contains: search, mode: 'insensitive' as const };
+      and.push({
+        OR: [
+          { assetTagNumber: contains },
+          { equipmentName: contains },
+          { serialNumber: contains },
+          { manufacturer: contains },
+          { modelNumber: contains },
+        ],
+      });
+    }
+    if (query.status?.length) and.push({ assetStatus: { in: query.status } });
+    if (query.category?.length)
+      and.push({ deviceCategory: { in: query.category } });
+    if (query.criticality?.length) {
+      and.push({ criticalityLevel: { in: query.criticality } });
+    }
+    if (query.facilityId) and.push({ currentFacilityId: query.facilityId });
+    if (query.departmentId)
+      and.push({ custodianDepartmentId: query.departmentId });
+    if (query.pmOverdue) and.push({ nextPmDueDate: { lt: new Date() } });
+
+    const where: Prisma.AssetWhereInput = {
+      organizationId: user.organizationId,
+      deletedAt: null,
+      ...(and.length ? { AND: and } : {}),
+    };
+
+    const order = query.order ?? 'asc';
+    const sortBy: Record<AssetSort, Prisma.AssetOrderByWithRelationInput> = {
+      tag: { assetTagNumber: order },
+      name: { equipmentName: order },
+      status: { assetStatus: order },
+      nextPm: { nextPmDueDate: { sort: order, nulls: 'last' } },
+      updated: { updatedAt: order },
+    };
+
+    const [total, items] = await Promise.all([
+      this.prisma.asset.count({ where }),
+      this.prisma.asset.findMany({
+        where,
+        // id last, so paging is stable when the sort values tie.
+        orderBy: [sortBy[query.sort ?? 'tag'], { id: 'asc' }],
+        skip: query.skip ?? 0,
+        take: Math.min(query.take ?? 25, MAX_PAGE_SIZE),
+        include: {
+          currentFacility: { select: { id: true, facilityName: true } },
+          currentRoom: { select: { id: true, roomName: true, roomCode: true } },
+          custodianDepartment: { select: { id: true, departmentName: true } },
+        },
+      }),
+    ]);
+    return { total, items };
   }
 
   async findOne(id: string, user: AuthUser): Promise<Asset | null> {

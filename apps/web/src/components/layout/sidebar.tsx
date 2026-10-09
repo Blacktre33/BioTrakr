@@ -153,7 +153,7 @@ export function Sidebar() {
                     const query = (e.target as HTMLInputElement).value.trim();
                     if (query) {
                       // Navigate to assets page with search query
-                      window.location.href = `/assets?search=${encodeURIComponent(query)}`;
+                      window.location.href = `/assets?q=${encodeURIComponent(query)}`;
                     }
                   }
                 }}

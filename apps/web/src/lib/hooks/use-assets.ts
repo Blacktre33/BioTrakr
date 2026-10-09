@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listAssets,
   getAsset,
@@ -18,11 +18,13 @@ import {
 /**
  * Hook to fetch a list of assets with optional filters
  */
-export function useAssets(params?: ListAssetsParams) {
+export function useAssets(params: ListAssetsParams = {}) {
   return useQuery({
     queryKey: ["assets", params],
     queryFn: () => listAssets(params),
-    staleTime: 30 * 1000, // 30 seconds
+    staleTime: 30 * 1000,
+    // Keep the current page on screen while the next one loads.
+    placeholderData: keepPreviousData,
   });
 }
 

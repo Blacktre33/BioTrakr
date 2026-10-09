@@ -1,13 +1,11 @@
 import {
   Body,
   Controller,
-  DefaultValuePipe,
   Delete,
   Get,
   HttpCode,
   NotFoundException,
   Param,
-  ParseIntPipe,
   ParseUUIDPipe,
   Patch,
   Post,
@@ -32,8 +30,9 @@ import {
 } from '../auth/roles';
 import { AssetLookupService } from './asset-lookup.service';
 import { AssetStatusService } from './asset-status.service';
-import { AssetsService, MAX_PAGE_SIZE } from './assets.service';
+import { AssetsService } from './assets.service';
 import { CreateAssetScanDto } from './dto/create-asset-scan.dto';
+import { ListAssetsQuery } from './dto/list-assets.query';
 import { AssetScanLogDto } from './dto/asset-scan-log.dto';
 import {
   ChangeAssetStatusDto,
@@ -68,25 +67,15 @@ export class AssetsController {
 
   @Get()
   @ApiOperation({
-    summary: 'List assets in your organization, with pagination',
+    summary:
+      'List devices in your organization: search, filter, sort, page. Returns { total, items }.',
   })
-  @ApiOkResponse({ description: 'List of assets' })
-  @ApiQuery({ name: 'skip', required: false, type: Number })
-  @ApiQuery({
-    name: 'take',
-    required: false,
-    type: Number,
-    description: `Max ${MAX_PAGE_SIZE}`,
-  })
+  @ApiOkResponse({ description: 'One page of devices and the total' })
   async findAll(
     @CurrentUser() user: AuthUser,
-    @Query('skip', new DefaultValuePipe(0), ParseIntPipe) skip: number,
-    @Query('take', new DefaultValuePipe(20), ParseIntPipe) take: number,
+    @Query() query: ListAssetsQuery,
   ) {
-    return this.assetsService.findAll(user, {
-      skip: Math.max(0, skip),
-      take: Math.min(Math.max(1, take), MAX_PAGE_SIZE),
-    });
+    return this.assetsService.findAll(user, query);
   }
 
   // Declared before ':id' so "lookup" is not taken for an asset id.
