@@ -21,6 +21,10 @@ jest.mock("sonner", () => ({ toast: { success: jest.fn(), error: jest.fn() } }))
 jest.mock("@/lib/hooks/use-asset-scan-logs", () => ({
   useCreateAssetScanMutation: () => ({ mutateAsync, isPending: false }),
 }));
+const reportProblem = jest.fn();
+jest.mock("@/lib/hooks/use-work-orders", () => ({
+  useReportProblemMutation: () => ({ mutateAsync: reportProblem, isPending: false }),
+}));
 jest.mock("@/lib/hooks/use-asset-lookup", () => ({
   useAssetLookup: () => lookupState,
 }));
@@ -52,6 +56,7 @@ const asset: AssetLookup = {
   recentScans: [],
   recentStatusChanges: [],
   pmFrequencyDays: 180,
+  openWorkOrders: 0,
 };
 
 function wrap(ui: ReactNode) {
@@ -124,9 +129,30 @@ describe("AssetBedsideCard", () => {
     expect(container.querySelector("details")).toHaveAttribute("open");
   });
 
+  it("lets ward staff report a problem and take the device out of use", async () => {
+    const user = userEvent.setup();
+    reportProblem.mockResolvedValue({ workOrderId: "w1", takenOutOfUse: true, outOfUse: true });
+    render(wrap(<AssetBedsideCard asset={{ ...asset, openWorkOrders: 1 }} scannedCode="VENT-7" role="clinical_staff" />));
+
+    expect(screen.getByText("Biomed has 1 open work order for this device.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /report a problem/i }));
+    // Out of use is the default: when in doubt, the next scan says "Do not use".
+    expect(screen.getByRole("checkbox", { name: /take it out of use now/i })).toBeChecked();
+    await user.type(screen.getByLabelText(/what's wrong/i), "Alarm keeps sounding");
+    await user.click(screen.getByRole("button", { name: "Send report" }));
+
+    expect(reportProblem).toHaveBeenCalledWith({
+      assetId: "a1",
+      description: "Alarm keeps sounding",
+      takeOutOfUse: true,
+      locationHint: "ICU Bay 3 (ICU-3)",
+    });
+  });
+
   it("does not offer logging to view-only users", () => {
     render(wrap(<AssetBedsideCard asset={asset} scannedCode="VENT-7" role="viewer" />));
     expect(screen.queryByRole("button", { name: /log that/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /report a problem/i })).not.toBeInTheDocument();
   });
 });
 

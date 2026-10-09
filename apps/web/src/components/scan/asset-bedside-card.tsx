@@ -2,13 +2,15 @@
 
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { AlertOctagon, AlertTriangle, CheckCircle2, MapPin, Wrench } from "lucide-react";
+import { AlertOctagon, AlertTriangle, CheckCircle2, Flag, MapPin, Wrench } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button, Input, Label } from "@/components/ui";
 import type { AssetLookup } from "@/lib/api/assets";
 import { useCreateAssetScanMutation } from "@/lib/hooks/use-asset-scan-logs";
 import { cn, formatDate } from "@/lib/utils";
+
+import { ReportProblemDialog } from "./report-problem-dialog";
 
 /** Roles that see the full technical detail straight away. */
 const DETAIL_ROLES = ["admin", "engineer", "technician"];
@@ -95,6 +97,7 @@ export function AssetBedsideCard({ asset, scannedCode, role }: AssetBedsideCardP
   const logScan = useCreateAssetScanMutation(asset.id);
   const [where, setWhere] = useState(asset.location.room ?? "");
   const [logged, setLogged] = useState(false);
+  const [reporting, setReporting] = useState(false);
   const canLog = role ? SCAN_ROLES.includes(role) : false;
 
   const nextPm = asset.pm.nextPmDueDate;
@@ -168,6 +171,36 @@ export function AssetBedsideCard({ asset, scannedCode, role }: AssetBedsideCardP
             </>
           )}
         </section>
+      )}
+
+      {canLog && (
+        <>
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full border border-critical-500/40 py-4 text-lg text-critical-500"
+            leftIcon={<Flag className="h-5 w-5" />}
+            onClick={() => setReporting(true)}
+          >
+            Report a problem
+          </Button>
+          {asset.openWorkOrders > 0 && (
+            <p className="text-center text-sm text-gray-400">
+              {asset.openWorkOrders === 1
+                ? "Biomed has 1 open work order for this device."
+                : `Biomed has ${asset.openWorkOrders} open work orders for this device.`}
+            </p>
+          )}
+          <ReportProblemDialog
+            open={reporting}
+            onOpenChange={setReporting}
+            assetId={asset.id}
+            equipmentName={asset.equipmentName}
+            location={where || asset.location.room || ""}
+            alreadyOutOfUse={!asset.safeToUse}
+            openWorkOrders={asset.openWorkOrders}
+          />
+        </>
       )}
 
       <details open={role ? DETAIL_ROLES.includes(role) : false} className="rounded-2xl border border-white/10 p-4">

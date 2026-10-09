@@ -335,6 +335,8 @@ export interface AssetLookup {
     description: string | null;
   }>;
   pmFrequencyDays: number | null;
+  /** Work orders not yet completed or cancelled (e.g. problems already reported). */
+  openWorkOrders: number;
   recentStatusChanges: Array<Omit<StatusChange, "workOrderId">>;
   recentScans: Array<{
     id: string;

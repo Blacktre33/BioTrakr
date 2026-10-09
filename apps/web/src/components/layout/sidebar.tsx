@@ -20,12 +20,21 @@ import {
   Activity,
   TrendingUp,
   ScanLine,
+  type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useSidebarStore, useAlertStore } from '@/stores';
 import { Avatar, Badge } from '@/components/ui';
 
-const navigationItems = [
+interface NavItem {
+  name: string;
+  href: string;
+  icon: LucideIcon;
+  description: string;
+  badge?: number;
+}
+
+const navigationItems: NavItem[] = [
   {
     name: 'Dashboard',
     href: '/dashboard',
@@ -45,11 +54,10 @@ const navigationItems = [
     description: 'Is it safe to use?',
   },
   {
-    name: 'Maintenance',
+    name: 'Work orders',
     href: '/maintenance',
     icon: Wrench,
-    description: 'Work orders',
-    badge: 5,
+    description: 'Problem reports and scheduled work',
   },
   {
     name: 'Tracking',

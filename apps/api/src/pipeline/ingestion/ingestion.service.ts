@@ -11,6 +11,7 @@ import {
   changeAssetStatus,
   isStopStatus,
 } from '../../assets/asset-status.service';
+import { recordPmCompleted } from '../../assets/pm-dates';
 import { PrismaService } from '../../database/prisma.service';
 import {
   TelemetryEventDto,
@@ -27,9 +28,7 @@ export class IngestionValidationError extends Error {
   }
 }
 
-/** Used when PM frequency is not recorded on the asset. */
-export const DEFAULT_PM_INTERVAL_DAYS = 90;
-const DAY_MS = 24 * 60 * 60 * 1000;
+export { DEFAULT_PM_INTERVAL_DAYS } from '../../assets/pm-dates';
 /** How far ahead of server time an event may be stamped (gateway clock drift). */
 export const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
 
@@ -235,7 +234,8 @@ export class IngestionService {
     });
 
     if (event.eventType === 'pm_completed') {
-      await this.updateAssetMaintenanceDates(
+      await recordPmCompleted(
+        this.prisma,
         event.assetId,
         organizationId,
         eventTime,
@@ -372,34 +372,6 @@ export class IngestionService {
         ],
       },
       data: { currentRoomId: locationId, lastSeenTimestamp: eventTime },
-    });
-  }
-
-  private async updateAssetMaintenanceDates(
-    assetId: string,
-    organizationId: string,
-    completedAt: Date,
-  ): Promise<void> {
-    const asset = await this.prisma.asset.findFirst({
-      where: { id: assetId, organizationId, deletedAt: null },
-      select: { pmFrequencyDays: true },
-    });
-    if (!asset) return;
-
-    const intervalDays = asset.pmFrequencyDays ?? DEFAULT_PM_INTERVAL_DAYS;
-    // The PM dates come from when the work was done, not when the event arrived,
-    // and an older event never moves the dates backwards.
-    await this.prisma.asset.updateMany({
-      where: {
-        id: assetId,
-        organizationId,
-        deletedAt: null,
-        OR: [{ lastPmDate: null }, { lastPmDate: { lt: completedAt } }],
-      },
-      data: {
-        lastPmDate: completedAt,
-        nextPmDueDate: new Date(completedAt.getTime() + intervalDays * DAY_MS),
-      },
     });
   }
 

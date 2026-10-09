@@ -144,6 +144,23 @@ export class AssetLookupService {
         nextPmDueDate: true,
         pmFrequencyDays: true,
         lastSeenTimestamp: true,
+        _count: {
+          select: {
+            maintenanceHistory: {
+              where: {
+                workOrderStatus: {
+                  in: [
+                    'PENDING',
+                    'ASSIGNED',
+                    'IN_PROGRESS',
+                    'AWAITING_PARTS',
+                    'ON_HOLD',
+                  ],
+                },
+              },
+            },
+          },
+        },
         currentFacility: { select: { facilityName: true } },
         currentRoom: { select: { roomName: true, roomCode: true } },
         custodianDepartment: { select: { departmentName: true } },
@@ -213,6 +230,7 @@ export class AssetLookupService {
       scanLogs,
       statusChanges,
       maintenanceHistory,
+      _count,
       lastPmDate,
       nextPmDueDate,
       ...device
@@ -235,6 +253,8 @@ export class AssetLookupService {
         overdue: Boolean(nextPmDueDate && nextPmDueDate < new Date()),
       },
       recentMaintenance: maintenanceHistory,
+      /** Problems already reported and not yet fixed, so staff don't report twice. */
+      openWorkOrders: _count?.maintenanceHistory ?? 0,
       recentStatusChanges: statusChanges.map(({ changedBy, ...change }) => ({
         ...change,
         changedBy: changedBy
