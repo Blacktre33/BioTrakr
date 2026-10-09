@@ -1,5 +1,5 @@
-import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 
 import { AssetsModule } from './assets/assets.module';
@@ -11,6 +11,8 @@ import { IngestionModule } from './pipeline/ingestion.module';
 import { PrismaModule } from './database/prisma.module';
 import { ReferenceModule } from './reference/reference.module';
 import { WorkOrdersModule } from './work-orders/work-orders.module';
+import { AllExceptionsFilter } from './common/all-exceptions.filter';
+import { requestIdMiddleware } from './common/request-id';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
@@ -32,6 +34,11 @@ import { AppService } from './app.service';
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    { provide: APP_FILTER, useClass: AllExceptionsFilter },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(requestIdMiddleware).forRoutes('*');
+  }
+}

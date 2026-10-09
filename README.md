@@ -114,6 +114,14 @@ in one transaction or none. Category, status, criticality and risk class
 must match the template's Allowed Values sheet; facilities and departments
 must already exist. Limits: 5 MB, 2,000 rows per file.
 
+### Operating the API
+
+- `GET /api/health`: liveness (the process is up).
+- `GET /api/health/ready`: readiness. Returns 200 only when the database answers, otherwise 503. Point load-balancer health checks here.
+- Every response carries an `x-request-id` header. If a load balancer sends a well-formed id, it is kept. A 500 response never shows internals; it gives this id to quote, and the same id is in the error log.
+- On SIGTERM, the API finishes in-flight requests and closes database connections.
+- JSON bodies can be up to 2 MB, enough for ingestion batches of 500 events.
+
 ### Service Entry Points
 
 Run individual apps when iterating on specific surfaces:

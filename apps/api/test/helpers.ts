@@ -1,9 +1,11 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 
 import { createAccessToken } from '@biotrakr/utils';
 
 import { AppModule } from '../src/app.module';
+import { configureApp } from '../src/common/configure-app';
 import type { Role } from '../src/auth/roles';
 import { PrismaService } from '../src/database/prisma.service';
 
@@ -41,15 +43,8 @@ export async function createTestApp(
     .useValue(prismaMock)
     .compile();
 
-  const app = moduleRef.createNestApplication();
-  app.setGlobalPrefix('api');
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }),
-  );
+  const app = moduleRef.createNestApplication<NestExpressApplication>();
+  configureApp(app);
   await app.init();
   return app;
 }

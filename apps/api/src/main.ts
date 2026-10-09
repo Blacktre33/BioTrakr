@@ -1,4 +1,3 @@
-import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -7,6 +6,7 @@ import helmet from 'helmet';
 import { loadApiConfig, loadSecurityConfig } from '@biotrakr/config';
 
 import { AppModule } from './app.module';
+import { configureApp } from './common/configure-app';
 
 /** The placeholder shipped in .env.example; never acceptable in production. */
 const EXAMPLE_JWT_SECRET = 'your-super-secret-jwt-key-change-in-production';
@@ -51,15 +51,10 @@ async function bootstrap(): Promise<void> {
     origin: config.allowedOrigins,
     credentials: true,
   });
-  app.setGlobalPrefix('api');
-
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }),
-  );
+  configureApp(app);
+  // On SIGTERM (deploys, scaling), finish in-flight requests and close the
+  // database pool instead of dropping them.
+  app.enableShutdownHooks();
 
   // API docs are served outside the auth guards, so keep them off in
   // production unless explicitly enabled.
