@@ -9,9 +9,17 @@ import type { Role } from './roles';
 
 export const IS_PUBLIC_KEY = 'auth:isPublic';
 export const ROLES_KEY = 'auth:roles';
+export const ALLOW_PENDING_PASSWORD_KEY = 'auth:allowPendingPassword';
 
 /** Skips authentication for a route (e.g. health checks, login). */
 export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
+
+/**
+ * Lets a sign-in that still uses a one-time password reach this route
+ * (changing the password, signing out). Every other route refuses it.
+ */
+export const AllowPendingPasswordChange = () =>
+  SetMetadata(ALLOW_PENDING_PASSWORD_KEY, true);
 
 /**
  * Restricts a controller or route to the given roles. A route-level

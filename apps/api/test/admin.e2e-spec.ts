@@ -132,6 +132,7 @@ async function buildPrisma() {
       Object.assign(row, data);
       return pick(row, select);
     }),
+    deleteMany: jest.fn(async () => ({ count: 0 })),
     updateMany: jest.fn(async ({ where, data }) => {
       const hit = rows.filter((r) => matches(r, where));
       for (const row of hit) {
@@ -399,16 +400,57 @@ describe('Organization setup (e2e)', () => {
     }).expect(400);
 
     prisma.sessions.push({ id: 's1', userId: ADMIN_ID, revokedAt: null });
-    await change({
+    const ok = await change({
       currentPassword: 'Old-password-123',
       newPassword: 'green tea at seven',
-    }).expect(204);
+    }).expect(200);
     expect(
       await verifyPassword(
         'green tea at seven',
         prisma.users[0].passwordHash as string,
       ),
     ).toBe(true);
+    // Other sign-ins end; this device gets a fresh one.
     expect(prisma.sessions[0].revokedReason).toBe('password_changed');
+    expect(ok.body.accessToken).toEqual(expect.any(String));
+    expect(ok.body.user.passwordChangeRequired).toBe(false);
+    expect(prisma.sessions).toHaveLength(2);
+  });
+
+  it('a one-time password only lets the person choose a new one', async () => {
+    prisma.users[1].passwordHash = await hashPassword('Temp-pass-4567');
+    prisma.users[1].passwordChangeRequired = true;
+    prisma.users[1].accountLockedUntil = null;
+    const login = await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ email: 'nia@a.test', password: 'Temp-pass-4567' })
+      .expect(200);
+    expect(login.body.user.passwordChangeRequired).toBe(true);
+    const asNia = { Authorization: `Bearer ${login.body.accessToken}` };
+
+    const blocked = await request(app.getHttpServer())
+      .get('/api/work-orders')
+      .set(asNia)
+      .expect(403);
+    expect(blocked.body.code).toBe('PASSWORD_CHANGE_REQUIRED');
+    await request(app.getHttpServer())
+      .get('/api/auth/me')
+      .set(asNia)
+      .expect(200);
+
+    const changed = await request(app.getHttpServer())
+      .post('/api/auth/change-password')
+      .set(asNia)
+      .send({
+        currentPassword: 'Temp-pass-4567',
+        newPassword: 'my own ward phrase',
+      })
+      .expect(200);
+    expect(changed.body.user.passwordChangeRequired).toBe(false);
+    const fresh = await request(app.getHttpServer())
+      .get('/api/auth/me')
+      .set({ Authorization: `Bearer ${changed.body.accessToken}` })
+      .expect(200);
+    expect(fresh.body.userId).toBe(NURSE_ID);
   });
 });

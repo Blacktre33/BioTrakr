@@ -260,6 +260,7 @@ export class AuthService {
       firstName: user.firstName,
       lastName: user.lastName,
       sessionIssuedAt: Math.floor(Date.now() / 1000),
+      passwordChangeRequired: user.passwordChangeRequired,
     };
     const security = loadSecurityConfig();
     await this.prisma.authSession.create({
@@ -297,14 +298,16 @@ export class AuthService {
   }
 
   /**
-   * The signed-in person sets a new password. Every sign-in (including this
-   * one) ends, so a password someone else knew stops working everywhere.
+   * The signed-in person sets a new password. Every existing sign-in ends,
+   * so a password someone else knew stops working everywhere; this device
+   * gets a fresh sign-in so the person can carry on.
    */
   async changePassword(
     userId: string,
     currentPassword: string,
     newPassword: string,
-  ): Promise<void> {
+    userAgent?: string,
+  ): Promise<LoginResult> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user || !user.passwordHash || !user.isActive) {
       throw new UnauthorizedException(INVALID_CREDENTIALS);
@@ -328,7 +331,7 @@ export class AuthService {
         fields: ['newPassword'],
       });
     }
-    await this.prisma.$transaction([
+    const [updated] = await this.prisma.$transaction([
       this.prisma.user.update({
         where: { id: userId },
         data: {
@@ -341,5 +344,16 @@ export class AuthService {
         data: { revokedAt: new Date(), revokedReason: 'password_changed' },
       }),
     ]);
+    const familyId = randomUUID();
+    return {
+      ...(await this.issueTokens(
+        updated,
+        familyId,
+        familyId,
+        new Date(),
+        userAgent,
+      )),
+      user: this.publicProfile(updated),
+    };
   }
 }

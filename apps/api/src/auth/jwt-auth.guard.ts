@@ -1,6 +1,7 @@
 import {
   CanActivate,
   ExecutionContext,
+  ForbiddenException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -9,7 +10,7 @@ import { Reflector } from '@nestjs/core';
 import { getBearerToken, verifyAccessToken } from '@biotrakr/utils';
 
 import type { AuthUser } from './auth-user';
-import { IS_PUBLIC_KEY } from './decorators';
+import { ALLOW_PENDING_PASSWORD_KEY, IS_PUBLIC_KEY } from './decorators';
 import { normalizeRole } from './roles';
 
 /**
@@ -44,6 +45,21 @@ export class JwtAuthGuard implements CanActivate {
     const role = normalizeRole(claims.role);
     if (!claims.sub || !claims.org || !role) {
       throw new UnauthorizedException('Authentication required');
+    }
+
+    // A one-time password was used: only changing it is allowed until then.
+    if (
+      claims.pwc &&
+      !this.reflector.getAllAndOverride<boolean>(ALLOW_PENDING_PASSWORD_KEY, [
+        context.getHandler(),
+        context.getClass(),
+      ])
+    ) {
+      throw new ForbiddenException({
+        statusCode: 403,
+        message: 'Choose your own password before continuing',
+        code: 'PASSWORD_CHANGE_REQUIRED',
+      });
     }
 
     const user: AuthUser = {

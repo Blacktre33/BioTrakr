@@ -27,6 +27,8 @@ export interface AccessTokenClaims extends JwtPayload {
   firstName: string;
   lastName: string;
   iat?: number;
+  /** Present (true) while the user must replace a one-time password. */
+  pwc?: true;
 }
 
 /**
@@ -80,6 +82,7 @@ function buildAccessTokenClaims(user: AuthenticatedUser): AccessTokenClaims {
     firstName: user.firstName,
     lastName: user.lastName,
     iat: user.sessionIssuedAt,
+    ...(user.passwordChangeRequired ? { pwc: true as const } : {}),
   };
 }
 

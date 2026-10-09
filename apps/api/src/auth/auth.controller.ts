@@ -9,7 +9,12 @@ import { IsEmail, IsString, MaxLength, MinLength } from 'class-validator';
 
 import type { AuthUser } from './auth-user';
 import { AuthService, LoginResult } from './auth.service';
-import { CurrentUser, Public, Roles } from './decorators';
+import {
+  AllowPendingPasswordChange,
+  CurrentUser,
+  Public,
+  Roles,
+} from './decorators';
 import { ALL_ROLES } from './roles';
 
 export class LoginDto {
@@ -83,26 +88,30 @@ export class AuthController {
   }
 
   @Post('change-password')
-  @HttpCode(204)
+  @HttpCode(200)
   @Roles(...ALL_ROLES)
+  @AllowPendingPasswordChange()
   @ApiBearerAuth()
   @ApiOperation({
     summary:
-      'Set a new password (at least 10 characters). Ends every sign-in; sign in again with the new password.',
+      'Set a new password (at least 10 characters). Ends every other sign-in and returns a fresh one for this device.',
   })
-  async changePassword(
+  changePassword(
     @Body() body: ChangePasswordDto,
     @CurrentUser() user: AuthUser,
-  ): Promise<void> {
-    await this.authService.changePassword(
+    @Headers('user-agent') userAgent?: string,
+  ): Promise<LoginResult> {
+    return this.authService.changePassword(
       user.userId,
       body.currentPassword,
       body.newPassword,
+      userAgent,
     );
   }
 
   @Post('logout-all')
   @Roles(...ALL_ROLES)
+  @AllowPendingPasswordChange()
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Sign out on every device' })
   async logoutAll(@CurrentUser() user: AuthUser): Promise<{ ended: number }> {
@@ -110,7 +119,8 @@ export class AuthController {
   }
 
   @Get('me')
-  @Roles(...ALL_ROLES) // integration accounts may check who they are too
+  @Roles(...ALL_ROLES)
+  @AllowPendingPasswordChange() // integration accounts may check who they are too
   @ApiBearerAuth()
   @ApiOperation({ summary: 'The authenticated caller' })
   me(@CurrentUser() user: AuthUser): AuthUser {
