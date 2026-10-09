@@ -71,9 +71,12 @@ api.interceptors.response.use(
     const original = error.config as RetriableConfig | undefined;
 
     // Expired access token: refresh once and replay the request. Never for
-    // /auth/* itself, or a wrong password would revive an old stored session.
-    const isAuthRoute = original?.url?.startsWith("/auth/") ?? false;
-    if (error.response?.status === 401 && original && !original._retried && !isAuthRoute) {
+    // sign-in/refresh/sign-out themselves, or a wrong password would revive an
+    // old stored session. Other /auth routes (change password, sign out
+    // everywhere) do need a fresh token after 15 minutes idle.
+    const NO_REFRESH = ["/auth/login", "/auth/refresh", "/auth/logout"];
+    const isCredentialRoute = NO_REFRESH.some((p) => original?.url?.split("?")[0] === p);
+    if (error.response?.status === 401 && original && !original._retried && !isCredentialRoute) {
       original._retried = true;
       const session = await refreshSession();
       if (session) {

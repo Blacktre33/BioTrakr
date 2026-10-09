@@ -9,6 +9,7 @@ const FAC_A = '0a000000-0000-4000-8000-000000000001';
 const FAC_B = '0b000000-0000-4000-8000-000000000001';
 const ADMIN_ID = '0a000000-0000-4000-8000-0000000000ad';
 const NURSE_ID = '0a000000-0000-4000-8000-00000000000e';
+const OTHER_ADMIN_ID = '0a000000-0000-4000-8000-0000000000af';
 
 type Rec = Record<string, unknown>;
 let seq = 0;
@@ -82,7 +83,13 @@ async function buildPrisma() {
         return Boolean(parent) && matches(parent!, v as Rec);
       }
       if (v !== null && typeof v === 'object' && !(v instanceof Date)) {
-        const c = v as { equals?: string; mode?: string; in?: unknown[] };
+        const c = v as {
+          equals?: string;
+          mode?: string;
+          in?: unknown[];
+          not?: unknown;
+        };
+        if (c.not !== undefined) return row[k] !== c.not;
         if (c.equals !== undefined)
           return String(row[k]).toLowerCase() === c.equals.toLowerCase();
         if (c.in) return c.in.includes(row[k]);
@@ -129,7 +136,10 @@ async function buildPrisma() {
     }),
     update: jest.fn(async ({ where, data, select }) => {
       const row = rows.find((r) => r.id === where.id)!;
-      Object.assign(row, data);
+      for (const [k, v] of Object.entries(data as Rec)) {
+        const inc = (v as { increment?: number } | null)?.increment;
+        row[k] = inc !== undefined ? Number(row[k] ?? 0) + inc : v;
+      }
       return pick(row, select);
     }),
     deleteMany: jest.fn(async () => ({ count: 0 })),
@@ -165,6 +175,7 @@ async function buildPrisma() {
     user: table(users, [['email']]),
     authSession: table(sessions),
   };
+  mock.$queryRaw = jest.fn(async () => []);
   mock.$transaction = jest.fn(async (arg: unknown) =>
     typeof arg === 'function'
       ? (arg as (tx: unknown) => unknown)(mock)
@@ -418,6 +429,87 @@ describe('Organization setup (e2e)', () => {
       departmentId: icu.body.id,
     }).expect(201);
     expect(res.body.user).toMatchObject({ facilityId: FAC_A });
+  });
+
+  it('checks admin access in the database, not just the token', async () => {
+    // Demoted a moment ago: the token still says admin.
+    prisma.users[0].role = 'engineer';
+    const res = await post('users', {
+      email: 'backdoor@a.test',
+      firstName: 'B',
+      lastName: 'D',
+      role: 'admin',
+    }).expect(403);
+    expect(res.body.message).toMatch(/access has changed/);
+    await patch(`users/${ADMIN_ID}`, { role: 'admin' }).expect(403);
+    expect(prisma.users[0].role).toBe('engineer');
+  });
+
+  it('keeps an active admin, takes turns on admin changes, and lets inactive admins be changed', async () => {
+    prisma.users.push({
+      id: OTHER_ADMIN_ID,
+      organizationId: ORG_A,
+      email: 'old@a.test',
+      firstName: 'Old',
+      lastName: 'Admin',
+      role: 'admin',
+      isActive: false,
+    });
+    // Only one active admin, but the target is already inactive: allowed.
+    await patch(`users/${OTHER_ADMIN_ID}`, { role: 'viewer' }).expect(200);
+
+    prisma.users[2].role = 'admin';
+    prisma.users[2].isActive = true;
+    await patch(`users/${OTHER_ADMIN_ID}`, { isActive: false }).expect(200);
+    expect(prisma.$queryRaw).toHaveBeenCalled();
+  });
+
+  it('refuses codes and emails that only differ by case or punctuation', async () => {
+    const res = await post('facilities', {
+      facilityCode: 'c-g',
+      facilityName: 'Look-alike',
+    }).expect(409);
+    expect(res.body.message).toMatch(
+      /Too similar to the existing facility code "CG"/,
+    );
+    await post('departments', {
+      facilityId: FAC_A,
+      departmentCode: 'ICU',
+      departmentName: 'ICU',
+    }).expect(201);
+    await post('departments', {
+      facilityId: FAC_A,
+      departmentCode: 'icu',
+      departmentName: 'Again',
+    }).expect(409);
+
+    prisma.users.push({
+      id: uuid(),
+      organizationId: ORG_B,
+      email: 'Bob@B.test',
+      role: 'viewer',
+      isActive: true,
+    });
+    await post('users', {
+      email: 'bob@b.test',
+      firstName: 'B',
+      lastName: 'B',
+      role: 'viewer',
+    }).expect(409);
+  });
+
+  it('counts wrong current passwords towards the lockout', async () => {
+    const change = () =>
+      request(app.getHttpServer())
+        .post('/api/auth/change-password')
+        .set(asAdmin)
+        .send({
+          currentPassword: 'guess',
+          newPassword: 'a-long-new-passphrase',
+        });
+    await change().expect(400);
+    await change().expect(400);
+    expect(prisma.users[0].failedLoginAttempts).toBe(2);
   });
 
   it('resets a password: new one-time password, unlocked, signed out', async () => {

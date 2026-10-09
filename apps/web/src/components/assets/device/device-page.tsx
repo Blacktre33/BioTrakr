@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ArrowLeft, History, Pencil, QrCode, ShieldCheck } from "lucide-react";
 
 import { AssetBedsideCard } from "@/components/scan/asset-bedside-card";
@@ -34,6 +35,7 @@ const SOURCE_LABEL: Record<string, string> = {
  * status history.
  */
 export function DevicePage({ assetId }: { assetId: string }) {
+  const router = useRouter();
   const role = getSession()?.user.role;
   const canChangeStatus = role ? BIOMED_ROLES.includes(role) : false;
   const canEdit = role ? EDITOR_ROLES.includes(role) : false;
@@ -100,11 +102,14 @@ export function DevicePage({ assetId }: { assetId: string }) {
                   Edit details
                 </Button>
               )}
-              <Link href={`/labels?id=${encodeURIComponent(assetId)}` as never}>
-                <Button type="button" variant="ghost" leftIcon={<QrCode className="h-4 w-4" />}>
-                  Print label
-                </Button>
-              </Link>
+              <Button
+                type="button"
+                variant="ghost"
+                leftIcon={<QrCode className="h-4 w-4" />}
+                onClick={() => router.push(`/labels?id=${encodeURIComponent(assetId)}` as never)}
+              >
+                Print label
+              </Button>
             </div>
           )}
 

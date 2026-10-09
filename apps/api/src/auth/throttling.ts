@@ -56,6 +56,18 @@ export const THROTTLERS: ThrottlerOptions[] = [
       return `cred:${clientIp(req)}:${email}`;
     },
   },
+  // Changing a password needs the current one: 5 tries a minute per user,
+  // so a stolen session cannot be used to guess it quickly.
+  {
+    name: 'passwordChange',
+    ttl: 60_000,
+    limit: 5,
+    skipIf: (context) =>
+      !((context.switchToHttp().getRequest().originalUrl ?? '') as string)
+        .split('?')[0]
+        .endsWith('/auth/change-password'),
+    getTracker: userOrIp,
+  },
   // ...and 30 a minute per IP overall, to cap password spraying across accounts.
   {
     name: 'credentialsPerIp',

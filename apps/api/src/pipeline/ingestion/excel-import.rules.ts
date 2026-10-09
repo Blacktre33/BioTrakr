@@ -188,6 +188,30 @@ export function normalizeHeader(header: string): string {
 
 const squash = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
 
+/** How codes are compared loosely ("C-G" = "cg"); also used to stop look-alike codes being created. */
+export const codeKey = squash;
+
+/**
+ * The one record a spreadsheet value refers to: an exact code match wins;
+ * otherwise a loose match (case, punctuation, or the name) must be unique.
+ */
+function pickByCode<T>(
+  items: T[],
+  raw: string,
+  code: (item: T) => string,
+  name: (item: T) => string,
+): T | 'ambiguous' | undefined {
+  const exact = items.filter((i) => code(i) === raw);
+  if (exact.length === 1) return exact[0];
+  const loose = items.filter(
+    (i) =>
+      squash(code(i)) === squash(raw) ||
+      name(i).toLowerCase() === raw.toLowerCase(),
+  );
+  if (loose.length > 1) return 'ambiguous';
+  return loose[0];
+}
+
 const HEADER_TO_KEY = new Map<string, ColumnKey>();
 for (const col of IMPORT_COLUMNS) {
   for (const name of [col.header, ...(col.aliases ?? [])]) {
@@ -686,14 +710,22 @@ export function checkRow(
   // Facility and department must already exist: creating them from a typo
   // would scatter devices across look-alike locations.
   const facilityRaw = text(values.facilityCode);
-  const facility = facilityRaw
-    ? reference.facilities.find(
-        (f) =>
-          squash(f.facilityCode) === squash(facilityRaw) ||
-          f.facilityName.toLowerCase() === facilityRaw.toLowerCase(),
+  const facilityHit = facilityRaw
+    ? pickByCode(
+        reference.facilities,
+        facilityRaw,
+        (f) => f.facilityCode,
+        (f) => f.facilityName,
       )
     : undefined;
-  if (facilityRaw && !facility) {
+  const facility = facilityHit === 'ambiguous' ? undefined : facilityHit;
+  if (facilityHit === 'ambiguous') {
+    issue(
+      'facilityCode',
+      'This matches more than one facility. Use the exact facility code.',
+      facilityRaw,
+    );
+  } else if (facilityRaw && !facility) {
     const known = reference.facilities
       .slice(0, 10)
       .map((f) => f.facilityCode)
@@ -706,16 +738,23 @@ export function checkRow(
   }
 
   const departmentRaw = text(values.departmentCode);
-  const department =
+  const departmentHit =
     facility && departmentRaw
-      ? reference.departments.find(
-          (d) =>
-            d.facilityId === facility.id &&
-            (squash(d.departmentCode) === squash(departmentRaw) ||
-              d.departmentName.toLowerCase() === departmentRaw.toLowerCase()),
+      ? pickByCode(
+          reference.departments.filter((d) => d.facilityId === facility.id),
+          departmentRaw,
+          (d) => d.departmentCode,
+          (d) => d.departmentName,
         )
       : undefined;
-  if (facility && departmentRaw && !department) {
+  const department = departmentHit === 'ambiguous' ? undefined : departmentHit;
+  if (departmentHit === 'ambiguous') {
+    issue(
+      'departmentCode',
+      `This matches more than one department in ${facility!.facilityName}. Use the exact department code.`,
+      departmentRaw,
+    );
+  } else if (facility && departmentRaw && !department) {
     issue(
       'departmentCode',
       `No department with this code in ${facility.facilityName}`,

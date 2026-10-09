@@ -28,8 +28,13 @@ function MyAccount({ me }: { me: SessionUser }) {
     setEnding(true);
     try {
       await api.post('/auth/logout-all');
-    } catch {
-      // Signing out here still happens below.
+    } catch (err) {
+      // Don't pretend: the other devices may still be signed in.
+      toast.error(
+        `Could not sign out your other devices: ${err instanceof Error ? err.message : 'please try again'}`,
+      );
+      setEnding(false);
+      return;
     }
     await signOut();
   };

@@ -24,7 +24,12 @@ async function main() {
 
   // 2. Create Facility
   const facility = await prisma.facility.upsert({
-    where: { facilityCode: 'MAIN_CAMPUS' },
+    where: {
+      organizationId_facilityCode: {
+        organizationId: organization.id,
+        facilityCode: 'MAIN_CAMPUS',
+      },
+    },
     update: {},
     create: {
       id: 'fac-demo-001',

@@ -312,7 +312,16 @@ export class AuthService {
     if (!user || !user.passwordHash || !user.isActive) {
       throw new UnauthorizedException(INVALID_CREDENTIALS);
     }
+    // Wrong current passwords count towards the same lockout as sign-in,
+    // so a stolen session cannot be used to guess the password.
+    if (user.accountLockedUntil && user.accountLockedUntil > new Date()) {
+      throw new BadRequestException({
+        message: `Too many wrong passwords. Try again in ${LOCKOUT_MINUTES} minutes.`,
+        fields: ['currentPassword'],
+      });
+    }
     if (!(await verifyPassword(currentPassword, user.passwordHash))) {
+      await this.recordFailedLogin(user);
       throw new BadRequestException({
         message: 'Your current password is not right',
         fields: ['currentPassword'],
@@ -337,6 +346,7 @@ export class AuthService {
         data: {
           passwordHash: await hashPassword(newPassword),
           passwordChangeRequired: false,
+          failedLoginAttempts: 0,
         },
       }),
       this.prisma.authSession.updateMany({

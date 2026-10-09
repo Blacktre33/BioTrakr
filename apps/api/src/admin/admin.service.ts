@@ -12,6 +12,7 @@ import { hashPassword } from '@biotrakr/utils';
 import type { AuthUser } from '../auth/auth-user';
 import { normalizeRole } from '../auth/roles';
 import { PrismaService } from '../database/prisma.service';
+import { codeKey } from '../pipeline/ingestion/excel-import.rules';
 import type {
   CreateBuildingDto,
   CreateDepartmentDto,
@@ -132,7 +133,16 @@ export class AdminService {
     });
   }
 
-  createFacility(dto: CreateFacilityDto, user: AuthUser) {
+  async createFacility(dto: CreateFacilityDto, user: AuthUser) {
+    await this.assertDistinctCode(
+      dto.facilityCode,
+      await this.prisma.facility.findMany({
+        where: { organizationId: user.organizationId },
+        select: { id: true, facilityCode: true },
+      }),
+      (f) => f.facilityCode,
+      'facility',
+    );
     return unique(
       this.prisma.facility.create({
         data: {
@@ -149,6 +159,17 @@ export class AdminService {
   }
 
   async updateFacility(id: string, dto: UpdateFacilityDto, user: AuthUser) {
+    if (dto.facilityCode !== undefined) {
+      await this.assertDistinctCode(
+        dto.facilityCode,
+        await this.prisma.facility.findMany({
+          where: { organizationId: user.organizationId, id: { not: id } },
+          select: { id: true, facilityCode: true },
+        }),
+        (f) => f.facilityCode,
+        'facility',
+      );
+    }
     const { count } = await unique(
       this.prisma.facility.updateMany({
         where: { id, organizationId: user.organizationId },
@@ -162,6 +183,15 @@ export class AdminService {
 
   async createDepartment(dto: CreateDepartmentDto, user: AuthUser) {
     await this.assertFacility(dto.facilityId, user);
+    await this.assertDistinctCode(
+      dto.departmentCode,
+      await this.prisma.department.findMany({
+        where: { facilityId: dto.facilityId },
+        select: { id: true, departmentCode: true },
+      }),
+      (d) => d.departmentCode,
+      'department in this facility',
+    );
     return unique(
       this.prisma.department.create({
         data: {
@@ -176,6 +206,22 @@ export class AdminService {
   }
 
   async updateDepartment(id: string, dto: UpdateDepartmentDto, user: AuthUser) {
+    if (dto.departmentCode !== undefined) {
+      const current = await this.prisma.department.findFirst({
+        where: { id, facility: { organizationId: user.organizationId } },
+        select: { facilityId: true },
+      });
+      if (!current) throw new NotFoundException('Department not found');
+      await this.assertDistinctCode(
+        dto.departmentCode,
+        await this.prisma.department.findMany({
+          where: { facilityId: current.facilityId, id: { not: id } },
+          select: { id: true, departmentCode: true },
+        }),
+        (d) => d.departmentCode,
+        'department in this facility',
+      );
+    }
     const { count } = await unique(
       this.prisma.department.updateMany({
         where: { id, facility: { organizationId: user.organizationId } },
@@ -304,6 +350,13 @@ export class AdminService {
       user,
     );
     const email = dto.email.trim().toLowerCase();
+    // Sign-in matches email without case, so "Bob@x" and "bob@x" must not both exist.
+    const taken = await this.prisma.user.count({
+      where: { email: { equals: email, mode: 'insensitive' } },
+    });
+    if (taken) {
+      throw new ConflictException('An account with this email already exists');
+    }
     const password = temporaryPassword();
     const created = await unique(
       this.prisma.user.create({
@@ -341,6 +394,7 @@ export class AdminService {
     if (!target) throw new NotFoundException('Person not found');
 
     const losingAdmin =
+      target.isActive &&
       normalizeRole(target.role) === 'admin' &&
       ((dto.role !== undefined && dto.role !== 'admin') ||
         dto.isActive === false);
@@ -348,20 +402,6 @@ export class AdminService {
       throw new BadRequestException(
         'You cannot remove your own administrator access. Ask another administrator.',
       );
-    }
-    if (losingAdmin) {
-      const admins = await this.prisma.user.count({
-        where: {
-          organizationId: admin.organizationId,
-          isActive: true,
-          role: { equals: 'admin', mode: 'insensitive' },
-        },
-      });
-      if (admins <= 1) {
-        throw new BadRequestException(
-          'The organization must keep at least one active administrator',
-        );
-      }
     }
     const placement = await this.resolvePlacement(target, dto, admin);
 
@@ -379,11 +419,31 @@ export class AdminService {
     };
 
     const updated = await this.prisma.$transaction(async (tx) => {
+      // Two administrators demoting each other at once must not leave none:
+      // changes to an organization's admins take turns, and the count is
+      // checked after the change, before it commits.
+      if (losingAdmin) {
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${'admins:' + admin.organizationId}))`;
+      }
       const row = await tx.user.update({
         where: { id },
         data,
         select: USER_SELECT,
       });
+      if (losingAdmin) {
+        const admins = await tx.user.count({
+          where: {
+            organizationId: admin.organizationId,
+            isActive: true,
+            role: { equals: 'admin', mode: 'insensitive' },
+          },
+        });
+        if (admins < 1) {
+          throw new BadRequestException(
+            'The organization must keep at least one active administrator',
+          );
+        }
+      }
       // A changed role or a deactivated account takes effect on every
       // device at its next refresh (within the 15-minute access token).
       if (
@@ -427,6 +487,26 @@ export class AdminService {
   }
 
   // -------------------------------------------------------------- helpers
+
+  /**
+   * Imports match codes loosely ("C-G" finds "CG"), so codes that differ
+   * only in case or punctuation would be confused. Refuse them up front.
+   */
+  private async assertDistinctCode<T>(
+    code: string,
+    siblings: T[],
+    codeOf: (item: T) => string,
+    what: string,
+  ) {
+    const clash = siblings.find(
+      (s) => codeKey(codeOf(s)) === codeKey(code.trim()),
+    );
+    if (clash) {
+      throw new ConflictException(
+        `Too similar to the existing ${what} code "${codeOf(clash)}". Codes must differ by more than case or punctuation.`,
+      );
+    }
+  }
 
   private async assertFacility(facilityId: string, user: AuthUser) {
     const n = await this.prisma.facility.count({

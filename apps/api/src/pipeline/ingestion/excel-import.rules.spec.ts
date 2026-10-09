@@ -227,6 +227,34 @@ describe('checkRow', () => {
     });
   });
 
+  it('never guesses between look-alike facility codes', () => {
+    const twoLookAlikes: ImportReference = {
+      facilities: [
+        ...reference.facilities,
+        { id: 'f3', facilityCode: 'C-G', facilityName: 'Clinic G' },
+      ],
+      departments: reference.departments,
+    };
+    // An exact code still wins.
+    const exact = checkRow(
+      { row: 2, values: { ...validRow.values, facilityCode: 'CG' } },
+      twoLookAlikes,
+      TODAY,
+    );
+    expect(exact.errors).toEqual([]);
+    expect(exact.draft?.currentFacilityId).toBe('f1');
+    // A loose match that fits both is an error, not the first hit.
+    const loose = checkRow(
+      { row: 5, values: { ...validRow.values, facilityCode: 'cg' } },
+      twoLookAlikes,
+      TODAY,
+    );
+    expect(loose.errors[0]).toMatchObject({
+      field: 'Facility Code',
+      message: expect.stringContaining('more than one facility'),
+    });
+  });
+
   it('reports every problem in a row at once', () => {
     const { draft, errors } = checkRow(
       {

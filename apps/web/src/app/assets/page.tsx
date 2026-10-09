@@ -70,11 +70,14 @@ function AssetsPageContent() {
             </Button>
             {canEdit && (
               <>
-                <Link href={`/labels?${labelQuery(searchParams)}` as never}>
-                  <Button variant="ghost" size="sm" leftIcon={<QrCode className="w-4 h-4" />}>
-                    Print labels
-                  </Button>
-                </Link>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  leftIcon={<QrCode className="w-4 h-4" />}
+                  onClick={() => router.push(`/labels?${labelQuery(searchParams)}` as never)}
+                >
+                  Print labels
+                </Button>
                 <AssetExcelImport
                   onImportComplete={(result) => toast.success(`Imported ${result.imported} devices`)}
                 />

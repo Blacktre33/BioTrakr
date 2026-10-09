@@ -146,7 +146,9 @@ export function LabelSheet() {
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
   const [base, setBase] = useState("");
   useEffect(() => setBase(appBaseUrl()), []);
-  useEffect(() => setExcluded(new Set()), [params]);
+  // Changing the label stock keeps the choice of devices; changing the filters starts over.
+  const filterKey = JSON.stringify(params);
+  useEffect(() => setExcluded(new Set()), [filterKey]);
 
   const setUrl = (changes: Record<string, string | null>) => {
     const next = new URLSearchParams(searchParams.toString());

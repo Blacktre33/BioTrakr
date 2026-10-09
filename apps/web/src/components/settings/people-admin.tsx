@@ -211,9 +211,11 @@ function PersonDialog({
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>{editing ? `Edit ${fullName(editing)}` : "Add a person"}</DialogTitle>
-          {!editing && (
-            <DialogDescription>You will get a one-time password to give them. They choose their own at first sign-in.</DialogDescription>
-          )}
+          <DialogDescription>
+            {editing
+              ? "Changing someone's role signs them out, so the new access applies when they sign back in."
+              : "You will get a one-time password to give them. They choose their own at first sign-in."}
+          </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} noValidate className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">

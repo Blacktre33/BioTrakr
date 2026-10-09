@@ -7,6 +7,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
@@ -27,6 +28,7 @@ import {
   UpdateUserDto,
 } from './admin.dto';
 import { AdminService } from './admin.service';
+import { CurrentAdminGuard } from './current-admin.guard';
 
 const id = () => new ParseUUIDPipe();
 
@@ -34,6 +36,7 @@ const id = () => new ParseUUIDPipe();
 @ApiTags('admin')
 @ApiBearerAuth()
 @Roles('admin')
+@UseGuards(CurrentAdminGuard)
 @Controller('admin')
 export class AdminController {
   constructor(private readonly admin: AdminService) {}
