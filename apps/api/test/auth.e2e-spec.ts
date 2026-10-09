@@ -36,6 +36,7 @@ function buildPrisma() {
       pmFrequencyDays: 30,
       lastPmDate: null,
       lastSeenTimestamp: null,
+      assetStatus: 'ACTIVE',
     },
     {
       id: ASSET_B,
@@ -94,9 +95,26 @@ function buildPrisma() {
     });
   }
 
-  return {
+  const statusChanges: Array<Record<string, unknown>> = [];
+  const mock = {
     users,
     assets,
+    statusChanges,
+    assetStatusChange: {
+      create: jest.fn(async ({ data }) => {
+        const row = {
+          id: `sc-${statusChanges.length + 1}`,
+          changedAt: new Date(),
+          ...data,
+        };
+        statusChanges.push(row);
+        return row;
+      }),
+    },
+    // Interactive transactions run against the same in-memory rows.
+    $transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
+      fn(mock),
+    ),
     asset: {
       update: jest.fn(),
       updateMany: jest.fn(async ({ where, data }) => {
@@ -187,6 +205,7 @@ function buildPrisma() {
       }),
     },
   };
+  return mock;
 }
 
 describe('Authentication and authorization (e2e)', () => {
@@ -598,6 +617,16 @@ describe('Authentication and authorization (e2e)', () => {
         }),
       });
       expect(prisma.assets[0].assetStatus).toBe('QUARANTINED');
+      // Recorded with the fault as the reason, so biomed can see why.
+      expect(prisma.statusChanges).toEqual([
+        expect.objectContaining({
+          assetId: ASSET_A,
+          fromStatus: 'ACTIVE',
+          toStatus: 'QUARANTINED',
+          source: 'DEVICE_ALERT',
+          reason: 'Critical fault E42 (needs intervention)',
+        }),
+      ]);
       expect(prisma.assets[1].assetStatus).toBeUndefined();
     });
 

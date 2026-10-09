@@ -7,7 +7,9 @@ import {
   IsUUID,
   IsNumber,
   IsDateString,
-  IsBoolean,
+  IsInt,
+  Max,
+  MaxLength,
   Min,
 } from 'class-validator';
 import {
@@ -28,7 +30,10 @@ export class CreateAssetDto {
   @IsNotEmpty()
   equipmentName: string;
 
-  @ApiProperty({ description: 'Manufacturer Name', example: 'General Electric' })
+  @ApiProperty({
+    description: 'Manufacturer Name',
+    example: 'General Electric',
+  })
   @IsString()
   @IsNotEmpty()
   manufacturer: string;
@@ -47,7 +52,11 @@ export class CreateAssetDto {
   @IsEnum(DeviceCategory)
   deviceCategory: DeviceCategory;
 
-  @ApiProperty({ enum: AssetStatus, description: 'Current Status', default: AssetStatus.ACTIVE })
+  @ApiProperty({
+    enum: AssetStatus,
+    description: 'Current Status',
+    default: AssetStatus.ACTIVE,
+  })
   @IsEnum(AssetStatus)
   @IsOptional()
   assetStatus?: AssetStatus;
@@ -60,11 +69,14 @@ export class CreateAssetDto {
   @IsEnum(RiskClassification)
   riskClassification: RiskClassification;
 
-  @ApiProperty({ description: 'Purchase Date', example: '2024-01-15T00:00:00Z' })
+  @ApiProperty({
+    description: 'Purchase Date',
+    example: '2024-01-15T00:00:00Z',
+  })
   @IsDateString()
   purchaseDate: string;
 
-  @ApiProperty({ description: 'Purchase Cost', example: 1500000.00 })
+  @ApiProperty({ description: 'Purchase Cost', example: 1500000.0 })
   @IsNumber()
   @Min(0)
   purchaseCost: number;
@@ -98,40 +110,61 @@ export class CreateAssetDto {
   @IsOptional()
   amcContractNumber?: string;
 
-  @ApiPropertyOptional({ description: 'AMC Start Date', example: '2024-01-15T00:00:00Z' })
+  @ApiPropertyOptional({
+    description: 'AMC Start Date',
+    example: '2024-01-15T00:00:00Z',
+  })
   @IsDateString()
   @IsOptional()
   amcStartDate?: string;
 
-  @ApiPropertyOptional({ description: 'AMC End Date', example: '2025-01-15T00:00:00Z' })
+  @ApiPropertyOptional({
+    description: 'AMC End Date',
+    example: '2025-01-15T00:00:00Z',
+  })
   @IsDateString()
   @IsOptional()
   amcEndDate?: string;
 
-  @ApiPropertyOptional({ description: 'Current Annual AMC Cost', example: 50000.00 })
+  @ApiPropertyOptional({
+    description: 'Current Annual AMC Cost',
+    example: 50000.0,
+  })
   @IsNumber()
   @IsOptional()
   @Min(0)
   amcCostAnnual?: number;
 
-  @ApiPropertyOptional({ description: 'Initial AMC Cost (First Year)', example: 45000.00 })
+  @ApiPropertyOptional({
+    description: 'Initial AMC Cost (First Year)',
+    example: 45000.0,
+  })
   @IsNumber()
   @IsOptional()
   @Min(0)
   amcInitialCost?: number;
 
-  @ApiPropertyOptional({ description: 'Number of Years AMC Has Been Paid', example: 3 })
+  @ApiPropertyOptional({
+    description: 'Number of Years AMC Has Been Paid',
+    example: 3,
+  })
   @IsNumber()
   @IsOptional()
   @Min(0)
   amcYearsPaid?: number;
 
-  @ApiPropertyOptional({ description: 'AMC Cost Increase Amount', example: 5000.00 })
+  @ApiPropertyOptional({
+    description: 'AMC Cost Increase Amount',
+    example: 5000.0,
+  })
   @IsNumber()
   @IsOptional()
   amcIncreaseAmount?: number;
 
-  @ApiPropertyOptional({ description: 'AMC Cost Increase Percentage', example: 11.11 })
+  @ApiPropertyOptional({
+    description: 'AMC Cost Increase Percentage',
+    example: 11.11,
+  })
   @IsNumber()
   @IsOptional()
   amcIncreasePercentage?: number;
@@ -141,40 +174,61 @@ export class CreateAssetDto {
   @IsOptional()
   cmcContractNumber?: string;
 
-  @ApiPropertyOptional({ description: 'CMC Start Date', example: '2024-01-15T00:00:00Z' })
+  @ApiPropertyOptional({
+    description: 'CMC Start Date',
+    example: '2024-01-15T00:00:00Z',
+  })
   @IsDateString()
   @IsOptional()
   cmcStartDate?: string;
 
-  @ApiPropertyOptional({ description: 'CMC End Date', example: '2025-01-15T00:00:00Z' })
+  @ApiPropertyOptional({
+    description: 'CMC End Date',
+    example: '2025-01-15T00:00:00Z',
+  })
   @IsDateString()
   @IsOptional()
   cmcEndDate?: string;
 
-  @ApiPropertyOptional({ description: 'Current Annual CMC Cost', example: 75000.00 })
+  @ApiPropertyOptional({
+    description: 'Current Annual CMC Cost',
+    example: 75000.0,
+  })
   @IsNumber()
   @IsOptional()
   @Min(0)
   cmcCostAnnual?: number;
 
-  @ApiPropertyOptional({ description: 'Initial CMC Cost (First Year)', example: 70000.00 })
+  @ApiPropertyOptional({
+    description: 'Initial CMC Cost (First Year)',
+    example: 70000.0,
+  })
   @IsNumber()
   @IsOptional()
   @Min(0)
   cmcInitialCost?: number;
 
-  @ApiPropertyOptional({ description: 'Number of Years CMC Has Been Paid', example: 2 })
+  @ApiPropertyOptional({
+    description: 'Number of Years CMC Has Been Paid',
+    example: 2,
+  })
   @IsNumber()
   @IsOptional()
   @Min(0)
   cmcYearsPaid?: number;
 
-  @ApiPropertyOptional({ description: 'CMC Cost Increase Amount', example: 5000.00 })
+  @ApiPropertyOptional({
+    description: 'CMC Cost Increase Amount',
+    example: 5000.0,
+  })
   @IsNumber()
   @IsOptional()
   cmcIncreaseAmount?: number;
 
-  @ApiPropertyOptional({ description: 'CMC Cost Increase Percentage', example: 7.14 })
+  @ApiPropertyOptional({
+    description: 'CMC Cost Increase Percentage',
+    example: 7.14,
+  })
   @IsNumber()
   @IsOptional()
   cmcIncreasePercentage?: number;
@@ -185,31 +239,52 @@ export class CreateAssetDto {
   notes?: string;
 }
 
+/**
+ * Editable details. Status is not here: it changes only through
+ * POST /assets/:id/status, which requires a reason and records history.
+ */
 export class UpdateAssetDto {
   @ApiPropertyOptional({ description: 'Equipment Name' })
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
   @IsOptional()
   equipmentName?: string;
 
   @ApiPropertyOptional({ description: 'Manufacturer Name' })
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
   @IsOptional()
   manufacturer?: string;
 
   @ApiPropertyOptional({ description: 'Model Number' })
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
   @IsOptional()
   modelNumber?: string;
 
   @ApiPropertyOptional({ description: 'Serial Number' })
   @IsString()
+  @MaxLength(200)
   @IsOptional()
   serialNumber?: string;
 
-  @ApiPropertyOptional({ enum: AssetStatus, description: 'Current Status' })
-  @IsEnum(AssetStatus)
+  @ApiPropertyOptional({ enum: DeviceCategory })
+  @IsEnum(DeviceCategory)
   @IsOptional()
-  assetStatus?: AssetStatus;
+  deviceCategory?: DeviceCategory;
+
+  @ApiPropertyOptional({ enum: CriticalityLevel })
+  @IsEnum(CriticalityLevel)
+  @IsOptional()
+  criticalityLevel?: CriticalityLevel;
+
+  @ApiPropertyOptional({ enum: RiskClassification })
+  @IsEnum(RiskClassification)
+  @IsOptional()
+  riskClassification?: RiskClassification;
 
   @ApiPropertyOptional({ description: 'Current Facility ID' })
   @IsUUID()
@@ -221,9 +296,70 @@ export class UpdateAssetDto {
   @IsOptional()
   currentRoomId?: string;
 
+  @ApiPropertyOptional({ description: 'Custodian Department ID' })
+  @IsUUID()
+  @IsOptional()
+  custodianDepartmentId?: string;
+
+  @ApiPropertyOptional({ description: 'Primary Custodian User ID' })
+  @IsUUID()
+  @IsOptional()
+  primaryCustodianId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Days between preventive maintenance visits',
+    example: 180,
+  })
+  @IsInt()
+  @Min(1)
+  @Max(3650)
+  @IsOptional()
+  pmFrequencyDays?: number;
+
+  @ApiPropertyOptional({ description: 'Useful Life in Years', example: 10 })
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  @IsOptional()
+  usefulLifeYears?: number;
+
+  @ApiPropertyOptional({ description: 'Warranty end date' })
+  @IsDateString()
+  @IsOptional()
+  warrantyEndDate?: string;
+
+  @ApiPropertyOptional({ description: 'UDI Device Identifier' })
+  @IsString()
+  @MaxLength(200)
+  @IsOptional()
+  udiDeviceIdentifier?: string;
+
   @ApiPropertyOptional({ description: 'Notes' })
   @IsString()
+  @MaxLength(5000)
   @IsOptional()
   notes?: string;
 }
 
+export class ChangeAssetStatusDto {
+  @ApiProperty({ enum: AssetStatus })
+  @IsEnum(AssetStatus)
+  status!: AssetStatus;
+
+  @ApiProperty({
+    description: 'Why the status is changing; kept in the device history',
+    example: 'Repaired flow sensor and passed electrical safety test',
+  })
+  @IsString()
+  @MaxLength(1000)
+  reason!: string;
+
+  @ApiPropertyOptional({
+    enum: AssetStatus,
+    description:
+      'The status you saw; the change is refused if it has changed since',
+  })
+  @IsEnum(AssetStatus)
+  @IsOptional()
+  expectedStatus?: AssetStatus;
+}

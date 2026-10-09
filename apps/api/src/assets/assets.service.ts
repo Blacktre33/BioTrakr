@@ -48,6 +48,10 @@ export class AssetsService {
       departmentId: baseDto.custodianDepartmentId,
       custodianId: baseDto.primaryCustodianId,
     });
+    await this.assertDepartmentInFacility(
+      baseDto.custodianDepartmentId,
+      baseDto.currentFacilityId,
+    );
 
     // Tags are unique case-sensitively in the database, but staff type and
     // scan them in any case: "vent-7" next to "VENT-7" would make a scan
@@ -179,7 +183,23 @@ export class AssetsService {
     await this.assertReferencesInOrganization(user.organizationId, {
       facilityId: updateAssetDto.currentFacilityId,
       roomId: updateAssetDto.currentRoomId,
+      departmentId: updateAssetDto.custodianDepartmentId,
+      custodianId: updateAssetDto.primaryCustodianId,
     });
+    if (
+      updateAssetDto.currentFacilityId ||
+      updateAssetDto.custodianDepartmentId
+    ) {
+      const current = await this.prisma.asset.findFirst({
+        where: { id, organizationId: user.organizationId, deletedAt: null },
+        select: { currentFacilityId: true, custodianDepartmentId: true },
+      });
+      if (!current) throw new NotFoundException(`Asset ${id} not found`);
+      await this.assertDepartmentInFacility(
+        updateAssetDto.custodianDepartmentId ?? current.custodianDepartmentId,
+        updateAssetDto.currentFacilityId ?? current.currentFacilityId,
+      );
+    }
 
     // One conditional write: cannot land on another organization's asset or
     // on one that was deleted in the meantime.
@@ -259,6 +279,22 @@ export class AssetsService {
       throw new NotFoundException(`Asset ${id} not found`);
     }
     return asset;
+  }
+
+  /** A device's department must belong to the facility it is in. */
+  private async assertDepartmentInFacility(
+    departmentId: string,
+    facilityId: string,
+  ): Promise<void> {
+    const matches = await this.prisma.department.count({
+      where: { id: departmentId, facilityId },
+    });
+    if (matches === 0) {
+      throw new BadRequestException({
+        message: 'The department is not in the selected facility',
+        fields: ['custodianDepartmentId'],
+      });
+    }
   }
 
   /** Rejects references to facilities, departments, rooms or users outside the caller's organization. */

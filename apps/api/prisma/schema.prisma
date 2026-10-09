@@ -362,6 +362,7 @@ model User {
   trainingRecords           TrainingRecord[]
   mediaUploaded             MediaAttachment[]
   assetScans                AssetScanLog[] @relation("AssetScanLogUser")
+  assetStatusChanges        AssetStatusChange[] @relation("AssetStatusChangedBy")
 
   @@index([organizationId])
   @@index([email])
@@ -631,6 +632,7 @@ model Asset {
   trainingRecords                 TrainingRecord[]
   telemetryIngestEvents           TelemetryIngestEvent[]
   scanLogs                        AssetScanLog[]
+  statusChanges                   AssetStatusChange[]
   telemetry                       AssetTelemetry[]
   maintenanceEvents               MaintenanceEvent[]
   errorEvents                     ErrorEvent[]
@@ -1214,3 +1216,34 @@ model AssetScanLog {
   @@map("asset_scan_logs")
 }
 
+// =====================================================
+// STATUS HISTORY
+// =====================================================
+
+/// Where a status change came from.
+enum StatusChangeSource {
+  MANUAL        // a person, on the device page
+  FAULT_REPORT  // ward staff reported a problem and took it out of use
+  WORK_ORDER    // a work order was completed or opened
+  DEVICE_ALERT  // a critical fault event from the device itself
+  IMPORT        // an Excel import
+}
+
+/// Every change of an asset's status: who, when, why. Never edited.
+model AssetStatusChange {
+  id           String             @id @default(uuid())
+  assetId      String
+  fromStatus   AssetStatus
+  toStatus     AssetStatus
+  reason       String
+  source       StatusChangeSource @default(MANUAL)
+  changedById  String?
+  workOrderId  String?
+  changedAt    DateTime           @default(now())
+
+  asset        Asset              @relation(fields: [assetId], references: [id], onDelete: Restrict) // history outlives the asset; assets are soft-deleted
+  changedBy    User?              @relation("AssetStatusChangedBy", fields: [changedById], references: [id], onDelete: SetNull)
+
+  @@index([assetId, changedAt(sort: Desc)])
+  @@map("asset_status_changes")
+}

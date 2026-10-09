@@ -245,7 +245,13 @@ describe('Excel import (e2e)', () => {
       }),
     });
     expect(prisma.tx.asset.updateMany).toHaveBeenCalledWith({
-      where: { id: 'a-existing', organizationId: ORG_A, deletedAt: null },
+      where: {
+        id: 'a-existing',
+        organizationId: ORG_A,
+        deletedAt: null,
+        // Only if the status is still what the check saw.
+        assetStatus: 'QUARANTINED',
+      },
       data: expect.objectContaining({
         assetTagNumber: 'PUMP-OLD',
         updatedById: 'user-engineer',

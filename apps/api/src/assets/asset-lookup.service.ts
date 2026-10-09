@@ -142,6 +142,7 @@ export class AssetLookupService {
         recallStatus: true,
         lastPmDate: true,
         nextPmDueDate: true,
+        pmFrequencyDays: true,
         lastSeenTimestamp: true,
         currentFacility: { select: { facilityName: true } },
         currentRoom: { select: { roomName: true, roomCode: true } },
@@ -156,6 +157,19 @@ export class AssetLookupService {
             scheduledDate: true,
             completedAt: true,
             description: true,
+          },
+        },
+        statusChanges: {
+          take: 5,
+          orderBy: { changedAt: 'desc' },
+          select: {
+            id: true,
+            fromStatus: true,
+            toStatus: true,
+            reason: true,
+            source: true,
+            changedAt: true,
+            changedBy: { select: { firstName: true, lastName: true } },
           },
         },
         scanLogs: {
@@ -197,6 +211,7 @@ export class AssetLookupService {
       currentRoom,
       custodianDepartment,
       scanLogs,
+      statusChanges,
       maintenanceHistory,
       lastPmDate,
       nextPmDueDate,
@@ -220,6 +235,12 @@ export class AssetLookupService {
         overdue: Boolean(nextPmDueDate && nextPmDueDate < new Date()),
       },
       recentMaintenance: maintenanceHistory,
+      recentStatusChanges: statusChanges.map(({ changedBy, ...change }) => ({
+        ...change,
+        changedBy: changedBy
+          ? `${changedBy.firstName} ${changedBy.lastName}`.trim()
+          : null,
+      })),
       recentScans: scanLogs.map(({ scannedBy, ...scan }) => ({
         ...scan,
         scannedBy: scannedBy

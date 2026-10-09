@@ -22,6 +22,8 @@ export const STAFF_ROLES: Role[] = [
 ];
 /** May create and edit assets and run bulk imports. */
 export const ASSET_EDITOR_ROLES: Role[] = ['admin', 'engineer'];
+/** Biomedical engineering: may change a device's status and work on work orders. */
+export const BIOMED_ROLES: Role[] = ['admin', 'engineer', 'technician'];
 /** May record QR scans. */
 export const SCAN_ROLES: Role[] = [
   'admin',

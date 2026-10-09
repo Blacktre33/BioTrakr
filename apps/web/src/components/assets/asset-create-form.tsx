@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ComponentProps } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
@@ -17,10 +17,10 @@ import {
   DialogHeader,
   DialogTitle,
   Input,
-  Label,
   Textarea,
 } from "@/components/ui";
 import { cn } from "@/lib/utils";
+import { ERROR_BORDER, Field as SharedField, SELECT_CLASS, errorId, hintId } from "@/components/forms/form-field";
 
 import {
   EMPTY_ASSET_FORM,
@@ -41,49 +41,9 @@ interface AssetCreateFormProps {
   onAssetCreated?: () => void;
 }
 
-const SELECT_CLASS =
-  "w-full px-4 py-3 bg-surface-200/50 border border-white/5 rounded-xl text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/50 disabled:opacity-60";
-const ERROR_BORDER = "border-critical-500/60 focus:ring-critical-500/50";
-
-const errorId = (field: AssetField) => `${field}-error`;
-const hintId = (field: AssetField) => `${field}-hint`;
-
-function Field({
-  field,
-  label,
-  error,
-  hint,
-  children,
-}: {
-  field: AssetField;
-  label: string;
-  error?: string;
-  hint?: string;
-  children: ReactNode;
-}) {
-  const required = REQUIRED_FIELDS.includes(field);
-  return (
-    <div className="space-y-1.5">
-      <Label htmlFor={field}>
-        {label}
-        {required && (
-          <span aria-hidden="true" className="text-critical-500">
-            {" "}*
-          </span>
-        )}
-      </Label>
-      {children}
-      {error ? (
-        <p id={errorId(field)} role="alert" className="text-sm text-critical-500">
-          {error}
-        </p>
-      ) : hint ? (
-        <p id={hintId(field)} className="text-xs text-gray-400">
-          {hint}
-        </p>
-      ) : null}
-    </div>
-  );
+/** Shared field, with "required" taken from what the API requires. */
+function Field(props: Omit<ComponentProps<typeof SharedField>, "required" | "field"> & { field: AssetField }) {
+  return <SharedField {...props} required={REQUIRED_FIELDS.includes(props.field)} />;
 }
 
 export function AssetCreateForm({ open, onOpenChange, onAssetCreated }: AssetCreateFormProps) {

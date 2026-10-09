@@ -24,12 +24,22 @@ import {
 
 import type { AuthUser } from '../auth/auth-user';
 import { CurrentUser, Roles } from '../auth/decorators';
-import { ASSET_EDITOR_ROLES, SCAN_ROLES, STAFF_ROLES } from '../auth/roles';
+import {
+  ASSET_EDITOR_ROLES,
+  BIOMED_ROLES,
+  SCAN_ROLES,
+  STAFF_ROLES,
+} from '../auth/roles';
 import { AssetLookupService } from './asset-lookup.service';
+import { AssetStatusService } from './asset-status.service';
 import { AssetsService, MAX_PAGE_SIZE } from './assets.service';
 import { CreateAssetScanDto } from './dto/create-asset-scan.dto';
 import { AssetScanLogDto } from './dto/asset-scan-log.dto';
-import { CreateAssetDto, UpdateAssetDto } from './dto/create-asset.dto';
+import {
+  ChangeAssetStatusDto,
+  CreateAssetDto,
+  UpdateAssetDto,
+} from './dto/create-asset.dto';
 
 @ApiTags('assets')
 @ApiBearerAuth()
@@ -39,6 +49,7 @@ export class AssetsController {
   constructor(
     private readonly assetsService: AssetsService,
     private readonly lookupService: AssetLookupService,
+    private readonly statusService: AssetStatusService,
   ) {}
 
   @Post()
@@ -114,6 +125,31 @@ export class AssetsController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.assetsService.update(id, updateAssetDto, user);
+  }
+
+  @Post(':id/status')
+  @HttpCode(200)
+  @Roles(...BIOMED_ROLES)
+  @ApiOperation({
+    summary:
+      'Change a device status (e.g. release from quarantine). Requires a reason; recorded in the status history.',
+  })
+  @ApiOkResponse({ description: 'The change that was made' })
+  async changeStatus(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: ChangeAssetStatusDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.statusService.changeStatus(id, body, user);
+  }
+
+  @Get(':id/status-history')
+  @ApiOperation({ summary: 'Every status change of a device: who, when, why' })
+  async statusHistory(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.statusService.history(id, user);
   }
 
   @Delete(':id')

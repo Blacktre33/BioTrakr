@@ -66,6 +66,7 @@ export function useUpdateAssetMutation() {
       // Invalidate both the list and the specific asset
       queryClient.invalidateQueries({ queryKey: ["assets"] });
       queryClient.invalidateQueries({ queryKey: ["assets", data.id] });
+      queryClient.invalidateQueries({ queryKey: ["asset-lookup"] });
     },
   });
 }

@@ -50,6 +50,8 @@ const asset: AssetLookup = {
   pm: { lastPmDate: "2026-07-01T00:00:00Z", nextPmDueDate: "2099-01-01T00:00:00Z", overdue: false },
   recentMaintenance: [],
   recentScans: [],
+  recentStatusChanges: [],
+  pmFrequencyDays: 180,
 };
 
 function wrap(ui: ReactNode) {

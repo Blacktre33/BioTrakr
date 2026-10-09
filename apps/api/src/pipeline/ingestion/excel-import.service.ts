@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import type { AssetStatus } from '@prisma/client';
 import * as XLSX from 'xlsx';
 
 import type { AuthUser } from '../../auth/auth-user';
@@ -63,6 +64,8 @@ type PlannedDraft = AssetDraft & {
   existingId?: string;
   /** The device is in a do-not-use status; an import never releases it. */
   keepStatus?: boolean;
+  /** Status before the import, for the status history. */
+  previousStatus?: AssetStatus;
 };
 
 interface Plan {
@@ -220,15 +223,35 @@ export class ExcelImportService {
             failingRow = draft.row;
             const { existingId } = draft;
             if (existingId) {
+              const fields = updateFields(draft);
+              const statusChanges =
+                fields.assetStatus !== undefined &&
+                fields.assetStatus !== draft.previousStatus;
               const { count } = await tx.asset.updateMany({
                 where: {
                   id: existingId,
                   organizationId: user.organizationId,
                   deletedAt: null,
+                  // The status checked in the preview must still hold.
+                  ...(draft.previousStatus
+                    ? { assetStatus: draft.previousStatus }
+                    : {}),
                 },
-                data: { ...updateFields(draft), updatedById: user.userId },
+                data: { ...fields, updatedById: user.userId },
               });
               if (count === 0) throw new Error('ASSET_CHANGED');
+              if (statusChanges && draft.previousStatus) {
+                await tx.assetStatusChange.create({
+                  data: {
+                    assetId: existingId,
+                    fromStatus: draft.previousStatus,
+                    toStatus: fields.assetStatus!,
+                    reason: `Excel import, row ${draft.row}`,
+                    source: 'IMPORT',
+                    changedById: user.userId,
+                  },
+                });
+              }
             } else {
               await tx.asset.create({
                 data: {
@@ -430,6 +453,7 @@ export class ExcelImportService {
         continue;
       }
       draft.existingId = match.id;
+      draft.previousStatus = match.assetStatus as AssetStatus;
       // Keep the tag exactly as it is stored, so the label still scans.
       draft.assetTagNumber = match.assetTagNumber;
       if (

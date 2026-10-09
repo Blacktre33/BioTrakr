@@ -7,6 +7,10 @@ import type {
   TelemetrySeverity,
 } from '@prisma/client';
 
+import {
+  changeAssetStatus,
+  isStopStatus,
+} from '../../assets/asset-status.service';
 import { PrismaService } from '../../database/prisma.service';
 import {
   TelemetryEventDto,
@@ -271,7 +275,7 @@ export class IngestionService {
       event.severity === EventSeverity.CRITICAL &&
       event.requiresIntervention
     ) {
-      await this.quarantineAsset(event.assetId, organizationId);
+      await this.quarantineAsset(event, organizationId);
     }
   }
 
@@ -399,13 +403,31 @@ export class IngestionService {
     });
   }
 
+  /**
+   * Takes the device out of use, with the fault recorded as the reason.
+   * A device already out of use (with biomed, condemned...) keeps that
+   * status, so its context is not lost.
+   */
   private async quarantineAsset(
-    assetId: string,
+    event: ErrorEventDto,
     organizationId: string,
   ): Promise<void> {
-    await this.prisma.asset.updateMany({
-      where: { id: assetId, organizationId, deletedAt: null },
-      data: { assetStatus: 'QUARANTINED' },
+    await this.prisma.$transaction(async (tx) => {
+      const asset = await tx.asset.findFirst({
+        where: { id: event.assetId, organizationId, deletedAt: null },
+        select: { assetStatus: true },
+      });
+      if (!asset || isStopStatus(asset.assetStatus)) return;
+      await changeAssetStatus(tx, {
+        assetId: event.assetId,
+        organizationId,
+        toStatus: 'QUARANTINED',
+        expectedStatus: asset.assetStatus,
+        source: 'DEVICE_ALERT',
+        reason: `Critical fault ${event.errorCode}${
+          event.errorMessage ? `: ${event.errorMessage}` : ''
+        } (needs intervention)`.slice(0, 1000),
+      });
     });
   }
 

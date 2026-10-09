@@ -158,6 +158,9 @@ export interface Asset {
   lastPmDate?: string | null;
   nextPmDueDate?: string | null;
   warrantyEndDate?: string | null;
+  pmFrequencyDays?: number | null;
+  udiDeviceIdentifier?: string | null;
+  notes?: string | null;
   currentFacility?: {
     id: string;
     facilityName: string;
@@ -205,15 +208,48 @@ export interface CreateAssetPayload {
   notes?: string;
 }
 
+/** Editable details. Status changes go through changeAssetStatus (needs a reason). */
 export interface UpdateAssetPayload {
   equipmentName?: string;
   manufacturer?: string;
   modelNumber?: string;
   serialNumber?: string;
-  assetStatus?: string;
+  deviceCategory?: string;
+  criticalityLevel?: string;
+  riskClassification?: string;
   currentFacilityId?: string;
   currentRoomId?: string;
+  custodianDepartmentId?: string;
+  primaryCustodianId?: string;
+  pmFrequencyDays?: number;
+  usefulLifeYears?: number;
+  warrantyEndDate?: string;
+  udiDeviceIdentifier?: string;
   notes?: string;
+}
+
+export interface StatusChange {
+  id: string;
+  fromStatus: string;
+  toStatus: string;
+  reason: string;
+  source: "MANUAL" | "FAULT_REPORT" | "WORK_ORDER" | "DEVICE_ALERT" | "IMPORT";
+  workOrderId?: string | null;
+  changedAt: string;
+  changedBy: string | null;
+}
+
+export async function changeAssetStatus(
+  assetId: string,
+  body: { status: string; reason: string; expectedStatus?: string },
+): Promise<{ changed: true; fromStatus: string; toStatus: string; changedAt: string }> {
+  const { data } = await api.post(`/assets/${assetId}/status`, body);
+  return data;
+}
+
+export async function getStatusHistory(assetId: string): Promise<StatusChange[]> {
+  const { data } = await api.get<StatusChange[]>(`/assets/${assetId}/status-history`);
+  return data;
 }
 
 export interface ListAssetsParams {
@@ -298,6 +334,8 @@ export interface AssetLookup {
     completedAt: string | null;
     description: string | null;
   }>;
+  pmFrequencyDays: number | null;
+  recentStatusChanges: Array<Omit<StatusChange, "workOrderId">>;
   recentScans: Array<{
     id: string;
     createdAt: string;

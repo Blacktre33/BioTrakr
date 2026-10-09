@@ -24,6 +24,17 @@ const device = {
   currentRoom: { roomName: 'ICU Bay 3', roomCode: 'ICU-3' },
   custodianDepartment: { departmentName: 'ICU' },
   maintenanceHistory: [],
+  statusChanges: [
+    {
+      id: 'c1',
+      fromStatus: 'ACTIVE',
+      toStatus: 'QUARANTINED',
+      reason: 'Critical fault E42 (needs intervention)',
+      source: 'DEVICE_ALERT',
+      changedAt: new Date('2026-10-07T08:00:00Z'),
+      changedBy: null,
+    },
+  ],
   scanLogs: [
     {
       id: 's1',
@@ -96,6 +107,9 @@ describe('Asset lookup by scan (e2e)', () => {
       pm: { overdue: false },
       recentScans: [
         { id: 's1', scannedBy: 'Nia Nurse', locationHint: 'Bay 3' },
+      ],
+      recentStatusChanges: [
+        { toStatus: 'QUARANTINED', source: 'DEVICE_ALERT', changedBy: null },
       ],
     });
     // Internal relation objects are flattened, not passed through.
