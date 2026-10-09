@@ -941,19 +941,23 @@ model MaintenanceHistory {
   followupDueDate         DateTime?
   attachments             Json?
   createdAt               DateTime        @default(now())
-  createdByUserId         String
+  /// Null when the PM schedule opened the work order (no person behind it).
+  createdByUserId         String?
   updatedAt               DateTime        @updatedAt
   /// Minutes-level of the last "nobody has taken this on" escalation (15, 60…).
   escalatedAfterMinutes   Int?
+  /// The PM due date the schedule opened this work order for; one per asset and date.
+  pmDueDate               DateTime?
 
   asset                   Asset           @relation(fields: [assetId], references: [id], onDelete: Restrict) // history outlives the asset; assets are soft-deleted
   assignedTechnician      User?           @relation("MaintenanceAssignedTechnician", fields: [assignedTechnicianId], references: [id])
   vendor                  Vendor?         @relation(fields: [vendorId], references: [id])
-  createdBy               User            @relation("MaintenanceCreatedBy", fields: [createdByUserId], references: [id])
+  createdBy               User?           @relation("MaintenanceCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
 
   @@index([assetId, scheduledDate(sort: Desc)])
   @@index([workOrderStatus])
   @@index([assignedTechnicianId])
+  @@unique([assetId, pmDueDate])
   @@map("maintenance_history")
 }
 

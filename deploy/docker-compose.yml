@@ -54,6 +54,9 @@ services:
       NOTIFY_WEBHOOK_URL: ${NOTIFY_WEBHOOK_URL:-}
       NOTIFY_WEBHOOK_SECRET: ${NOTIFY_WEBHOOK_SECRET:-}
       NOTIFY_ESCALATE_MINUTES: ${NOTIFY_ESCALATE_MINUTES:-15,60}
+      PM_LEAD_DAYS: ${PM_LEAD_DAYS:-14}
+      # Dates in work orders (e.g. "PM due 2026-10-14") use the hospital's time zone.
+      TZ: ${TZ:-Asia/Kolkata}
       # No calls home (Prisma update checks); the server may have no internet.
       CHECKPOINT_DISABLE: "1"
     logging: *logging

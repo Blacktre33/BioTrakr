@@ -597,6 +597,33 @@ describe('Problem reports and work orders (e2e)', () => {
     ).toBe(30 * 24 * 3600 * 1000);
   });
 
+  it('works through PM the schedule opened, which no person reported', async () => {
+    prisma.orders.push({
+      id: WO_PM,
+      assetId: VENT,
+      workOrderType: 'PREVENTIVE_MAINTENANCE',
+      workOrderStatus: 'PENDING',
+      scheduledDate: new Date(),
+      isEmergency: false,
+      createdByUserId: null,
+      assignedTechnicianId: null,
+      startedAt: null,
+    });
+    const { body: queue } = await request(app.getHttpServer())
+      .get('/api/work-orders')
+      .set(bearer('technician'))
+      .expect(200);
+    expect(queue.items[0]).toMatchObject({ id: WO_PM, reportedBy: null });
+
+    await update(WO_PM, {
+      expectedStatus: 'PENDING',
+      status: 'COMPLETED',
+      workPerformed: 'PM per checklist',
+    }).expect(200);
+    expect(prisma.assets[0].lastPmDate).toBeInstanceOf(Date);
+    expect(prisma.notifications).toEqual([]);
+  });
+
   describe('escalation and outbound messages', () => {
     const MIN = 60_000;
     let jobs: NotificationJobsService;

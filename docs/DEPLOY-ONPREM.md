@@ -172,6 +172,8 @@ The containers restart on their own after a crash or a server reboot. Logs are r
 
 **Optional SMS/WhatsApp alerts**: urgent problem reports can be sent to a gateway the hospital runs. Set `NOTIFY_WEBHOOK_URL` and `NOTIFY_WEBHOOK_SECRET` in `.env`, then `docker compose up -d`. The README (Notifications) explains the message format and how the gateway checks it is genuine.
 
+**Preventive maintenance**: the API opens PM work orders 14 days before they fall due. To change that, set `PM_LEAD_DAYS` in `.env`, then run `docker compose up -d`. Set `TZ` to the hospital's time zone so the due dates written in work orders are local.
+
 ## 9. Security checklist
 
 - Firewall: only 80 and 443 (from the hospital network) and SSH (from IT's machines) need to be reachable. Note that ports published by Docker bypass `ufw` rules, so limit them with the hospital's network firewall, with `BIND_IP` in `.env` (answer only on one server address), or with rules in Docker's `DOCKER-USER` chain. The database is not published at all.
