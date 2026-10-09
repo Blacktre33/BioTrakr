@@ -6,25 +6,13 @@ import { Activity, Lock, Mail } from 'lucide-react';
 
 import { Button, Card, Input, Label } from '@/components/ui';
 import { api, ApiError } from '@/lib/api/client';
-import { clearSession, setSession, type Session } from '@/lib/auth/session';
-
-/**
- * Only allow redirects back into this app. Parsing with URL (instead of
- * prefix checks) also catches tricks like "/\evil.com" or "/%09/evil.com",
- * which browsers resolve to another site.
- */
-function safeNext(raw: string | null): string {
-  if (!raw) return '/dashboard';
-  try {
-    const url = new URL(raw, window.location.origin);
-    if (url.origin !== window.location.origin || url.pathname === '/login') {
-      return '/dashboard';
-    }
-    return url.pathname + url.search + url.hash;
-  } catch {
-    return '/dashboard';
-  }
-}
+import {
+  CHANGE_PASSWORD_PATH,
+  clearSession,
+  safeNext,
+  setSession,
+  type Session,
+} from '@/lib/auth/session';
 
 function LoginForm() {
   const router = useRouter();
@@ -42,7 +30,12 @@ function LoginForm() {
     try {
       const { data } = await api.post<Session>('/auth/login', { email, password });
       setSession(data);
-      router.replace(safeNext(searchParams.get('next')) as never);
+      const next = safeNext(searchParams.get('next'));
+      router.replace(
+        (data.user.passwordChangeRequired
+          ? `${CHANGE_PASSWORD_PATH}?next=${encodeURIComponent(next)}`
+          : next) as never,
+      );
     } catch (err) {
       const status = err instanceof ApiError ? err.statusCode : undefined;
       setError(

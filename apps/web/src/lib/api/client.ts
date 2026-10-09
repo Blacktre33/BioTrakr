@@ -1,6 +1,13 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from "axios";
 
-import { clearSession, getSession, redirectToLogin, setSession, type Session } from "@/lib/auth/session";
+import {
+  clearSession,
+  getSession,
+  redirectToChangePassword,
+  redirectToLogin,
+  setSession,
+  type Session,
+} from "@/lib/auth/session";
 
 // Set NEXT_PUBLIC_API_URL for any non-local deployment.
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api";
@@ -60,7 +67,7 @@ type RetriableConfig = InternalAxiosRequestConfig & { _retried?: boolean };
 
 api.interceptors.response.use(
   (response) => response,
-  async (error: AxiosError<{ message?: string | string[] }>) => {
+  async (error: AxiosError<{ message?: string | string[]; code?: string }>) => {
     const original = error.config as RetriableConfig | undefined;
 
     // Expired access token: refresh once and replay the request. Never for
@@ -75,6 +82,12 @@ api.interceptors.response.use(
       }
       clearSession();
       redirectToLogin();
+    }
+
+    // Signed in with a one-time password (e.g. another tab skipped the
+    // change-password page): send them there.
+    if (error.response?.status === 403 && error.response.data?.code === "PASSWORD_CHANGE_REQUIRED") {
+      redirectToChangePassword();
     }
 
     // Network errors (API server not running, CORS, etc.)

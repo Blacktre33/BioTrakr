@@ -298,7 +298,11 @@ export class AdminService {
    * choose their own password when they first sign in.
    */
   async createUser(dto: CreateUserDto, user: AuthUser) {
-    await this.assertPlacement(dto.facilityId, dto.departmentId, user);
+    const facilityId = await this.assertPlacement(
+      dto.facilityId,
+      dto.departmentId,
+      user,
+    );
     const email = dto.email.trim().toLowerCase();
     const password = temporaryPassword();
     const created = await unique(
@@ -311,7 +315,7 @@ export class AdminService {
           lastName: dto.lastName.trim(),
           role: dto.role,
           jobTitle: dto.jobTitle?.trim() || null,
-          facilityId: dto.facilityId ?? null,
+          facilityId,
           departmentId: dto.departmentId ?? null,
           passwordHash: await hashPassword(password),
           passwordChangeRequired: true,
@@ -326,7 +330,13 @@ export class AdminService {
   async updateUser(id: string, dto: UpdateUserDto, admin: AuthUser) {
     const target = await this.prisma.user.findFirst({
       where: { id, organizationId: admin.organizationId },
-      select: { id: true, role: true, isActive: true },
+      select: {
+        id: true,
+        role: true,
+        isActive: true,
+        facilityId: true,
+        departmentId: true,
+      },
     });
     if (!target) throw new NotFoundException('Person not found');
 
@@ -353,9 +363,9 @@ export class AdminService {
         );
       }
     }
-    await this.assertPlacement(dto.facilityId, dto.departmentId, admin);
+    const placement = await this.resolvePlacement(target, dto, admin);
 
-    const data: Prisma.UserUpdateInput = {
+    const data: Prisma.UserUncheckedUpdateInput = {
       ...(dto.firstName !== undefined
         ? { firstName: dto.firstName.trim() }
         : {}),
@@ -365,10 +375,7 @@ export class AdminService {
         : {}),
       ...(dto.role !== undefined ? { role: dto.role } : {}),
       ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
-      ...(dto.facilityId !== undefined ? { facilityId: dto.facilityId } : {}),
-      ...(dto.departmentId !== undefined
-        ? { departmentId: dto.departmentId }
-        : {}),
+      ...placement,
     };
 
     const updated = await this.prisma.$transaction(async (tx) => {
@@ -428,27 +435,87 @@ export class AdminService {
     if (!n) throw new NotFoundException('Facility not found');
   }
 
+  /**
+   * Where a person ends up after an edit, kept consistent: clearing the
+   * facility clears the department; a new facility drops a department that
+   * is not in it; a department on its own moves them to its facility.
+   */
+  private async resolvePlacement(
+    current: { facilityId: string | null; departmentId: string | null },
+    dto: UpdateUserDto,
+    admin: AuthUser,
+  ): Promise<{ facilityId?: string | null; departmentId?: string | null }> {
+    if (dto.facilityId === undefined && dto.departmentId === undefined) {
+      return {};
+    }
+    if (dto.facilityId === null) {
+      if (dto.departmentId) {
+        throw new BadRequestException(
+          'A department needs a facility: choose the facility too',
+        );
+      }
+      return { facilityId: null, departmentId: null };
+    }
+    if (dto.departmentId === null) {
+      if (dto.facilityId) await this.assertFacility(dto.facilityId, admin);
+      return {
+        ...(dto.facilityId ? { facilityId: dto.facilityId } : {}),
+        departmentId: null,
+      };
+    }
+    if (dto.departmentId) {
+      const dept = await this.prisma.department.findFirst({
+        where: {
+          id: dto.departmentId,
+          facility: { organizationId: admin.organizationId },
+        },
+        select: { facilityId: true },
+      });
+      if (!dept) throw new NotFoundException('Department not found');
+      if (dto.facilityId && dept.facilityId !== dto.facilityId) {
+        throw new BadRequestException(
+          'The department is not in the selected facility',
+        );
+      }
+      return { facilityId: dept.facilityId, departmentId: dto.departmentId };
+    }
+    // New facility only.
+    await this.assertFacility(dto.facilityId!, admin);
+    let keepDepartment = false;
+    if (current.departmentId) {
+      keepDepartment =
+        (await this.prisma.department.count({
+          where: { id: current.departmentId, facilityId: dto.facilityId! },
+        })) > 0;
+    }
+    return {
+      facilityId: dto.facilityId!,
+      ...(keepDepartment ? {} : { departmentId: null }),
+    };
+  }
+
   /** A person's facility and department must be in the organization, and the department in the facility. */
   private async assertPlacement(
     facilityId: string | undefined,
     departmentId: string | undefined,
     user: AuthUser,
-  ) {
+  ): Promise<string | null> {
     if (facilityId) await this.assertFacility(facilityId, user);
-    if (departmentId) {
-      const dept = await this.prisma.department.findFirst({
-        where: {
-          id: departmentId,
-          facility: { organizationId: user.organizationId },
-        },
-        select: { facilityId: true },
-      });
-      if (!dept) throw new NotFoundException('Department not found');
-      if (facilityId && dept.facilityId !== facilityId) {
-        throw new BadRequestException(
-          'The department is not in the selected facility',
-        );
-      }
+    if (!departmentId) return facilityId ?? null;
+    const dept = await this.prisma.department.findFirst({
+      where: {
+        id: departmentId,
+        facility: { organizationId: user.organizationId },
+      },
+      select: { facilityId: true },
+    });
+    if (!dept) throw new NotFoundException('Department not found');
+    if (facilityId && dept.facilityId !== facilityId) {
+      throw new BadRequestException(
+        'The department is not in the selected facility',
+      );
     }
+    // A department alone places the person in its facility.
+    return dept.facilityId;
   }
 }

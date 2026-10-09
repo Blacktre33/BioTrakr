@@ -365,6 +365,61 @@ describe('Organization setup (e2e)', () => {
     expect(self.body.message).toMatch(/your own administrator access/);
   });
 
+  it('keeps a person’s facility and department consistent', async () => {
+    const icu = await post('departments', {
+      facilityId: FAC_A,
+      departmentCode: 'ICU',
+      departmentName: 'Intensive Care',
+    }).expect(201);
+    const mw = await post('facilities', {
+      facilityCode: 'MW',
+      facilityName: 'Maternity Wing',
+    }).expect(201);
+    const labour = await post('departments', {
+      facilityId: mw.body.id,
+      departmentCode: 'LAB',
+      departmentName: 'Labour ward',
+    }).expect(201);
+    const nurse = () => prisma.users[1];
+
+    // A department on its own brings its facility with it.
+    await patch(`users/${NURSE_ID}`, { departmentId: icu.body.id }).expect(200);
+    expect(nurse()).toMatchObject({
+      facilityId: FAC_A,
+      departmentId: icu.body.id,
+    });
+
+    // Mismatched pair is refused.
+    await patch(`users/${NURSE_ID}`, {
+      facilityId: FAC_A,
+      departmentId: labour.body.id,
+    }).expect(400);
+
+    // Moving facility drops a department that is not in it.
+    await patch(`users/${NURSE_ID}`, { facilityId: mw.body.id }).expect(200);
+    expect(nurse()).toMatchObject({
+      facilityId: mw.body.id,
+      departmentId: null,
+    });
+
+    // Clearing the facility clears the department.
+    await patch(`users/${NURSE_ID}`, { departmentId: labour.body.id }).expect(
+      200,
+    );
+    await patch(`users/${NURSE_ID}`, { facilityId: null }).expect(200);
+    expect(nurse()).toMatchObject({ facilityId: null, departmentId: null });
+
+    // New accounts: a department alone sets the facility too.
+    const res = await post('users', {
+      email: 'new@a.test',
+      firstName: 'N',
+      lastName: 'W',
+      role: 'viewer',
+      departmentId: icu.body.id,
+    }).expect(201);
+    expect(res.body.user).toMatchObject({ facilityId: FAC_A });
+  });
+
   it('resets a password: new one-time password, unlocked, signed out', async () => {
     prisma.sessions.push({ id: 's1', userId: NURSE_ID, revokedAt: null });
     const res = await post(`users/${NURSE_ID}/reset-password`, {}).expect(200);

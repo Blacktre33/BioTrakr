@@ -13,6 +13,7 @@ import {
   MaxLength,
   Min,
   Validate,
+  ValidateIf,
   ValidatorConstraint,
   type ValidatorConstraintInterface,
 } from 'class-validator';
@@ -293,13 +294,24 @@ export class UpdateUserDto {
   @IsOptional()
   jobTitle?: string;
 
+  @ApiPropertyOptional({
+    description: 'null clears it (and the department)',
+    nullable: true,
+  })
   @IsUUID()
+  @ValidateIf((_, v) => v !== null)
   @IsOptional()
-  facilityId?: string;
+  facilityId?: string | null;
 
+  @ApiPropertyOptional({
+    description:
+      'null clears it. Without facilityId, the person moves to this department’s facility.',
+    nullable: true,
+  })
   @IsUUID()
+  @ValidateIf((_, v) => v !== null)
   @IsOptional()
-  departmentId?: string;
+  departmentId?: string | null;
 
   @ApiPropertyOptional({
     description: 'Deactivating signs the person out everywhere',

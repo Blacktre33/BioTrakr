@@ -5,7 +5,12 @@ import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
 
-import { getSession, redirectToLogin } from '@/lib/auth/session';
+import {
+  CHANGE_PASSWORD_PATH,
+  getSession,
+  redirectToChangePassword,
+  redirectToLogin,
+} from '@/lib/auth/session';
 
 interface ProvidersProps {
   children: ReactNode;
@@ -23,12 +28,18 @@ function AuthGate({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(isPublic);
 
   useEffect(() => {
-    if (isPublic || getSession()) {
+    const session = getSession();
+    if (isPublic) {
       setReady(true);
-    } else {
+    } else if (!session) {
       redirectToLogin();
+    } else if (session.user.passwordChangeRequired && pathname !== CHANGE_PASSWORD_PATH) {
+      setReady(false);
+      redirectToChangePassword();
+    } else {
+      setReady(true);
     }
-  }, [isPublic]);
+  }, [isPublic, pathname]);
 
   return ready ? <>{children}</> : null;
 }
