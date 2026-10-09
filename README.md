@@ -146,6 +146,15 @@ Delivery: a timeout, network error, 408, 429 or 5xx is retried with backoff (8 a
 
 Escalation and delivery run inside the API process every 30 s, so the API must run as a long-lived service (not serverless). Faults reported by devices take the device out of use and notify biomed once; they are not escalated, because no work order exists for them yet.
 
+### Dashboard
+
+`/dashboard` (`GET /api/dashboard`, any staff role) is counted live from the database, optionally for one facility:
+
+- **Devices**: in use, out of use (quarantined or being repaired) with the highest-risk ones listed first, and a count per status. Retired, condemned and disposed devices are not counted as inventory.
+- **PM**: overdue, due in the next 30 days, devices without a PM schedule, and compliance (the share of scheduled devices that are not overdue). The overdue list shows whether a work order is already open.
+- **Work orders**: open, urgent, not assigned, waiting for parts; opened and completed per week over 8 weeks.
+- **Time to repair**: mean and median hours from report to completion, for repairs finished in the last 90 days.
+
 ### Service Entry Points
 
 Run individual apps when iterating on specific surfaces:

@@ -13,6 +13,7 @@ import { ReferenceModule } from './reference/reference.module';
 import { WorkOrdersModule } from './work-orders/work-orders.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AdminModule } from './admin/admin.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { requestIdMiddleware } from './common/request-id';
 import { AppController } from './app.controller';
@@ -30,6 +31,7 @@ import { AppService } from './app.service';
     WorkOrdersModule,
     AdminModule,
     NotificationsModule,
+    DashboardModule,
   ],
   controllers: [AppController],
   providers: [
