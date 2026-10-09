@@ -407,7 +407,8 @@ model Asset {
   organizationId                  String
   
   // === BASIC IDENTIFICATION ===
-  assetTagNumber                  String              @unique
+  /// Unique within an organization (see @@unique below), not across hospitals.
+  assetTagNumber                  String
   equipmentName                   String
   manufacturer                    String
   modelNumber                     String
@@ -638,6 +639,7 @@ model Asset {
   maintenanceEvents               MaintenanceEvent[]
   errorEvents                     ErrorEvent[]
 
+  @@unique([organizationId, assetTagNumber])
   @@index([organizationId])
   @@index([assetTagNumber])
   @@index([serialNumber])

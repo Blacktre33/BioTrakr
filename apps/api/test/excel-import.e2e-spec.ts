@@ -74,12 +74,20 @@ function buildPrisma() {
       usefulLifeYears: 7,
       notes: 'Keep me',
     },
-    // Belongs to another organization: the tag is taken.
+    // Another organization's device: tags are per organization, so the
+    // same tag is free here.
     {
       id: 'a-other',
       assetTagNumber: 'PUMP-B',
       organizationId: ORG_B,
       deletedAt: null,
+    },
+    // A deleted device of ours: its tag stays reserved.
+    {
+      id: 'a-gone',
+      assetTagNumber: 'PUMP-GONE',
+      organizationId: ORG_A,
+      deletedAt: new Date('2026-01-01'),
     },
   ];
   const tx = {
@@ -112,8 +120,10 @@ function buildPrisma() {
         const wanted = (
           where.OR as Array<{ assetTagNumber: { equals: string } }>
         ).map((c) => c.assetTagNumber.equals.toLowerCase());
-        return existing.filter((a) =>
-          wanted.includes(a.assetTagNumber.toLowerCase()),
+        return existing.filter(
+          (a) =>
+            a.organizationId === where.organizationId &&
+            wanted.includes(a.assetTagNumber.toLowerCase()),
         );
       }),
       create: jest.fn(),
@@ -195,7 +205,8 @@ describe('Excel import (e2e)', () => {
         row('PUMP-1'),
         row('PUMP-2', { 'Risk Class*': 'IIb' }),
         row('PUMP-1'),
-        row('PUMP-B'),
+        row('PUMP-GONE'),
+        row('PUMP-B'), // another organization's tag: fine
       ]),
     ).expect(200);
 
@@ -210,7 +221,7 @@ describe('Excel import (e2e)', () => {
       expect.objectContaining({
         row: 5,
         field: 'Asset Tag',
-        message: 'This asset tag is already in use',
+        message: expect.stringContaining('stays reserved'),
       }),
     ]);
     noWrites();

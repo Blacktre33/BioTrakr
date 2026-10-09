@@ -157,7 +157,14 @@ function buildPrisma() {
           assets.filter((a) => matchesWhere(a, where)).length,
       ),
       create: jest.fn(async ({ data }) => {
-        if (assets.some((a) => a.assetTagNumber === data.assetTagNumber)) {
+        // Tags are unique per organization, as in the database.
+        if (
+          assets.some(
+            (a) =>
+              a.assetTagNumber === data.assetTagNumber &&
+              a.organizationId === data.organizationId,
+          )
+        ) {
           throw Object.assign(new Error('Unique constraint failed'), {
             code: 'P2002',
           });
@@ -700,28 +707,41 @@ describe('Authentication and authorization (e2e)', () => {
   });
 
   describe('asset tags', () => {
-    it('returns 409, not 500, for a tag that is already in use', async () => {
+    const newAsset = (assetTagNumber: string) => ({
+      assetTagNumber,
+      equipmentName: 'Pump',
+      manufacturer: 'BD',
+      modelNumber: 'A1',
+      serialNumber: 'S1',
+      deviceCategory: 'THERAPEUTIC',
+      criticalityLevel: 'HIGH',
+      riskClassification: 'CLASS_II',
+      purchaseDate: '2024-01-15T00:00:00Z',
+      purchaseCost: 10,
+      usefulLifeYears: 5,
+      currentFacilityId: FACILITY_A,
+      primaryCustodianId: '44444444-4444-4444-8444-444444444444',
+      custodianDepartmentId: '55555555-5555-4555-8555-555555555555',
+    });
+
+    it("lets two organizations use the same tag, revealing nothing about the other's devices", async () => {
+      await request(app.getHttpServer())
+        .post('/api/assets')
+        .set(bearer('engineer'))
+        .send(newAsset('VENT-B')) // VENT-B also exists in another organization
+        .expect(201);
+    });
+
+    it('returns 409, not 500, when the tag is taken at the last moment', async () => {
+      prisma.asset.create.mockRejectedValueOnce(
+        Object.assign(new Error('Unique constraint failed'), { code: 'P2002' }),
+      );
       const res = await request(app.getHttpServer())
         .post('/api/assets')
         .set(bearer('engineer'))
-        .send({
-          assetTagNumber: 'VENT-B', // owned by another organization
-          equipmentName: 'Pump',
-          manufacturer: 'BD',
-          modelNumber: 'A1',
-          serialNumber: 'S1',
-          deviceCategory: 'THERAPEUTIC',
-          criticalityLevel: 'HIGH',
-          riskClassification: 'CLASS_II',
-          purchaseDate: '2024-01-15T00:00:00Z',
-          purchaseCost: 10,
-          usefulLifeYears: 5,
-          currentFacilityId: FACILITY_A,
-          primaryCustodianId: '44444444-4444-4444-8444-444444444444',
-          custodianDepartmentId: '55555555-5555-4555-8555-555555555555',
-        })
+        .send(newAsset('NEW-9'))
         .expect(409);
-      expect(res.body.message).not.toContain('VENT-B');
+      expect(res.body.message).toBe('This asset tag number is already in use');
     });
 
     it('treats a tag differing only in case as already in use', async () => {

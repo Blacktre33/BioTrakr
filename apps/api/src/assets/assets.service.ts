@@ -59,6 +59,7 @@ export class AssetsService {
     // ambiguous. Same message as the unique-key conflict below.
     const clash = await this.prisma.asset.findFirst({
       where: {
+        organizationId: user.organizationId,
         assetTagNumber: { equals: baseDto.assetTagNumber, mode: 'insensitive' },
       },
       select: { id: true },
@@ -130,7 +131,8 @@ export class AssetsService {
     try {
       return await this.prisma.asset.create({ data });
     } catch (error) {
-      // Asset tags are unique across the platform (including deleted assets).
+      // Asset tags are unique within the organization (deleted assets keep
+      // theirs, so their history stays unambiguous).
       if ((error as { code?: string }).code === 'P2002') {
         throw new ConflictException('This asset tag number is already in use');
       }

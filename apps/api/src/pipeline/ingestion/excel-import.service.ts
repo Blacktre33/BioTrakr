@@ -421,17 +421,16 @@ export class ExcelImportService {
       drafts.push(result.draft);
     }
 
-    // Existing devices: same organization and live -> update; anywhere else -> taken.
+    // Existing devices in this organization: live -> update; deleted -> tag reserved.
     const existing = await this.findExistingTags(
       drafts.map((d) => d.assetTagNumber),
+      user.organizationId,
     );
     const changes = new Map<number, string[]>();
     for (const draft of drafts) {
       const matches = existing.get(draft.assetTagNumber.toLowerCase()) ?? [];
       if (matches.length === 0) continue;
-      const live = matches.filter(
-        (m) => m.organizationId === user.organizationId && m.deletedAt === null,
-      );
+      const live = matches.filter((m) => m.deletedAt === null);
       if (live.length > 1) {
         errors.push({
           row: draft.row,
@@ -444,10 +443,13 @@ export class ExcelImportService {
       }
       const match = live[0];
       if (!match) {
+        // Only deleted devices have it: their tags stay reserved so their
+        // history (scans, work orders) can't be mixed up with a new device.
         errors.push({
           row: draft.row,
           field: 'Asset Tag',
-          message: 'This asset tag is already in use',
+          message:
+            'This tag belonged to a device that was deleted, and stays reserved. Use a new tag.',
           value: draft.assetTagNumber,
         });
         continue;
@@ -527,7 +529,7 @@ export class ExcelImportService {
   }
 
   /** Existing assets with any of these tags (ignoring case), grouped by lower-case tag. */
-  private async findExistingTags(tags: string[]) {
+  private async findExistingTags(tags: string[], organizationId: string) {
     const select = {
       id: true,
       organizationId: true,
@@ -549,6 +551,7 @@ export class ExcelImportService {
       if (chunk.length === 0) continue;
       const rows = (await this.prisma.asset.findMany({
         where: {
+          organizationId,
           OR: chunk.map((tag) => ({
             assetTagNumber: { equals: tag, mode: 'insensitive' as const },
           })),
