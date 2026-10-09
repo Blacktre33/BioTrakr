@@ -140,7 +140,11 @@ describe('parseDateCell', () => {
     expect(parseDateCell(new Date('2024-01-15T00:00:00Z'))).toEqual(
       new Date('2024-01-15T00:00:00Z'),
     );
-    // Floating-point noise from the day fraction rounds to the right day.
+    // A time of day never moves the date, and float noise just under
+    // midnight still lands on the right day.
+    expect(parseDateCell(new Date('2024-01-15T14:00:00Z'))).toEqual(
+      new Date('2024-01-15T00:00:00Z'),
+    );
     expect(parseDateCell(new Date('2024-01-14T23:59:59.990Z'))).toEqual(
       new Date('2024-01-15T00:00:00Z'),
     );

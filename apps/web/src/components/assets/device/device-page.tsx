@@ -139,6 +139,7 @@ export function DevicePage({ assetId }: { assetId: string }) {
               equipmentName={device.equipmentName}
               currentStatus={device.assetStatus}
               statusOptions={reference.data.enums.assetStatus}
+              openWorkOrders={device.openWorkOrders}
             />
           )}
           {reference.data && full.data && (

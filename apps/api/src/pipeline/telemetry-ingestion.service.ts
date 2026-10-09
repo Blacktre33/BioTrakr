@@ -116,14 +116,12 @@ export class TelemetryIngestionService {
       return this.prisma.asset.findUnique({ where: { id: payloadAssetId } });
     }
 
+    // A tag alone is not enough: tags are unique per organization and these
+    // events carry none, so a tag could name another hospital's device.
     if (payloadExternalId) {
-      // Tags are unique per organization only, and these events carry no
-      // organization: use the tag only when exactly one live device has it.
-      const matches = await this.prisma.asset.findMany({
-        where: { assetTagNumber: payloadExternalId, deletedAt: null },
-        take: 2,
-      });
-      return matches.length === 1 ? matches[0] : null;
+      this.logger.warn(
+        `Telemetry event names only a tag (${payloadExternalId}); send the asset id`,
+      );
     }
 
     return null;

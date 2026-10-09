@@ -921,6 +921,20 @@ describe('Authentication and authorization (e2e)', () => {
         await refresh(c.refreshToken).expect(401);
       });
 
+      it('ends a sign-in 30 days after the password was entered, however often refreshed', async () => {
+        const first = await login();
+        // Pretend this sign-in started 29 days and 23 hours ago.
+        const started = new Date(Date.now() - (30 * 24 - 1) * 3600 * 1000);
+        prisma.sessions[0].signedInAt = started;
+        await refresh(first.refreshToken).expect(200);
+        const latest = prisma.sessions[prisma.sessions.length - 1];
+        expect(latest.signedInAt).toEqual(started);
+        // The new token expires with the sign-in, in about an hour, not in 7 days.
+        expect((latest.expiresAt as Date).getTime() - Date.now()).toBeLessThan(
+          3600 * 1000 + 5000,
+        );
+      });
+
       it('rejects refresh tokens that have no session (issued before sessions existed)', async () => {
         const { createRefreshToken } = await import('@biotrakr/utils');
         const legacy = createRefreshToken({

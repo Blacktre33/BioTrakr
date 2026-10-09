@@ -28,6 +28,8 @@ interface ChangeStatusDialogProps {
   equipmentName: string;
   currentStatus: string;
   statusOptions: FormOption[];
+  /** Unfinished work orders on this device; releasing it anyway deserves a warning. */
+  openWorkOrders?: number;
 }
 
 /**
@@ -42,6 +44,7 @@ export function ChangeStatusDialog({
   equipmentName,
   currentStatus,
   statusOptions,
+  openWorkOrders = 0,
 }: ChangeStatusDialogProps) {
   const [status, setStatus] = useState("");
   const [reason, setReason] = useState("");
@@ -79,7 +82,12 @@ export function ChangeStatusDialog({
     setServerError(undefined);
     if (errors.status || errors.reason || errors.confirm) return;
     try {
-      await mutation.mutateAsync({ status, reason: reason.trim(), expectedStatus: currentStatus });
+      await mutation.mutateAsync({
+        status,
+        reason: reason.trim(),
+        expectedStatus: currentStatus,
+        ...(releasing ? { confirmSafe: true } : {}),
+      });
       toast.success(`${equipmentName} is now ${label(status)}`);
       close(false);
     } catch (error) {
@@ -138,6 +146,13 @@ export function ChangeStatusDialog({
               className={cn(show("reason") && ERROR_BORDER)}
             />
           </Field>
+
+          {releasing && openWorkOrders > 0 && (
+            <p role="alert" className="rounded-xl border border-critical-500/40 bg-critical-500/10 p-3 text-sm text-gray-100">
+              {openWorkOrders === 1 ? "There is still an open work order" : `There are still ${openWorkOrders} open work orders`} for
+              this device. Make sure every reported problem is fixed before releasing it.
+            </p>
+          )}
 
           {releasing && (
             <div className="space-y-1">

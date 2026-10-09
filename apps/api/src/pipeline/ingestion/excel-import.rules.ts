@@ -329,9 +329,12 @@ export function parseDateCell(
   if (value === null || value === undefined || value === '') return null;
   if (value instanceof Date) {
     // Date-formatted cells arrive as Dates (the reader applies the 1904
-    // system itself). Keep the calendar day; round away float noise.
+    // system itself). Keep the calendar day, ignoring any time of day; the
+    // extra second absorbs float noise just under midnight.
     if (Number.isNaN(value.getTime())) return 'invalid';
-    const day = new Date(Math.round(value.getTime() / DAY_MS) * DAY_MS);
+    const day = new Date(
+      Math.floor((value.getTime() + 1000) / DAY_MS) * DAY_MS,
+    );
     return day.getUTCFullYear() < MIN_YEAR ? 'invalid' : day;
   }
   if (typeof value === 'number') {
@@ -492,6 +495,59 @@ function shownText(cell: ExcelJS.Cell): unknown {
   return value;
 }
 
+/** Columns read from the header row; real templates have about 20. */
+export const MAX_COLUMNS = 200;
+/** Limits on the unpacked file, checked before it is parsed (zip bombs). */
+export const MAX_UNPACKED_BYTES = 60 * 1024 * 1024;
+const MAX_ZIP_ENTRIES = 1000;
+
+/**
+ * An .xlsx is a zip. Reads its central directory (without unpacking
+ * anything) and refuses files that would unpack to something huge: a few
+ * kilobytes can otherwise expand to gigabytes and stall the server.
+ * Returns a reason to refuse, or null.
+ */
+export function unpackedSizeProblem(buffer: Buffer): string | null {
+  const unreadable =
+    'This file could not be read. Save it as .xlsx and try again.';
+  // End-of-central-directory record: within the last 64 KB + 22 bytes.
+  const start = Math.max(0, buffer.length - 65_557);
+  let eocd = -1;
+  for (let i = buffer.length - 22; i >= start; i--) {
+    if (buffer.readUInt32LE(i) === 0x06054b50) {
+      eocd = i;
+      break;
+    }
+  }
+  if (eocd < 0) return unreadable;
+  const entries = buffer.readUInt16LE(eocd + 10);
+  let offset = buffer.readUInt32LE(eocd + 16);
+  if (entries > MAX_ZIP_ENTRIES) return unreadable;
+
+  let total = 0;
+  for (let n = 0; n < entries; n++) {
+    if (
+      offset + 46 > buffer.length ||
+      buffer.readUInt32LE(offset) !== 0x02014b50
+    ) {
+      return unreadable;
+    }
+    const size = buffer.readUInt32LE(offset + 24);
+    // 0xFFFFFFFF means a ZIP64 size: far beyond any asset list.
+    if (size === 0xffffffff) return 'This file is too large to import.';
+    total += size;
+    if (total > MAX_UNPACKED_BYTES) {
+      return 'This file is too large to import. Split it into smaller files.';
+    }
+    offset +=
+      46 +
+      buffer.readUInt16LE(offset + 28) +
+      buffer.readUInt16LE(offset + 30) +
+      buffer.readUInt16LE(offset + 32);
+  }
+  return null;
+}
+
 /** Reads the first suitable sheet into rows keyed by column, with Excel row numbers. */
 export async function readSheet(buffer: Buffer): Promise<{
   rows: SheetRow[];
@@ -499,6 +555,8 @@ export async function readSheet(buffer: Buffer): Promise<{
   ignored: string[];
   duplicates: string[];
   sheetName: string;
+  /** More data rows than one import allows; rows were not read. */
+  tooManyRows?: number;
 }> {
   const workbook = new ExcelJS.Workbook();
   // exceljs's typings predate today's generic Node Buffer type.
@@ -520,13 +578,28 @@ export async function readSheet(buffer: Buffer): Promise<{
     };
   }
 
-  // Header cells, by 1-based column number.
+  // Header cells, by 1-based column number. Only the header row's own cells
+  // count (a stray value far to the right must not widen every row), and
+  // columnCount is computed once: it walks every row each time it is read.
   const headerRow = sheet.getRow(1);
+  const width = Math.min(headerRow.cellCount, MAX_COLUMNS);
   const headers: string[] = [];
-  for (let c = 1; c <= sheet.columnCount; c++) {
+  for (let c = 1; c <= width; c++) {
     headers.push(text(plainValue(headerRow.getCell(c).value)));
   }
   const { columns, missing, ignored, duplicates } = mapHeaders(headers);
+
+  const dataRows = sheet.actualRowCount - 1;
+  if (dataRows > MAX_IMPORT_ROWS) {
+    return {
+      rows: [],
+      missing,
+      ignored,
+      duplicates,
+      sheetName,
+      tooManyRows: dataRows,
+    };
+  }
 
   const rows: SheetRow[] = [];
   sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {

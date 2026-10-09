@@ -115,7 +115,12 @@ export class AssetStatusService {
   /** A person changes a device's status on its page. */
   async changeStatus(
     assetId: string,
-    body: { status: AssetStatus; reason: string; expectedStatus?: AssetStatus },
+    body: {
+      status: AssetStatus;
+      reason: string;
+      expectedStatus: AssetStatus;
+      confirmSafe?: boolean;
+    },
     user: AuthUser,
   ) {
     const reason = body.reason.trim();
@@ -138,6 +143,20 @@ export class AssetStatusService {
       if (current?.assetStatus === 'DISPOSED' && user.role !== 'admin') {
         throw new ForbiddenException(
           'Only an administrator can change the status of a disposed device',
+        );
+      }
+      // Putting a device back into use is what turns the scan banner green;
+      // it needs an explicit statement that the device is safe.
+      // (A stale expectedStatus is reported as a conflict below instead.)
+      if (
+        current &&
+        current.assetStatus === body.expectedStatus &&
+        isStopStatus(current.assetStatus) &&
+        !isStopStatus(body.status) &&
+        !body.confirmSafe
+      ) {
+        throw new BadRequestException(
+          'Confirm the device has been checked and is safe to use before putting it back into use',
         );
       }
       return changeAssetStatus(tx, {

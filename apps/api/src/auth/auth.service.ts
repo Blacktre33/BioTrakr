@@ -39,6 +39,13 @@ const INVALID_REFRESH = 'Invalid refresh token';
  */
 export const REUSE_GRACE_MS = 30_000;
 
+/**
+ * However often it is refreshed, a sign-in ends this long after the
+ * password was entered. Without a cap, a stolen refresh token used before
+ * the owner's tab ever refreshes again would work indefinitely.
+ */
+export const MAX_SIGN_IN_DAYS = 30;
+
 @Injectable()
 export class AuthService {
   /** Compared against when the email is unknown, so timing doesn't reveal which accounts exist. */
@@ -91,7 +98,13 @@ export class AuthService {
     });
     const familyId = randomUUID();
     return {
-      ...(await this.issueTokens(user, familyId, familyId, userAgent)),
+      ...(await this.issueTokens(
+        user,
+        familyId,
+        familyId,
+        new Date(),
+        userAgent,
+      )),
       user: this.publicProfile(user),
     };
   }
@@ -162,7 +175,13 @@ export class AuthService {
     if (count === 0) throw new UnauthorizedException(INVALID_REFRESH);
 
     return {
-      ...(await this.issueTokens(user, nextId, session.familyId, userAgent)),
+      ...(await this.issueTokens(
+        user,
+        nextId,
+        session.familyId,
+        session.signedInAt,
+        userAgent,
+      )),
       user: this.publicProfile(user),
     };
   }
@@ -222,6 +241,7 @@ export class AuthService {
     user: User,
     sessionId: string,
     familyId: string,
+    signedInAt: Date,
     userAgent?: string,
   ): Promise<TokenPair> {
     const claims: AuthenticatedUser = {
@@ -240,8 +260,12 @@ export class AuthService {
         id: sessionId,
         familyId,
         userId: user.id,
+        signedInAt,
         expiresAt: new Date(
-          Date.now() + security.refreshTokenTtlSeconds * 1000,
+          Math.min(
+            Date.now() + security.refreshTokenTtlSeconds * 1000,
+            signedInAt.getTime() + MAX_SIGN_IN_DAYS * 24 * 60 * 60 * 1000,
+          ),
         ),
         userAgent: userAgent?.slice(0, 255) ?? null,
       },

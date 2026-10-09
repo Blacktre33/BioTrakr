@@ -12,6 +12,9 @@ import { cn, formatDate } from "@/lib/utils";
 
 import { ReportProblemDialog } from "./report-problem-dialog";
 
+/** Must match the API's STOP_STATUSES. */
+const OUT_OF_USE_STATUSES = ["QUARANTINED", "IN_MAINTENANCE", "CONDEMNED", "RETIRED", "DISPOSED"];
+
 /** Roles that see the full technical detail straight away. */
 const DETAIL_ROLES = ["admin", "engineer", "technician"];
 /** Roles that may record a scan (matches the API's SCAN_ROLES). */
@@ -197,7 +200,9 @@ export function AssetBedsideCard({ asset, scannedCode, role }: AssetBedsideCardP
             assetId={asset.id}
             equipmentName={asset.equipmentName}
             location={where || asset.location.room || ""}
-            alreadyOutOfUse={!asset.safeToUse}
+            // By status, not by safeToUse: a recalled device can be unsafe
+            // while still ACTIVE, and the report must still take it out of use.
+            alreadyOutOfUse={OUT_OF_USE_STATUSES.includes(asset.assetStatus)}
             openWorkOrders={asset.openWorkOrders}
           />
         </>

@@ -214,6 +214,12 @@ export class WorkOrdersService {
         },
       });
       if (!current) throw new NotFoundException('Work order not found');
+      // Closed work orders are part of the device's record: never edited.
+      if (!OPEN_STATUSES.includes(current.workOrderStatus)) {
+        throw new BadRequestException(
+          'This work order is closed and cannot be changed. Open a new one if needed.',
+        );
+      }
       if (current.workOrderStatus !== dto.expectedStatus) {
         throw new ConflictException(
           'This work order was updated by someone else just now. Reload and check before trying again.',
@@ -271,6 +277,21 @@ export class WorkOrdersService {
         if (!dto.confirmSafe) {
           throw new BadRequestException(
             'Confirm the device has been checked and is safe to use before releasing it',
+          );
+        }
+        // Another unresolved problem on the same device keeps it out of use.
+        const otherOpen = await tx.maintenanceHistory.count({
+          where: {
+            assetId: current.assetId,
+            id: { not: id },
+            workOrderStatus: { in: OPEN_STATUSES },
+          },
+        });
+        if (otherOpen > 0) {
+          throw new BadRequestException(
+            otherOpen === 1
+              ? 'Another work order is still open for this device. Complete or cancel it before putting the device back into use.'
+              : `${otherOpen} other work orders are still open for this device. Complete or cancel them before putting the device back into use.`,
           );
         }
         if (!RELEASABLE.has(current.asset.assetStatus)) {

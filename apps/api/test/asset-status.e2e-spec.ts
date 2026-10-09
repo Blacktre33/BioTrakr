@@ -121,6 +121,7 @@ describe('Device status changes (e2e)', () => {
       status: 'ACTIVE',
       reason: 'Replaced flow sensor; passed electrical safety test',
       expectedStatus: 'QUARANTINED',
+      confirmSafe: true,
     }).expect(200);
 
     expect(body).toMatchObject({
@@ -149,12 +150,26 @@ describe('Device status changes (e2e)', () => {
     ]);
   });
 
-  it('requires a reason', async () => {
-    await change(QUARANTINED_ID, { status: 'ACTIVE', reason: 'ok' }).expect(
-      400,
-    );
-    await change(QUARANTINED_ID, { status: 'ACTIVE' }).expect(400);
+  it('requires a reason, the status seen, and a safety confirmation to release', async () => {
+    const release = {
+      status: 'ACTIVE',
+      reason: 'Repaired and tested',
+      expectedStatus: 'QUARANTINED',
+      confirmSafe: true,
+    };
+    await change(QUARANTINED_ID, { ...release, reason: 'ok' }).expect(400);
+    await change(QUARANTINED_ID, { ...release, reason: undefined }).expect(400);
+    await change(QUARANTINED_ID, {
+      ...release,
+      expectedStatus: undefined,
+    }).expect(400);
+    const res = await change(QUARANTINED_ID, {
+      ...release,
+      confirmSafe: undefined,
+    }).expect(400);
+    expect(res.body.message).toMatch(/safe to use/);
     expect(prisma.changes).toEqual([]);
+    expect(prisma.assets[0].assetStatus).toBe('QUARANTINED');
   });
 
   it('refuses when someone else changed the status first', async () => {
@@ -170,17 +185,31 @@ describe('Device status changes (e2e)', () => {
   it('is limited to biomed roles, and disposal is final except for admins', async () => {
     await change(
       QUARANTINED_ID,
-      { status: 'ACTIVE', reason: 'Looks fine to me' },
+      {
+        status: 'ACTIVE',
+        reason: 'Looks fine to me',
+        expectedStatus: 'QUARANTINED',
+        confirmSafe: true,
+      },
       'clinical_staff',
     ).expect(403);
     await change(
       DISPOSED_ID,
-      { status: 'ACTIVE', reason: 'Recorded as disposed by mistake' },
+      {
+        status: 'ACTIVE',
+        reason: 'Recorded as disposed by mistake',
+        expectedStatus: 'DISPOSED',
+        confirmSafe: true,
+      },
       'engineer',
     ).expect(403);
     await change(
       DISPOSED_ID,
-      { status: 'RETIRED', reason: 'Recorded as disposed by mistake' },
+      {
+        status: 'RETIRED',
+        reason: 'Recorded as disposed by mistake',
+        expectedStatus: 'DISPOSED',
+      },
       'admin',
     ).expect(200);
   });
@@ -189,6 +218,8 @@ describe('Device status changes (e2e)', () => {
     await change(OTHER_ORG_ID, {
       status: 'ACTIVE',
       reason: 'Repaired and tested',
+      expectedStatus: 'QUARANTINED',
+      confirmSafe: true,
     }).expect(404);
     expect(prisma.assets[2].assetStatus).toBe('QUARANTINED');
   });

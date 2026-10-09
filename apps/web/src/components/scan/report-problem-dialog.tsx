@@ -76,11 +76,16 @@ export function ReportProblemDialog({
         takeOutOfUse: !alreadyOutOfUse && takeOutOfUse,
         locationHint: where.trim() || undefined,
       });
-      toast.success(
-        result.takenOutOfUse
-          ? "Reported. The device now shows as Do not use, and biomed has been told."
-          : "Reported. Biomed has been told.",
-      );
+      if (!alreadyOutOfUse && takeOutOfUse && !result.outOfUse) {
+        // Asked to take it out of use, but the status changed meanwhile.
+        toast.warning("Reported to biomed, but the device could not be marked Do not use. Please tell biomed directly.");
+      } else {
+        toast.success(
+          result.takenOutOfUse
+            ? "Reported. The device now shows as Do not use, and biomed has been told."
+            : "Reported. Biomed has been told.",
+        );
+      }
       close(false);
     } catch (err) {
       setServerError((err as Error).message || "Could not send the report. Please try again.");

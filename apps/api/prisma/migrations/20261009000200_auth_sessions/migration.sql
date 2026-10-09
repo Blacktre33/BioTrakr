@@ -6,6 +6,7 @@ CREATE TABLE "auth_sessions" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "familyId" TEXT NOT NULL,
+    "signedInAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "expiresAt" TIMESTAMP(3) NOT NULL,
     "revokedAt" TIMESTAMP(3),

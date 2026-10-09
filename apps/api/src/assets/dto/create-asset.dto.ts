@@ -7,6 +7,7 @@ import {
   IsUUID,
   IsNumber,
   IsDateString,
+  IsBoolean,
   IsInt,
   Max,
   MaxLength,
@@ -354,12 +355,19 @@ export class ChangeAssetStatusDto {
   @MaxLength(1000)
   reason!: string;
 
-  @ApiPropertyOptional({
+  @ApiProperty({
     enum: AssetStatus,
     description:
       'The status you saw; the change is refused if it has changed since',
   })
   @IsEnum(AssetStatus)
+  expectedStatus!: AssetStatus;
+
+  @ApiPropertyOptional({
+    description:
+      'Required when putting a device back into use: it has been checked and is safe to use on patients',
+  })
+  @IsBoolean()
   @IsOptional()
-  expectedStatus?: AssetStatus;
+  confirmSafe?: boolean;
 }

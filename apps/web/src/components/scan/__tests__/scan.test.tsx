@@ -149,6 +149,25 @@ describe("AssetBedsideCard", () => {
     });
   });
 
+  it("still offers to take a recalled but ACTIVE device out of use", async () => {
+    const user = userEvent.setup();
+    render(
+      wrap(
+        <AssetBedsideCard
+          asset={{
+            ...asset,
+            safeToUse: false,
+            alerts: [{ level: "stop", message: "Under a Class I recall. Check with biomedical engineering." }],
+          }}
+          scannedCode="VENT-7"
+          role="clinical_staff"
+        />,
+      ),
+    );
+    await user.click(screen.getByRole("button", { name: /report a problem/i }));
+    expect(screen.getByRole("checkbox", { name: /take it out of use now/i })).toBeChecked();
+  });
+
   it("does not offer logging to view-only users", () => {
     render(wrap(<AssetBedsideCard asset={asset} scannedCode="VENT-7" role="viewer" />));
     expect(screen.queryByRole("button", { name: /log that/i })).not.toBeInTheDocument();

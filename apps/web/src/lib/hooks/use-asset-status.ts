@@ -14,7 +14,7 @@ export function useStatusHistory(assetId: string) {
 export function useChangeAssetStatusMutation(assetId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (body: { status: string; reason: string; expectedStatus?: string }) =>
+    mutationFn: (body: { status: string; reason: string; expectedStatus: string; confirmSafe?: boolean }) =>
       changeAssetStatus(assetId, body),
     onSettled: () => {
       // Status drives the safety banner everywhere; refetch all views of it.

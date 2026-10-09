@@ -169,7 +169,7 @@ export function AssetList() {
           PM overdue only
         </label>
         <span className="text-gray-400" aria-live="polite">
-          {assets.data ? `${total} ${total === 1 ? "device" : "devices"}` : ""}
+          {assets.isPlaceholderData ? "Loading…" : assets.data ? `${total} ${total === 1 ? "device" : "devices"}` : ""}
         </span>
         {anyFilter && (
           <Button
@@ -214,7 +214,9 @@ export function AssetList() {
                   </td>
                 </tr>
               ))}
-            {assets.data?.items.map((a) => {
+            {/* After a failed refresh the old rows would still be in data; their
+                statuses may be out of date, so show the error instead. */}
+            {!assets.isError && assets.data?.items.map((a) => {
               const out = OUT_OF_USE.includes(a.assetStatus);
               const overdue = a.nextPmDueDate ? new Date(a.nextPmDueDate).getTime() < Date.now() : false;
               return (
@@ -243,7 +245,7 @@ export function AssetList() {
                 </tr>
               );
             })}
-            {assets.data && assets.data.items.length === 0 && (
+            {!assets.isError && assets.data && assets.data.items.length === 0 && (
               <tr>
                 <td colSpan={5} className="px-4 py-8 text-center text-gray-400">
                   {anyFilter ? "No devices match these filters." : "No devices yet. Add one, or import a spreadsheet."}

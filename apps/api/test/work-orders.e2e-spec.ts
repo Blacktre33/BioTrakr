@@ -98,8 +98,9 @@ function buildPrisma() {
       if (k === 'asset')
         return matches(assets.find((a) => a.id === row.assetId)!, v as Rec);
       if (scalar(v)) return v === null ? row[k] == null : row[k] === v;
-      const cond = v as { in?: unknown[]; lt?: Date };
+      const cond = v as { in?: unknown[]; lt?: Date; not?: unknown };
       if (cond.in) return cond.in.includes(row[k]);
+      if ('not' in cond) return row[k] !== cond.not;
       return true;
     });
   const user = (id: unknown) => {
@@ -389,11 +390,43 @@ describe('Problem reports and work orders (e2e)', () => {
       reason: 'Work order completed: Replaced pressure sensor; tested',
     });
 
-    // Closed is closed.
+    // Closed is closed: no reopening, and the record of what was done is kept.
     await update(WO1, {
       expectedStatus: 'COMPLETED',
       status: 'IN_PROGRESS',
     }).expect(400);
+    await update(WO1, {
+      expectedStatus: 'COMPLETED',
+      workPerformed: 'Rewritten history',
+    }).expect(400);
+    expect(prisma.orders[0].workPerformed).toBe(
+      'Replaced pressure sensor; tested',
+    );
+  });
+
+  it('does not release a device while another reported problem is still open', async () => {
+    await report({
+      assetId: VENT,
+      description: 'Alarm keeps sounding',
+      takeOutOfUse: true,
+    });
+    await report({
+      assetId: VENT,
+      description: 'Screen flickers too',
+      takeOutOfUse: true,
+    });
+    expect(prisma.orders[1].workOrderStatus).toBe('PENDING');
+
+    const res = await update(WO1, {
+      expectedStatus: 'PENDING',
+      status: 'COMPLETED',
+      workPerformed: 'Replaced pressure sensor; tested',
+      releaseDevice: true,
+      confirmSafe: true,
+    }).expect(400);
+    expect(res.body.message).toMatch(/Another work order is still open/);
+    expect(prisma.orders[0].workOrderStatus).toBe('PENDING');
+    expect(prisma.assets[0].assetStatus).toBe('QUARANTINED');
   });
 
   it('sets the PM dates when a preventive maintenance work order is completed', async () => {

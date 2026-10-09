@@ -52,6 +52,7 @@ describe("ChangeStatusDialog", () => {
       status: "ACTIVE",
       reason: "Replaced flow sensor; passed safety test",
       expectedStatus: "QUARANTINED",
+      confirmSafe: true,
     });
   });
 

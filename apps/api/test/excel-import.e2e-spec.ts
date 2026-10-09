@@ -345,6 +345,29 @@ describe('Excel import (e2e)', () => {
     });
   });
 
+  it('refuses files that would unpack to something huge, before parsing them', async () => {
+    const file = await workbook([row('PUMP-1')]);
+    // Claim, in the zip's directory, that the first entry unpacks to 70 MB.
+    const eocd = file.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+    const firstEntry = file.readUInt32LE(eocd + 16);
+    file.writeUInt32LE(70 * 1024 * 1024, firstEntry + 24);
+
+    const { body } = await upload('validate', file).expect(200);
+    expect(body.valid).toBe(false);
+    expect(body.errors[0].message).toMatch(/too large to import/);
+  });
+
+  it('stays fast on a sheet with a stray far-right cell and too many rows', async () => {
+    const rows = Array.from({ length: 2500 }, (_, i) => row(`T-${i}`));
+    const file = await workbook(rows, HEADERS, (sheet) => {
+      sheet.getCell('XFD5').value = 'x';
+    });
+    const started = Date.now();
+    const { body } = await upload('validate', file).expect(200);
+    expect(Date.now() - started).toBeLessThan(5000);
+    expect(body.errors[0].message).toMatch(/2500 rows; the limit is 2000/);
+  });
+
   it('names the columns an old template is missing', async () => {
     const old = [
       'Asset Tag*',

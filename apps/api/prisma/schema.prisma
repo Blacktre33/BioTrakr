@@ -1262,6 +1262,7 @@ model AuthSession {
   id            String    @id @default(uuid()) // the refresh token's jti
   userId        String
   familyId      String    // the sign-in this token descends from
+  signedInAt    DateTime  @default(now()) // when that sign-in started; caps its lifetime
   createdAt     DateTime  @default(now())
   expiresAt     DateTime
   revokedAt     DateTime?

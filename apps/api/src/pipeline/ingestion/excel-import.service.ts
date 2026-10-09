@@ -11,6 +11,7 @@ import {
   checkRow,
   isExampleRow,
   readSheet,
+  unpackedSizeProblem,
   type AssetDraft,
   type ColumnKey,
   type ImportIssue,
@@ -327,6 +328,12 @@ export class ExcelImportService {
       drafts: [],
     });
 
+    const tooBig = unpackedSizeProblem(fileBuffer);
+    if (tooBig) {
+      errors.push({ row: 0, field: 'File', message: tooBig });
+      return empty();
+    }
+
     let sheet: Awaited<ReturnType<typeof readSheet>>;
     try {
       sheet = await readSheet(fileBuffer);
@@ -358,6 +365,17 @@ export class ExcelImportService {
         });
       }
       return empty();
+    }
+    if (sheet.tooManyRows) {
+      errors.push({
+        row: 0,
+        field: 'File',
+        message: `This file has ${sheet.tooManyRows} rows; the limit is ${MAX_IMPORT_ROWS} per import. Split it into smaller files.`,
+      });
+      return {
+        ...empty(),
+        check: { ...empty().check, totalRows: sheet.tooManyRows },
+      };
     }
     if (sheet.ignored.length > 0) {
       warnings.push({

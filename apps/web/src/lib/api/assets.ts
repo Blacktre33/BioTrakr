@@ -246,7 +246,7 @@ export interface StatusChange {
 
 export async function changeAssetStatus(
   assetId: string,
-  body: { status: string; reason: string; expectedStatus?: string },
+  body: { status: string; reason: string; expectedStatus: string; confirmSafe?: boolean },
 ): Promise<{ changed: true; fromStatus: string; toStatus: string; changedAt: string }> {
   const { data } = await api.post(`/assets/${assetId}/status`, body);
   return data;
