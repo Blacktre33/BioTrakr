@@ -39,7 +39,7 @@ jobs:
           version: 8.12.0
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
       # The committed lockfile is out of sync with package.json (overrides);
       # switch to --frozen-lockfile once it is regenerated.
@@ -87,7 +87,7 @@ jobs:
           version: 8.12.0
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
       - run: pnpm install --no-frozen-lockfile --filter @biotrakr/api...
       - run: pnpm --filter @biotrakr/api exec prisma generate

@@ -1,0 +1,18 @@
+# Keep the build context small and free of local state.
+**/node_modules
+**/.next
+**/dist
+**/coverage
+**/*.tsbuildinfo
+**/.env
+**/.env.*
+!**/.env.example
+.git
+.turbo
+apps/web/src_old_backup
+apps/web/tests
+deploy/.env
+deploy/certs
+deploy/backups
+*.tar
+*.tar.gz

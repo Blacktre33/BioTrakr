@@ -39,6 +39,10 @@ biotrakr/
 - `docs/data-pipeline.md` outlines the ingestion contracts, Timescale-friendly storage schema, and configuration required to replace synthetic telemetry with live device feeds.
 - Asset QR scans are logged via the `/assets/:id/scans` API and surfaced in the dashboard for rapid reconciliation and audit trails. See [`docs/qr-scanning.md`](./docs/qr-scanning.md) for implementation notes.
 
+## 🏥 Installing at a hospital
+
+To run BioTrakr on a hospital server (Docker, HTTPS, nightly backups, first administrator), follow [docs/DEPLOY-ONPREM.md](./docs/DEPLOY-ONPREM.md). The rest of this README is for developers.
+
 ## 🚀 Quick Start
 
 ### Prerequisites
