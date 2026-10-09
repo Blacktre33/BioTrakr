@@ -386,6 +386,30 @@ export function AssetCreateForm({ open, onOpenChange, onAssetCreated }: AssetCre
             </div>
           </section>
 
+          <section className="space-y-4" aria-labelledby="pm-heading">
+            <h3 id="pm-heading" className="text-sm font-semibold uppercase tracking-wide text-gray-400">
+              Preventive maintenance
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Field
+                field="pmFrequencyDays"
+                label="PM every (days)"
+                error={errorFor("pmFrequencyDays")}
+                hint="e.g. 180 for twice a year. Leave empty if it needs no PM."
+              >
+                {textInput("pmFrequencyDays", "180", { type: "number", min: 1, max: 3650, step: 1, inputMode: "numeric" })}
+              </Field>
+              <Field
+                field="lastPmDate"
+                label="Last PM done on"
+                error={errorFor("lastPmDate")}
+                hint="From the service sticker. Empty: the first PM is due one interval from today."
+              >
+                {textInput("lastPmDate", "", { type: "date", max: new Date().toISOString().slice(0, 10) })}
+              </Field>
+            </div>
+          </section>
+
           <details className="border-t border-white/10 pt-4 group">
             <summary className="cursor-pointer text-sm font-semibold uppercase tracking-wide text-gray-400">
               Service contracts (AMC / CMC) — optional

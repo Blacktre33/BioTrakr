@@ -238,6 +238,24 @@ export class CreateAssetDto {
   @IsString()
   @IsOptional()
   notes?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Days between preventive maintenance visits; schedules the first PM',
+    example: 180,
+  })
+  @IsInt()
+  @Min(1)
+  @Max(3650)
+  @IsOptional()
+  pmFrequencyDays?: number;
+
+  @ApiPropertyOptional({
+    description: 'When the last PM was done (from the service sticker)',
+  })
+  @IsDateString()
+  @IsOptional()
+  lastPmDate?: string;
 }
 
 /**

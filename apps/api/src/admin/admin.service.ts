@@ -69,6 +69,12 @@ const USER_SELECT = {
   createdAt: true,
 } satisfies Prisma.UserSelect;
 
+/** Roles read back in one spelling ("ADMIN" from older data shows as "admin"). */
+const presentUser = <T extends { role: string }>(user: T): T => ({
+  ...user,
+  role: normalizeRole(user.role) ?? user.role,
+});
+
 /**
  * Setting up a hospital: facilities, departments, buildings, floors, rooms
  * and people. Everything is scoped to the administrator's organization;
@@ -326,7 +332,7 @@ export class AdminService {
   // ---------------------------------------------------------------- users
 
   async users(user: AuthUser) {
-    return this.prisma.user.findMany({
+    const rows = await this.prisma.user.findMany({
       where: { organizationId: user.organizationId },
       orderBy: [
         { isActive: 'desc' },
@@ -336,6 +342,7 @@ export class AdminService {
       select: USER_SELECT,
       take: 2000,
     });
+    return rows.map(presentUser);
   }
 
   /**
@@ -377,7 +384,7 @@ export class AdminService {
       }),
       'An account with this email already exists',
     );
-    return { user: created, temporaryPassword: password };
+    return { user: presentUser(created), temporaryPassword: password };
   }
 
   async updateUser(id: string, dto: UpdateUserDto, admin: AuthUser) {
@@ -457,7 +464,7 @@ export class AdminService {
       }
       return row;
     });
-    return updated;
+    return presentUser(updated);
   }
 
   /** New one-time password; signs the person out everywhere and unlocks the account. */

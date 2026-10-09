@@ -18,6 +18,8 @@ export interface AssetFormValues {
   purchaseDate: string;
   purchaseCost: string;
   usefulLifeYears: string;
+  pmFrequencyDays: string;
+  lastPmDate: string;
   amcContractNumber: string;
   amcStartDate: string;
   amcEndDate: string;
@@ -54,6 +56,8 @@ export const EMPTY_ASSET_FORM: AssetFormValues = {
   purchaseDate: "",
   purchaseCost: "",
   usefulLifeYears: "10",
+  pmFrequencyDays: "",
+  lastPmDate: "",
   amcContractNumber: "",
   amcStartDate: "",
   amcEndDate: "",
@@ -162,6 +166,16 @@ export function validateAssetForm(
     }
   }
 
+  // PM interval: optional, but without it the device never shows as due.
+  const pmDays = parseNumber(values.pmFrequencyDays);
+  if (pmDays !== null && (Number.isNaN(pmDays) || !Number.isInteger(pmDays) || pmDays < 1 || pmDays > 3650)) {
+    errors.pmFrequencyDays = "Whole number of days, 1 to 3650";
+  }
+  if (values.lastPmDate) {
+    if (!isValidDate(values.lastPmDate)) errors.lastPmDate = "Enter a valid date";
+    else if (isFutureDate(values.lastPmDate, today)) errors.lastPmDate = "Cannot be in the future";
+  }
+
   for (const field of ["amcYearsPaid", "cmcYearsPaid"] as const) {
     const n = parseNumber(values[field]);
     if (n !== null && (Number.isNaN(n) || !Number.isInteger(n) || n < 0)) {
@@ -228,6 +242,8 @@ export function toCreateAssetPayload(values: AssetFormValues): CreateAssetPayloa
     purchaseDate: values.purchaseDate,
     purchaseCost: num(values.purchaseCost) ?? 0,
     usefulLifeYears: num(values.usefulLifeYears) ?? 0,
+    pmFrequencyDays: num(values.pmFrequencyDays),
+    lastPmDate: text(values.lastPmDate),
     currentFacilityId: values.currentFacilityId,
     custodianDepartmentId: values.custodianDepartmentId,
     primaryCustodianId: values.primaryCustodianId,

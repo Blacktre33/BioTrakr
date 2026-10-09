@@ -4,6 +4,20 @@ import type { Prisma } from '@prisma/client';
 export const DEFAULT_PM_INTERVAL_DAYS = 90;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * When the next preventive maintenance falls due: the interval after the
+ * last PM, or after `from` (when the device was registered) if none is
+ * recorded. Without an interval there is no schedule.
+ */
+export function nextPmDue(
+  lastPmDate: Date | null | undefined,
+  intervalDays: number | null | undefined,
+  from: Date,
+): Date | null {
+  if (!intervalDays) return null;
+  return new Date((lastPmDate ?? from).getTime() + intervalDays * DAY_MS);
+}
+
 type AssetClient = { asset: Prisma.TransactionClient['asset'] };
 
 /**

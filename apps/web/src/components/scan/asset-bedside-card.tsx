@@ -20,11 +20,12 @@ const DETAIL_ROLES = ["admin", "engineer", "technician"];
 /** Roles that may record a scan (matches the API's SCAN_ROLES). */
 const SCAN_ROLES = ["admin", "engineer", "technician", "clinical_staff"];
 
-const humanize = (value: string) =>
+/** "CLASS_III" -> "Class III", "LIFE_SUPPORT" -> "Life Support". */
+export const humanize = (value: string) =>
   value
     .toLowerCase()
     .split("_")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .map((w) => (/^[ivx]+$/.test(w) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1)))
     .join(" ");
 
 function SafetyBanner({ asset }: { asset: AssetLookup }) {
@@ -229,7 +230,8 @@ export function AssetBedsideCard({ asset, scannedCode, role }: AssetBedsideCardP
               <li key={m.id} className="flex justify-between gap-3">
                 <span className="text-gray-200">
                   {humanize(m.workOrderType)}
-                  {m.description ? ` — ${m.description}` : ""}
+                  {/* First line only: the rest ("Where: …") is on the work order. */}
+                  {m.description ? ` — ${m.description.split("\n")[0]}` : ""}
                 </span>
                 <span className="shrink-0 text-gray-400">
                   {humanize(m.workOrderStatus)}, {formatDate(m.completedAt ?? m.scheduledDate, "MMM d")}

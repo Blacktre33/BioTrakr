@@ -126,6 +126,17 @@ describe("fieldErrorsFromApi", () => {
     expect(fields.assetTagNumber).toMatch(/already in use/);
   });
 
+  it("takes an optional PM interval and last PM date, and sends them", () => {
+    expect(validateAssetForm({ ...valid, pmFrequencyDays: "180", lastPmDate: "2026-04-01" }, null, TODAY)).toEqual({});
+    expect(validateAssetForm({ ...valid, pmFrequencyDays: "0.5" }, null, TODAY).pmFrequencyDays).toMatch(/Whole number/);
+    expect(validateAssetForm({ ...valid, lastPmDate: "2026-12-01" }, null, TODAY).lastPmDate).toBe("Cannot be in the future");
+    expect(toCreateAssetPayload({ ...valid, pmFrequencyDays: "180", lastPmDate: "2026-04-01" })).toMatchObject({
+      pmFrequencyDays: 180,
+      lastPmDate: "2026-04-01",
+    });
+    expect(toCreateAssetPayload(valid).pmFrequencyDays).toBeUndefined();
+  });
+
   it("maps validation messages to their fields", () => {
     const { fields, formError } = fieldErrorsFromApi({
       statusCode: 400,

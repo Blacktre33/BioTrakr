@@ -11,6 +11,7 @@ import { PrismaService } from '../database/prisma.service';
 import { CreateAssetScanDto } from './dto/create-asset-scan.dto';
 import { CreateAssetDto, UpdateAssetDto } from './dto/create-asset.dto';
 import type { AssetSort, ListAssetsQuery } from './dto/list-assets.query';
+import { nextPmDue } from './pm-dates';
 
 export const MAX_PAGE_SIZE = 100;
 
@@ -119,8 +120,16 @@ export class AssetsService {
         : `[CONTRACT_TRACKING]\n${trackingJson}`;
     }
 
+    const lastPmDate = baseDto.lastPmDate
+      ? new Date(baseDto.lastPmDate)
+      : undefined;
+    if (lastPmDate && lastPmDate.getTime() > Date.now() + 24 * 60 * 60 * 1000) {
+      throw new BadRequestException('The last PM date cannot be in the future');
+    }
     const data: Prisma.AssetUncheckedCreateInput = {
       ...baseDto,
+      lastPmDate,
+      nextPmDueDate: nextPmDue(lastPmDate, baseDto.pmFrequencyDays, new Date()),
       notes: finalNotes || undefined,
       // Ownership and audit fields always come from the caller's token.
       organizationId: user.organizationId,
@@ -248,11 +257,28 @@ export class AssetsService {
       );
     }
 
+    // A new PM interval reschedules the next PM from the last one.
+    let pmSchedule: { nextPmDueDate: Date | null } | undefined;
+    if (updateAssetDto.pmFrequencyDays !== undefined) {
+      const current = await this.prisma.asset.findFirst({
+        where: { id, organizationId: user.organizationId, deletedAt: null },
+        select: { lastPmDate: true, createdAt: true },
+      });
+      if (!current) throw new NotFoundException(`Asset ${id} not found`);
+      pmSchedule = {
+        nextPmDueDate: nextPmDue(
+          current.lastPmDate,
+          updateAssetDto.pmFrequencyDays,
+          current.createdAt,
+        ),
+      };
+    }
+
     // One conditional write: cannot land on another organization's asset or
     // on one that was deleted in the meantime.
     const { count } = await this.prisma.asset.updateMany({
       where: { id, organizationId: user.organizationId, deletedAt: null },
-      data: { ...updateAssetDto, updatedById: user.userId },
+      data: { ...updateAssetDto, ...pmSchedule, updatedById: user.userId },
     });
     if (count === 0) {
       throw new NotFoundException(`Asset ${id} not found`);

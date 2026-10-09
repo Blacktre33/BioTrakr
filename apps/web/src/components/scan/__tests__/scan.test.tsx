@@ -226,3 +226,11 @@ describe("ScanDevice", () => {
     expect(screen.getByRole("heading", { name: "ICU ventilator" })).toBeInTheDocument();
   });
 });
+
+describe("humanize", () => {
+  it("keeps Roman numerals in risk and recall classes", async () => {
+    const { humanize } = await import("../asset-bedside-card");
+    expect(humanize("CLASS_III")).toBe("Class III");
+    expect(humanize("LIFE_SUPPORT")).toBe("Life Support");
+  });
+});
