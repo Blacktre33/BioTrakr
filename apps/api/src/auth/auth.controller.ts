@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { IsEmail, IsString, MaxLength, MinLength } from 'class-validator';
 
@@ -36,16 +36,41 @@ export class AuthController {
   @ApiOperation({
     summary: 'Exchange email and password for access and refresh tokens',
   })
-  login(@Body() body: LoginDto): Promise<LoginResult> {
-    return this.authService.login(body.email, body.password);
+  login(
+    @Body() body: LoginDto,
+    @Headers('user-agent') userAgent?: string,
+  ): Promise<LoginResult> {
+    return this.authService.login(body.email, body.password, userAgent);
   }
 
   @Public()
   @Post('refresh')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Exchange a refresh token for a new token pair' })
-  refresh(@Body() body: RefreshDto): Promise<LoginResult> {
-    return this.authService.refresh(body.refreshToken);
+  @ApiOperation({
+    summary:
+      'Exchange a refresh token for a new pair. Each refresh token works once; reusing an old one ends the sign-in.',
+  })
+  refresh(
+    @Body() body: RefreshDto,
+    @Headers('user-agent') userAgent?: string,
+  ): Promise<LoginResult> {
+    return this.authService.refresh(body.refreshToken, userAgent);
+  }
+
+  @Public()
+  @Post('logout')
+  @HttpCode(204)
+  @ApiOperation({ summary: 'End the sign-in this refresh token belongs to' })
+  async logout(@Body() body: RefreshDto): Promise<void> {
+    await this.authService.logout(body.refreshToken);
+  }
+
+  @Post('logout-all')
+  @Roles(...ALL_ROLES)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Sign out on every device' })
+  async logoutAll(@CurrentUser() user: AuthUser): Promise<{ ended: number }> {
+    return { ended: await this.authService.logoutEverywhere(user.userId) };
   }
 
   @Get('me')

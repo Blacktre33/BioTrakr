@@ -54,3 +54,13 @@ export function redirectToLogin(): void {
   const next = encodeURIComponent(window.location.pathname + window.location.search);
   window.location.assign(`/login?next=${next}`);
 }
+
+/** Readable role names for the people using the app. */
+export const ROLE_LABEL: Record<string, string> = {
+  admin: "Administrator",
+  engineer: "Biomedical engineer",
+  technician: "Biomedical technician",
+  clinical_staff: "Clinical staff",
+  viewer: "Viewer",
+  integration: "Integration",
+};

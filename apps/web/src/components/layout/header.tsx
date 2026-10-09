@@ -1,7 +1,9 @@
 'use client';
 
 import type { Route } from 'next';
-import { useState } from 'react';
+import { signOut } from '@/lib/api/client';
+import { getSession } from '@/lib/auth/session';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -32,6 +34,11 @@ export function Header({ title, subtitle, actions }: HeaderProps) {
   const router = useRouter();
   const [showNotifications, setShowNotifications] = useState(false);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [myName, setMyName] = useState('');
+  useEffect(() => {
+    const u = getSession()?.user;
+    setMyName(u ? `${u.firstName} ${u.lastName}`.trim() : '');
+  }, []);
   const { alerts, acknowledgeAlert, dismissAlert } = useAlertStore();
 
   // Use mock alerts if store is empty
@@ -257,8 +264,14 @@ export function Header({ title, subtitle, actions }: HeaderProps) {
           </div>
 
           {/* User Avatar */}
-          <button className="flex items-center gap-2 p-1.5 rounded-xl hover:bg-surface-200/50 transition-colors">
-            <Avatar name="Dr. Sarah Chen" size="sm" />
+          <button
+            type="button"
+            onClick={() => void signOut()}
+            aria-label={myName ? `Signed in as ${myName}. Sign out` : 'Sign out'}
+            title="Sign out"
+            className="flex items-center gap-2 p-1.5 rounded-xl hover:bg-surface-200/50 transition-colors"
+          >
+            <Avatar name={myName || '?'} size="sm" />
           </button>
         </div>
       </div>

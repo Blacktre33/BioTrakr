@@ -363,6 +363,7 @@ model User {
   mediaUploaded             MediaAttachment[]
   assetScans                AssetScanLog[] @relation("AssetScanLogUser")
   assetStatusChanges        AssetStatusChange[] @relation("AssetStatusChangedBy")
+  authSessions              AuthSession[]
 
   @@index([organizationId])
   @@index([email])
@@ -1246,4 +1247,30 @@ model AssetStatusChange {
 
   @@index([assetId, changedAt(sort: Desc)])
   @@map("asset_status_changes")
+}
+
+// =====================================================
+// SIGN-IN SESSIONS
+// =====================================================
+
+/// One refresh token. Each refresh replaces it with a new one in the same
+/// family; presenting a replaced token again means it was copied, and the
+/// whole family (that sign-in) is revoked.
+model AuthSession {
+  id            String    @id @default(uuid()) // the refresh token's jti
+  userId        String
+  familyId      String    // the sign-in this token descends from
+  createdAt     DateTime  @default(now())
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  revokedReason String?   // rotated | logout | logout_all | reuse_detected
+  replacedById  String?
+  userAgent     String?
+
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+  @@index([expiresAt])
+  @@map("auth_sessions")
 }

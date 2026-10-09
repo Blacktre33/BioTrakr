@@ -3,8 +3,10 @@ import { randomUUID } from 'crypto';
 import type { User } from '@prisma/client';
 
 import type { AuthenticatedUser, TokenPair } from '@biotrakr/types';
+import { loadSecurityConfig } from '@biotrakr/config';
 import {
-  createTokenPair,
+  createAccessToken,
+  createRefreshToken,
   hashPassword,
   verifyPassword,
   verifyRefreshToken,
@@ -28,6 +30,14 @@ export interface LoginResult extends TokenPair {
 }
 
 const INVALID_CREDENTIALS = 'Invalid email or password';
+const INVALID_REFRESH = 'Invalid refresh token';
+
+/**
+ * Two requests (e.g. a duplicated browser tab) may refresh with the same
+ * token at once. Within this window the late one is refused, but the sign-in
+ * is not treated as stolen.
+ */
+export const REUSE_GRACE_MS = 30_000;
 
 @Injectable()
 export class AuthService {
@@ -36,7 +46,11 @@ export class AuthService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async login(email: string, password: string): Promise<LoginResult> {
+  async login(
+    email: string,
+    password: string,
+    userAgent?: string,
+  ): Promise<LoginResult> {
     const user = await this.prisma.user.findFirst({
       where: { email: { equals: email.trim(), mode: 'insensitive' } },
     });
@@ -71,26 +85,116 @@ export class AuthService {
       },
     });
 
-    return { ...this.issueTokens(user), user: this.publicProfile(user) };
+    // Housekeeping: drop this user's expired sessions.
+    await this.prisma.authSession.deleteMany({
+      where: { userId: user.id, expiresAt: { lt: new Date() } },
+    });
+    const familyId = randomUUID();
+    return {
+      ...(await this.issueTokens(user, familyId, familyId, userAgent)),
+      user: this.publicProfile(user),
+    };
   }
 
-  async refresh(refreshToken: string): Promise<LoginResult> {
-    let userId: string;
+  /**
+   * Exchanges a refresh token for a new pair. Each refresh token works once:
+   * it is replaced by a new one, and presenting a replaced token again
+   * (someone copied it) ends that whole sign-in.
+   */
+  async refresh(
+    refreshToken: string,
+    userAgent?: string,
+  ): Promise<LoginResult> {
+    let claims: { sub: string; jti?: string };
     try {
-      userId = verifyRefreshToken(refreshToken).sub;
+      claims = verifyRefreshToken(refreshToken) as {
+        sub: string;
+        jti?: string;
+      };
     } catch {
-      throw new UnauthorizedException('Invalid refresh token');
+      throw new UnauthorizedException(INVALID_REFRESH);
+    }
+    // Tokens issued before sessions existed have no id: sign in again.
+    if (!claims.jti) throw new UnauthorizedException(INVALID_REFRESH);
+
+    const session = await this.prisma.authSession.findUnique({
+      where: { id: claims.jti },
+    });
+    if (
+      !session ||
+      session.userId !== claims.sub ||
+      session.expiresAt < new Date()
+    ) {
+      throw new UnauthorizedException(INVALID_REFRESH);
+    }
+    if (session.revokedAt) {
+      const recentRotation =
+        session.revokedReason === 'rotated' &&
+        Date.now() - session.revokedAt.getTime() < REUSE_GRACE_MS;
+      if (session.revokedReason === 'rotated' && !recentRotation) {
+        await this.revokeFamily(session.familyId, 'reuse_detected');
+      }
+      throw new UnauthorizedException(INVALID_REFRESH);
     }
 
     // A password lockout guards against guessing; it deliberately does not end
     // sessions that are already signed in (otherwise anyone could log a user
     // out by mistyping their password). Deactivated accounts are refused.
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: claims.sub },
+    });
     if (!user || !user.isActive || !normalizeRole(user.role)) {
-      throw new UnauthorizedException('Invalid refresh token');
+      await this.revokeFamily(session.familyId, 'logout');
+      throw new UnauthorizedException(INVALID_REFRESH);
     }
 
-    return { ...this.issueTokens(user), user: this.publicProfile(user) };
+    // Claim the old token first, conditionally: of two simultaneous
+    // refreshes with the same token only one gets a new pair.
+    const nextId = randomUUID();
+    const { count } = await this.prisma.authSession.updateMany({
+      where: { id: session.id, revokedAt: null },
+      data: {
+        revokedAt: new Date(),
+        revokedReason: 'rotated',
+        replacedById: nextId,
+      },
+    });
+    if (count === 0) throw new UnauthorizedException(INVALID_REFRESH);
+
+    return {
+      ...(await this.issueTokens(user, nextId, session.familyId, userAgent)),
+      user: this.publicProfile(user),
+    };
+  }
+
+  /** Ends the sign-in this refresh token belongs to. Unknown tokens are ignored. */
+  async logout(refreshToken: string): Promise<void> {
+    try {
+      const { jti } = verifyRefreshToken(refreshToken);
+      if (!jti) return;
+      const session = await this.prisma.authSession.findUnique({
+        where: { id: jti },
+      });
+      if (session) await this.revokeFamily(session.familyId, 'logout');
+    } catch {
+      // Expired or invalid: nothing to end.
+    }
+  }
+
+  /** Signs the user out on every device (e.g. after a lost phone). */
+  async logoutEverywhere(userId: string): Promise<number> {
+    const { count } = await this.prisma.authSession.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date(), revokedReason: 'logout_all' },
+    });
+    return count;
+  }
+
+  private async revokeFamily(familyId: string, reason: string): Promise<void> {
+    await this.prisma.authSession.updateMany({
+      where: { familyId, revokedAt: null },
+      data: { revokedAt: new Date(), revokedReason: reason },
+    });
   }
 
   /**
@@ -114,7 +218,12 @@ export class AuthService {
     }
   }
 
-  private issueTokens(user: User): TokenPair {
+  private async issueTokens(
+    user: User,
+    sessionId: string,
+    familyId: string,
+    userAgent?: string,
+  ): Promise<TokenPair> {
     const claims: AuthenticatedUser = {
       id: user.id,
       organizationId: user.organizationId,
@@ -125,7 +234,23 @@ export class AuthService {
       lastName: user.lastName,
       sessionIssuedAt: Math.floor(Date.now() / 1000),
     };
-    return createTokenPair(claims);
+    const security = loadSecurityConfig();
+    await this.prisma.authSession.create({
+      data: {
+        id: sessionId,
+        familyId,
+        userId: user.id,
+        expiresAt: new Date(
+          Date.now() + security.refreshTokenTtlSeconds * 1000,
+        ),
+        userAgent: userAgent?.slice(0, 255) ?? null,
+      },
+    });
+    return {
+      accessToken: createAccessToken(claims),
+      refreshToken: createRefreshToken(claims, { jwtid: sessionId }),
+      expiresInSeconds: security.accessTokenTtlSeconds,
+    };
   }
 
   private publicProfile(user: User): LoginResult['user'] {

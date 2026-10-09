@@ -12,7 +12,7 @@
     "build": "tsc -p tsconfig.json",
     "clean": "rm -rf dist",
     "lint": "eslint \"src/**/*.ts\"",
-    "test": "pnpm --filter @biotrakr/types build && pnpm --filter @biotrakr/config build && pnpm run build && node --test tests"
+    "test": "pnpm --filter @biotrakr/types build && pnpm --filter @biotrakr/config build && pnpm run build && node --test tests/*.test.cjs"
   },
   "dependencies": {
     "@biotrakr/config": "workspace:*",

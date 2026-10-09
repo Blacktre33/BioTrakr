@@ -12,6 +12,7 @@ declare module "jsonwebtoken" {
     readonly expiresIn?: string | number;
     readonly issuer?: string;
     readonly audience?: string | string[];
+    readonly jwtid?: string;
   }
 
   export interface VerifyOptions {

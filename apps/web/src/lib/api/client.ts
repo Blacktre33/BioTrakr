@@ -103,3 +103,21 @@ api.interceptors.response.use(
     );
   },
 );
+
+/**
+ * Ends this sign-in on the server (so the refresh token cannot be used
+ * again), then forgets it here. Best effort: signing out locally always
+ * happens, even offline.
+ */
+export async function signOut(): Promise<void> {
+  const session = getSession();
+  if (session) {
+    try {
+      await axios.post(`${API_BASE_URL}/auth/logout`, { refreshToken: session.refreshToken }, { timeout: 5_000 });
+    } catch {
+      // Offline or already ended; the token expires on its own.
+    }
+  }
+  clearSession();
+  window.location.assign("/login");
+}

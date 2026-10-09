@@ -1,6 +1,7 @@
 'use client';
 
 import type { Route } from 'next';
+import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -23,6 +24,8 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { signOut } from '@/lib/api/client';
+import { getSession, ROLE_LABEL, type SessionUser } from '@/lib/auth/session';
 import { useSidebarStore, useAlertStore } from '@/stores';
 import { Avatar, Badge } from '@/components/ui';
 
@@ -96,6 +99,10 @@ export function Sidebar() {
   const pathname = usePathname();
   const { isCollapsed, toggleCollapsed } = useSidebarStore();
   const { unreadCount } = useAlertStore();
+  const [me, setMe] = useState<SessionUser | null>(null);
+  // Read after mount: the session lives in sessionStorage (browser only).
+  useEffect(() => setMe(getSession()?.user ?? null), []);
+  const myName = me ? `${me.firstName} ${me.lastName}`.trim() : '';
 
   return (
     <motion.aside
@@ -287,7 +294,7 @@ export function Sidebar() {
       {/* User Section */}
       <div className="border-t border-white/5 p-4">
         <div className="flex items-center gap-3">
-          <Avatar name="Dr. Sarah Chen" size="md" />
+          <Avatar name={myName || '?'} size="md" />
           <AnimatePresence>
             {!isCollapsed && (
               <motion.div
@@ -296,14 +303,18 @@ export function Sidebar() {
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -10 }}
               >
-                <p className="text-sm font-medium text-gray-200 truncate">Dr. Sarah Chen</p>
-                <p className="text-xs text-gray-500 truncate">Admin • ICU</p>
+                <p className="text-sm font-medium text-gray-200 truncate">{myName}</p>
+                <p className="text-xs text-gray-500 truncate">{me ? ROLE_LABEL[me.role] ?? me.role : ''}</p>
               </motion.div>
             )}
           </AnimatePresence>
           <AnimatePresence>
             {!isCollapsed && (
               <motion.button
+                type="button"
+                onClick={() => void signOut()}
+                aria-label="Sign out"
+                title="Sign out"
                 className="p-2 text-gray-500 hover:text-gray-300 transition-colors"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}

@@ -96,10 +96,33 @@ function buildPrisma() {
   }
 
   const statusChanges: Array<Record<string, unknown>> = [];
+  const sessions: Array<Record<string, unknown>> = [];
   const mock = {
     users,
     assets,
     statusChanges,
+    sessions,
+    authSession: {
+      create: jest.fn(async ({ data }) => {
+        const row = {
+          createdAt: new Date(),
+          revokedAt: null,
+          revokedReason: null,
+          ...data,
+        };
+        sessions.push(row);
+        return row;
+      }),
+      findUnique: jest.fn(
+        async ({ where }) => sessions.find((r) => r.id === where.id) ?? null,
+      ),
+      updateMany: jest.fn(async ({ where, data }) => {
+        const rows = sessions.filter((r) => matchesWhere(r, where));
+        rows.forEach((r) => Object.assign(r, data));
+        return { count: rows.length };
+      }),
+      deleteMany: jest.fn(async () => ({ count: 0 })),
+    },
     assetStatusChange: {
       create: jest.fn(async ({ data }) => {
         const row = {
@@ -280,7 +303,9 @@ describe('Authentication and authorization (e2e)', () => {
         .get('/api/assets')
         .set(bearer('viewer'))
         .expect(200);
-      expect(res.body.items.map((a: { id: string }) => a.id)).toEqual([ASSET_A]);
+      expect(res.body.items.map((a: { id: string }) => a.id)).toEqual([
+        ASSET_A,
+      ]);
       expect(res.body.total).toBe(1);
       expect(prisma.asset.findMany.mock.calls[0][0].where).toEqual({
         organizationId: ORG_A,
@@ -810,15 +835,86 @@ describe('Authentication and authorization (e2e)', () => {
         role: 'admin',
       });
 
-      await request(app.getHttpServer())
+      const refreshed = await request(app.getHttpServer())
         .post('/api/auth/refresh')
         .send({ refreshToken: res.body.refreshToken })
         .expect(200);
+      expect(refreshed.body.refreshToken).not.toBe(res.body.refreshToken);
       // A refresh token is not accepted as an access token.
       await request(app.getHttpServer())
         .get('/api/auth/me')
         .set('Authorization', `Bearer ${res.body.refreshToken}`)
         .expect(401);
+    });
+
+    describe('refresh tokens', () => {
+      const login = async () =>
+        (
+          await request(app.getHttpServer())
+            .post('/api/auth/login')
+            .send({ email: 'admin@a.test', password: 'CorrectHorse1!' })
+            .expect(200)
+        ).body as { refreshToken: string; accessToken: string };
+      const refresh = (refreshToken: string) =>
+        request(app.getHttpServer())
+          .post('/api/auth/refresh')
+          .send({ refreshToken });
+
+      it('works once; replaying an old one later ends that sign-in', async () => {
+        const first = await login();
+        const second = (await refresh(first.refreshToken).expect(200)).body;
+
+        // Replayed after the grace window: treated as stolen.
+        prisma.sessions[0].revokedAt = new Date(Date.now() - 60_000);
+        await refresh(first.refreshToken).expect(401);
+        // ...so the legitimate newer token stops working too.
+        await refresh(second.refreshToken).expect(401);
+        expect(prisma.sessions.map((r) => r.revokedReason)).toEqual([
+          'rotated',
+          'reuse_detected',
+        ]);
+      });
+
+      it('refuses a near-simultaneous second refresh without ending the sign-in', async () => {
+        const first = await login();
+        const second = (await refresh(first.refreshToken).expect(200)).body;
+        await refresh(first.refreshToken).expect(401); // within the grace window
+        await refresh(second.refreshToken).expect(200);
+      });
+
+      it('logs out this sign-in, and everywhere', async () => {
+        const a = await login();
+        const b = await login();
+        await request(app.getHttpServer())
+          .post('/api/auth/logout')
+          .send({ refreshToken: a.refreshToken })
+          .expect(204);
+        await refresh(a.refreshToken).expect(401);
+        await refresh(b.refreshToken).expect(200);
+
+        const c = await login();
+        const res = await request(app.getHttpServer())
+          .post('/api/auth/logout-all')
+          .set('Authorization', `Bearer ${c.accessToken}`)
+          .expect(201);
+        expect(res.body.ended).toBeGreaterThanOrEqual(2);
+        await refresh(c.refreshToken).expect(401);
+      });
+
+      it('rejects refresh tokens that have no session (issued before sessions existed)', async () => {
+        const { createRefreshToken } = await import('@biotrakr/utils');
+        const legacy = createRefreshToken({
+          id: 'u-admin',
+          organizationId: ORG_A,
+          role: 'admin',
+          permissions: [],
+          email: 'admin@a.test',
+          firstName: 'Ada',
+          lastName: 'Admin',
+          sessionIssuedAt: Math.floor(Date.now() / 1000),
+        });
+        await refresh(legacy).expect(401);
+      });
     });
 
     it('gives the same answer for an unknown email and a wrong password', async () => {
