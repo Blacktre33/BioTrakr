@@ -1,0 +1,28 @@
+name: Deployment
+
+on:
+  pull_request:
+    paths:
+      - 'deploy/**'
+      - 'apps/**'
+      - 'packages/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/deploy-smoke.yml'
+      - '.github/scripts/deploy-smoke.sh'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    name: Build images and run the stack
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build, start, and check end to end
+        run: .github/scripts/deploy-smoke.sh
+      - name: Stop
+        if: always()
+        working-directory: deploy
+        run: docker compose down -v || true

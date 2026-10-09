@@ -1,0 +1,111 @@
+# BioTrakr on one hospital server. See docs/DEPLOY-ONPREM.md.
+#
+#   cp .env.example .env    # then fill it in
+#   docker compose up -d --build
+#
+# Only the HTTPS proxy is reachable from the network; the database and the
+# app containers talk on a private network.
+
+name: biotrakr
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  db:
+    image: timescale/timescaledb:2.17.2-pg15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: biotrakr
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in deploy/.env}
+      POSTGRES_DB: biotrakr
+      TIMESCALEDB_TELEMETRY: "off"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U biotrakr -d biotrakr"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging: *logging
+
+  api:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    image: biotrakr-api:${BIOTRAKR_VERSION:-local}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://biotrakr:${DB_PASSWORD}@db:5432/biotrakr
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in deploy/.env (at least 32 characters)}
+      API_PORT: "3001"
+      CLIENT_URL: https://${BIOTRAKR_HOST:?Set BIOTRAKR_HOST in deploy/.env}
+      ALLOWED_ORIGINS: https://${BIOTRAKR_HOST}
+      APP_URL: https://${BIOTRAKR_HOST}
+      # One proxy (Caddy) in front: rate limits see the real client address.
+      TRUST_PROXY: "1"
+      NOTIFY_WEBHOOK_URL: ${NOTIFY_WEBHOOK_URL:-}
+      NOTIFY_WEBHOOK_SECRET: ${NOTIFY_WEBHOOK_SECRET:-}
+      NOTIFY_ESCALATE_MINUTES: ${NOTIFY_ESCALATE_MINUTES:-15,60}
+    logging: *logging
+
+  web:
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+    image: biotrakr-web:${BIOTRAKR_VERSION:-local}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    logging: *logging
+
+  proxy:
+    image: caddy:2.8.4
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      BIOTRAKR_HOST: ${BIOTRAKR_HOST}
+      CADDY_TLS: ${CADDY_TLS:-internal}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./certs:/certs:ro
+      - caddy-data:/data
+    logging: *logging
+
+  backup:
+    image: timescale/timescaledb:2.17.2-pg15
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGUSER: biotrakr
+      PGPASSWORD: ${DB_PASSWORD}
+      PGDATABASE: biotrakr
+      BACKUP_HOUR: ${BACKUP_HOUR:-2}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+      BACKUP_PING_URL: ${BACKUP_PING_URL:-}
+      TZ: ${TZ:-Asia/Kolkata}
+    volumes:
+      - ./scripts:/scripts:ro
+      - ${BACKUP_DIR:-./backups}:/backups
+    entrypoint: ["/bin/sh", "/scripts/backup-loop.sh"]
+    logging: *logging
+
+volumes:
+  db-data:
+  caddy-data:

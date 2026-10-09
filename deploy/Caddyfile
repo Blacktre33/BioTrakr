@@ -1,0 +1,41 @@
+# BioTrakr behind HTTPS on the hospital network.
+#
+# The web app and the API share one address: /api/* goes to the API,
+# everything else to the web app. HTTPS is required, not optional: phones
+# only allow the camera (QR scanning) on secure pages.
+#
+# Certificates (set CADDY_TLS in .env):
+#   internal                              Caddy's own certificate authority
+#                                         (install its root on staff devices)
+#   /certs/biotrakr.crt /certs/biotrakr.key   a certificate from hospital IT
+{
+	admin off
+}
+
+{$BIOTRAKR_HOST} {
+	tls {$CADDY_TLS:internal}
+
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(self), microphone=(), geolocation=()"
+		-Server
+	}
+
+	handle /api/* {
+		reverse_proxy {$API_UPSTREAM:api:3001}
+	}
+
+	handle {
+		reverse_proxy {$WEB_UPSTREAM:web:3000}
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}
