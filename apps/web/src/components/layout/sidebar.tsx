@@ -26,7 +26,8 @@ import {
 import { cn } from '@/lib/utils';
 import { signOut } from '@/lib/api/client';
 import { getSession, ROLE_LABEL, type SessionUser } from '@/lib/auth/session';
-import { useSidebarStore, useAlertStore } from '@/stores';
+import { useSidebarStore } from '@/stores';
+import { useNotifications } from '@/lib/hooks/use-notifications';
 import { Avatar, Badge } from '@/components/ui';
 
 interface NavItem {
@@ -98,7 +99,8 @@ const bottomNavItems = [
 export function Sidebar() {
   const pathname = usePathname();
   const { isCollapsed, toggleCollapsed } = useSidebarStore();
-  const { unreadCount } = useAlertStore();
+  // Same query as the header bell, so one request serves both.
+  const unreadCount = useNotifications().data?.unread ?? 0;
   const [me, setMe] = useState<SessionUser | null>(null);
   // Read after mount: the session lives in sessionStorage (browser only).
   useEffect(() => setMe(getSession()?.user ?? null), []);
@@ -247,7 +249,7 @@ export function Sidebar() {
                   exit={{ opacity: 0, x: -10 }}
                   transition={{ duration: 0.2 }}
                 >
-                  <p className="text-sm font-medium">Alerts</p>
+                  <p className="text-sm font-medium">Notifications</p>
                   <p className="text-xs text-gray-500">{unreadCount} unread</p>
                 </motion.div>
               )}
