@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import type { CriticalityLevel, Prisma } from '@prisma/client';
 
@@ -53,6 +54,12 @@ export interface NotifyInput {
   dedupeKey?: string;
   /** Also send outside the app, when a webhook is configured. */
   outbound?: boolean;
+  /**
+   * Text for the outside message. Free text typed by ward staff (which may
+   * name a patient) is not sent off-site: by default the message carries
+   * only the title, device and link.
+   */
+  outboundBody?: string;
 }
 
 const clip = (text: string | undefined, max: number) =>
@@ -98,26 +105,28 @@ export async function notify(tx: Tx, input: NotifyInput): Promise<number> {
     },
     take: 500,
   });
-  if (recipients.length === 0) return 0;
-
   const title = clip(input.title, 200)!;
   const body = clip(input.body, 1000);
-  await tx.notification.createMany({
-    data: recipients.map((r) => ({
-      organizationId: input.organizationId,
-      userId: r.id,
-      kind: input.kind,
-      severity: input.severity,
-      title,
-      body: body ?? null,
-      link: input.link ?? null,
-      assetId: input.assetId ?? null,
-      workOrderId: input.workOrderId ?? null,
-      dedupeKey: input.dedupeKey ?? null,
-    })),
-    skipDuplicates: true,
-  });
+  if (recipients.length > 0) {
+    await tx.notification.createMany({
+      data: recipients.map((r) => ({
+        organizationId: input.organizationId,
+        userId: r.id,
+        kind: input.kind,
+        severity: input.severity,
+        title,
+        body: body ?? null,
+        link: input.link ?? null,
+        assetId: input.assetId ?? null,
+        workOrderId: input.workOrderId ?? null,
+        dedupeKey: input.dedupeKey ?? null,
+      })),
+      skipDuplicates: true,
+    });
+  }
 
+  // Outside messages go out even when nobody in the app matched: the
+  // gateway may page an on-call phone that has no BioTrakr account.
   const config = notificationConfig();
   if (input.outbound && config.webhookUrl) {
     await tx.outboundMessage.createMany({
@@ -133,7 +142,7 @@ export async function notify(tx: Tx, input: NotifyInput): Promise<number> {
             event: input.kind,
             severity: input.severity,
             title,
-            body: body ?? null,
+            body: clip(input.outboundBody, 1000) ?? null,
             url:
               config.appUrl && input.link
                 ? `${config.appUrl}${input.link}`
@@ -182,4 +191,28 @@ export function deviceLabel(device: {
   assetTagNumber: string;
 }): string {
   return `${device.equipmentName} (${device.assetTagNumber})`;
+}
+
+const logger = new Logger('Notifications');
+
+/**
+ * Runs `work` (recording notices) so that its failure never undoes the
+ * event itself (a quarantine, a problem report): it runs inside a savepoint
+ * that is rolled back alone if anything in it fails.
+ */
+export async function bestEffort<T>(
+  tx: Tx,
+  what: string,
+  work: () => Promise<T>,
+): Promise<T | undefined> {
+  await tx.$executeRawUnsafe('SAVEPOINT notices');
+  try {
+    const result = await work();
+    await tx.$executeRawUnsafe('RELEASE SAVEPOINT notices');
+    return result;
+  } catch (error) {
+    await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT notices');
+    logger.error(`Could not record ${what}: ${(error as Error).message}`);
+    return undefined;
+  }
 }

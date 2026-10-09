@@ -59,8 +59,10 @@ export function useDesktopAlerts(
     for (const notice of fresh) {
       if (notice.readAt || notice.severity !== "critical") continue;
       try {
+        // No details on the pop-up: shared ward computers show these on the
+        // lock screen. The title names the device; the rest is in BioTrakr.
         const popup = new Notification(notice.title, {
-          body: notice.body ?? undefined,
+          body: "Open BioTrakr for details",
           tag: notice.id,
           requireInteraction: true,
         });

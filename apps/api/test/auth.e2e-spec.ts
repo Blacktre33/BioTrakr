@@ -136,6 +136,7 @@ function buildPrisma() {
         return row;
       }),
     },
+    $executeRawUnsafe: jest.fn(async () => 0),
     // Interactive transactions run against the same in-memory rows.
     $transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
       fn(mock),

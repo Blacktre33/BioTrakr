@@ -136,7 +136,11 @@ Urgent notices can also go to your own gateway (SMS, WhatsApp, pager) as a signe
 | `NOTIFY_ESCALATE_MINUTES` | Escalation steps, default `15,60`. |
 | `NOTIFY_JOBS` | `off` stops escalation and delivery in this instance (they run every 30 s). |
 
-Each POST carries `X-BioTrakr-Timestamp` and `X-BioTrakr-Signature: sha256=<hex>`, the HMAC-SHA256 of `<timestamp>.<body>` with the secret. Check it, and reject timestamps older than a few minutes. The body names the recipients with their phone numbers and emails so the gateway can reach them; keep the gateway inside the hospital network. Failed deliveries are retried with backoff (8 attempts over about 2 hours), then logged as given up. `X-BioTrakr-Delivery` is a stable id for de-duplicating retries.
+Each POST carries `X-BioTrakr-Timestamp` and `X-BioTrakr-Signature: sha256=<hex>`, the HMAC-SHA256 of `<timestamp>.<body>` with the secret. Check it, reject timestamps older than a few minutes, and de-duplicate on the body's `id` (it is signed; retries reuse it). The body has the title, severity, device, a link and the recipients' names, roles, phones and emails so the gateway can reach them; what ward staff typed is not included (it may name a patient). Keep the gateway inside the hospital network.
+
+Delivery: a timeout, network error, 408, 429 or 5xx is retried with backoff (8 attempts over about an hour); any other 3xx/4xx is final (redirects are not followed). Either way the outcome is logged. Sent and failed messages are deleted after 7 days, in-app notices after 90.
+
+Escalation and delivery run inside the API process every 30 s, so the API must run as a long-lived service (not serverless). Faults reported by devices take the device out of use and notify biomed once; they are not escalated, because no work order exists for them yet.
 
 ### Service Entry Points
 

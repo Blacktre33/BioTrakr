@@ -80,14 +80,17 @@ describe("NotificationBell", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("marks everything read at once, and closes on Escape", async () => {
+  it("marks only what is on screen read, says when more are unread, and closes on Escape", async () => {
     const user = userEvent.setup();
-    list = { unread: 2, items: [notice({}), notice({ id: "n2" })] };
+    // 3 unread on the server, 2 shown: the third arrived after this list.
+    list = { unread: 3, items: [notice({}), notice({ id: "n2" })] };
     renderBell();
-    await user.click(await screen.findByRole("button", { name: "Notifications, 2 unread" }));
+    await user.click(await screen.findByRole("button", { name: "Notifications, 3 unread" }));
+    expect(screen.getByRole("dialog")).toHaveFocus();
+    expect(screen.getByRole("button", { name: /1 more unread/ })).toBeInTheDocument();
     list = { unread: 0, items: list.items.map((n) => ({ ...n, readAt: new Date().toISOString() })) };
-    await user.click(screen.getByRole("button", { name: "Mark all read" }));
-    expect(markNotificationsRead).toHaveBeenCalledWith({ all: true });
+    await user.click(screen.getByRole("button", { name: "Mark these read" }));
+    expect(markNotificationsRead).toHaveBeenCalledWith({ ids: ["n1", "n2"] });
     expect(await screen.findByRole("button", { name: "Notifications" })).toBeInTheDocument();
     expect(document.title).toBe("Work orders");
 
@@ -114,6 +117,8 @@ describe("NotificationBell", () => {
     await act(() => client.invalidateQueries());
     await waitFor(() => expect(FakeNotification.shown).toHaveLength(1));
     expect(FakeNotification.shown[0].title).toBe("Urgent: ICU ventilator (VENT-7) reported faulty");
+    // Details stay off shared lock screens.
+    expect(FakeNotification.shown[0].options?.body).toBe("Open BioTrakr for details");
 
     // The same notice is not popped again on the next poll.
     await act(() => client.invalidateQueries());

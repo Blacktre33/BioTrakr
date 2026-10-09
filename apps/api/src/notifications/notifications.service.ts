@@ -21,7 +21,11 @@ export class NotificationsService {
       this.prisma.notification.count({ where: { ...mine, readAt: null } }),
       this.prisma.notification.findMany({
         where: { ...mine, ...(query.unreadOnly ? { readAt: null } : {}) },
-        orderBy: { createdAt: 'desc' },
+        // Unread first, so they come before anything already read.
+        orderBy: [
+          { readAt: { sort: 'asc', nulls: 'first' } },
+          { createdAt: 'desc' },
+        ],
         take: query.take ?? 20,
         select: {
           id: true,

@@ -22,6 +22,10 @@ export function NotificationBell() {
   const { data, isError } = useNotifications();
   const markRead = useMarkNotificationsRead();
   const unread = data?.unread ?? 0;
+  // Only what is on screen: something that arrived since the last check
+  // must not be marked read unseen.
+  const shownUnread = (data?.items ?? []).filter((n) => !n.readAt).map((n) => n.id);
+  const moreUnread = unread - shownUnread.length;
 
   const openNotice = (notice: Notice) => {
     if (!notice.readAt) markRead.mutate({ ids: [notice.id] });
@@ -31,9 +35,10 @@ export function NotificationBell() {
   const desktop = useDesktopAlerts(data?.items, openNotice);
   useUnreadTitle(unread);
 
-  // Close on Escape (focus back to the bell) or a click outside.
+  // Focus moves into the panel; Escape (focus back to the bell) or a click outside closes it.
   useEffect(() => {
     if (!open) return;
+    panelRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setOpen(false);
@@ -86,18 +91,19 @@ export function NotificationBell() {
           ref={panelRef}
           role="dialog"
           aria-label="Notifications"
-          className="fixed inset-x-4 top-16 z-50 overflow-hidden rounded-2xl border border-white/10 bg-surface-100 shadow-xl sm:absolute sm:inset-x-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-96"
+          tabIndex={-1}
+          className="fixed inset-x-4 top-16 z-50 overflow-hidden focus:outline-none rounded-2xl border border-white/10 bg-surface-100 shadow-xl sm:absolute sm:inset-x-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-96"
         >
           <div className="flex items-center justify-between gap-2 border-b border-white/5 px-4 py-3">
             <h3 className="font-semibold text-white">Notifications</h3>
             {unread > 0 && (
               <button
                 type="button"
-                onClick={() => markRead.mutate({ all: true })}
+                onClick={() => markRead.mutate({ ids: shownUnread })}
                 className="flex items-center gap-1 text-xs text-primary-400 hover:text-primary-300"
               >
                 <CheckCheck className="h-3.5 w-3.5" aria-hidden />
-                Mark all read
+                Mark these read
               </button>
             )}
           </div>
@@ -118,6 +124,18 @@ export function NotificationBell() {
               </li>
             ))}
           </ul>
+          {moreUnread > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                router.push("/alerts" as never);
+              }}
+              className="w-full border-t border-white/5 px-4 py-2 text-left text-xs text-primary-400 hover:text-primary-300"
+            >
+              {moreUnread} more unread · See all notifications
+            </button>
+          )}
 
           {desktop.support !== "unsupported" && (
             <div className="border-t border-white/5 px-4 py-3 text-xs text-gray-400">

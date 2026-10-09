@@ -18,6 +18,7 @@ import {
   deviceForNotice,
   deviceLabel,
   HIGH_RISK,
+  bestEffort,
   notify,
   type Severity,
 } from '../notifications/notify';
@@ -149,9 +150,11 @@ export class WorkOrdersService {
           description: where
             ? `${description}\n\nWhere: ${where}`
             : description,
-          // A critical device taken out of use goes to the top of the queue.
+          // A high-risk device taken out of use goes to the top of the
+          // queue, and is escalated if nobody takes it on.
           isEmergency:
-            dto.takeOutOfUse && asset.criticalityLevel === 'CRITICAL',
+            (dto.takeOutOfUse ?? false) &&
+            HIGH_RISK.includes(asset.criticalityLevel),
           createdByUserId: user.userId,
         },
         select: { id: true },
@@ -173,17 +176,20 @@ export class WorkOrdersService {
       }
 
       const outOfUse = takenOutOfUse || isStopStatus(asset.assetStatus);
-      await this.noticeProblemReported(tx, {
-        workOrderId: workOrder.id,
-        assetId: dto.assetId,
-        user,
-        description,
-        where,
-        takenOutOfUse,
-        outOfUse,
-        urgent:
-          (dto.takeOutOfUse ?? false) && asset.criticalityLevel === 'CRITICAL',
-      });
+      await bestEffort(tx, 'problem report notices', () =>
+        this.noticeProblemReported(tx, {
+          workOrderId: workOrder.id,
+          assetId: dto.assetId,
+          user,
+          description,
+          where,
+          takenOutOfUse,
+          outOfUse,
+          urgent:
+            (dto.takeOutOfUse ?? false) &&
+            HIGH_RISK.includes(asset.criticalityLevel),
+        }),
+      );
 
       return {
         workOrderId: workOrder.id,
@@ -371,15 +377,17 @@ export class WorkOrdersService {
         }
       }
 
-      await this.noticeWorkOrderChange(tx, {
-        id,
-        current,
-        next,
-        assignedTo: data.assignedTechnicianId as string | undefined,
-        note,
-        released,
-        user,
-      });
+      await bestEffort(tx, 'work order notices', () =>
+        this.noticeWorkOrderChange(tx, {
+          id,
+          current,
+          next,
+          assignedTo: data.assignedTechnicianId as string | undefined,
+          note,
+          released,
+          user,
+        }),
+      );
 
       const row = await tx.maintenanceHistory.findFirst({
         where: { id },
@@ -413,13 +421,11 @@ export class WorkOrdersService {
       where: { id: e.user.userId },
       select: { firstName: true, lastName: true },
     });
-    const severity: Severity =
-      e.urgent ||
-      (e.takenOutOfUse && HIGH_RISK.includes(device.criticalityLevel))
-        ? 'critical'
-        : e.outOfUse
-          ? 'warning'
-          : 'info';
+    const severity: Severity = e.urgent
+      ? 'critical'
+      : e.outOfUse
+        ? 'warning'
+        : 'info';
     const place =
       e.where ??
       device.currentRoom?.roomName ??
@@ -445,6 +451,7 @@ export class WorkOrdersService {
       excludeUserId: e.user.userId,
       dedupeKey: `reported:${e.workOrderId}`,
       outbound: severity === 'critical',
+      outboundBody: place ? `Where: ${place}` : undefined,
     });
   }
 
@@ -492,7 +499,6 @@ export class WorkOrdersService {
         body: current.description?.split('\n')[0],
         link: '/maintenance?view=mine',
         to: { userIds: [e.assignedTo] },
-        dedupeKey: `assigned:${e.id}:${e.assignedTo}`,
       });
     }
 

@@ -12,7 +12,8 @@ import { useMarkNotificationsRead, useNotifications } from '@/lib/hooks/use-noti
 /** Everything the bell shows, on a page of its own (the last 30 days). */
 export default function NotificationsPage() {
   const router = useRouter();
-  const { data, isLoading, isError } = useNotifications();
+  const { data, isLoading, isError } = useNotifications(50);
+  const shownUnread = (data?.items ?? []).filter((n) => !n.readAt).map((n) => n.id);
   const markRead = useMarkNotificationsRead();
 
   const open = (n: Notice) => {
@@ -31,9 +32,10 @@ export default function NotificationsPage() {
               variant="ghost"
               size="sm"
               leftIcon={<CheckCheck className="h-4 w-4" />}
-              onClick={() => markRead.mutate({ all: true })}
+              onClick={() => markRead.mutate({ ids: shownUnread })}
+              disabled={shownUnread.length === 0}
             >
-              Mark all read
+              Mark these read
             </Button>
           ) : null
         }
@@ -51,6 +53,11 @@ export default function NotificationsPage() {
             title="Nothing yet"
             description="Problem reports on your devices and work assigned to you will show up here."
           />
+        )}
+        {data && data.unread > shownUnread.length && (
+          <p className="mb-3 text-sm text-gray-400">
+            Showing the latest {shownUnread.length} of {data.unread} unread. Mark these read to see the rest.
+          </p>
         )}
         {data && data.items.length > 0 && (
           <Card className="divide-y divide-white/5 p-0">

@@ -129,6 +129,11 @@ function buildPrisma() {
       if ('not' in cond) return row[k] !== cond.not;
       if (cond.equals !== undefined)
         return String(row[k]).toLowerCase() === cond.equals.toLowerCase();
+      if (
+        cond.lt !== undefined &&
+        !(row[k] != null && (row[k] as Date) < cond.lt)
+      )
+        return false;
       if (cond.lte && !((row[k] as Date) <= cond.lte)) return false;
       if (cond.gte && !((row[k] as Date) >= cond.gte)) return false;
       return true;
@@ -158,6 +163,7 @@ function buildPrisma() {
     assets,
     orders,
     statusChanges,
+    users,
     notifications,
     outbound,
     asset: {
@@ -232,6 +238,12 @@ function buildPrisma() {
         async ({ where }) =>
           notifications.filter((n) => matches(n, where)).length,
       ),
+      deleteMany: jest.fn(async ({ where }) => {
+        const keep = notifications.filter((n) => !matches(n, where));
+        const count = notifications.length - keep.length;
+        notifications.splice(0, notifications.length, ...keep);
+        return { count };
+      }),
     },
     outboundMessage: {
       createMany: jest.fn(async ({ data }) => {
@@ -266,15 +278,18 @@ function buildPrisma() {
               (where.nextAttemptAt as Date).getTime(),
         );
         for (const r of rows) {
-          r.nextAttemptAt = data.nextAttemptAt;
-          r.attempts = (r.attempts as number) + 1;
+          for (const [k, v] of Object.entries(data as Rec)) {
+            const inc = (v as { increment?: number } | null)?.increment;
+            r[k] = inc !== undefined ? (r[k] as number) + inc : v;
+          }
         }
         return { count: rows.length };
       }),
-      update: jest.fn(async ({ where, data }) => {
-        const row = outbound.find((o) => o.id === where.id)!;
-        Object.assign(row, data);
-        return row;
+      deleteMany: jest.fn(async ({ where }) => {
+        const keep = outbound.filter((o) => !matches(o, where));
+        const count = outbound.length - keep.length;
+        outbound.splice(0, outbound.length, ...keep);
+        return { count };
       }),
     },
     assetStatusChange: {
@@ -288,6 +303,8 @@ function buildPrisma() {
         return row;
       }),
     },
+    // Savepoints around notices (see bestEffort).
+    $executeRawUnsafe: jest.fn(async () => 0),
     $transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
       fn(mock),
     ),
@@ -670,7 +687,10 @@ describe('Problem reports and work orders (e2e)', () => {
         event: 'problem_reported',
         severity: 'critical',
         url: 'https://biotrakr.hospital.example/maintenance',
+        // What the nurse typed stays inside the hospital system.
+        body: null,
       });
+      expect(JSON.stringify(payload)).not.toContain('Alarm keeps sounding');
       expect((payload.recipients as Rec[]).map((r) => r.name).sort()).toEqual([
         'Eli Eng',
         'Tara Tech',
@@ -747,6 +767,98 @@ describe('Problem reports and work orders (e2e)', () => {
         takeOutOfUse: true,
       });
       expect(prisma.outbound).toEqual([]);
+    });
+
+    it('treats a refused request as final, not something to retry', async () => {
+      process.env.NOTIFY_WEBHOOK_URL =
+        'https://gateway.hospital.example/biotrakr';
+      process.env.NOTIFY_WEBHOOK_SECRET = 'a-long-shared-secret-for-tests';
+      await report({
+        assetId: VENT,
+        description: 'Alarm keeps sounding',
+        takeOutOfUse: true,
+      });
+      jest
+        .spyOn(global, 'fetch')
+        .mockResolvedValue(new Response('no', { status: 401 }));
+      expect(await jobs.deliver()).toEqual({ sent: 0, failed: 1 });
+      expect(prisma.outbound[0]).toMatchObject({
+        attempts: 1,
+        lastError: 'HTTP 401',
+      });
+    });
+
+    it('does not overwrite a message another instance took over during a slow send', async () => {
+      process.env.NOTIFY_WEBHOOK_URL =
+        'https://gateway.hospital.example/biotrakr';
+      process.env.NOTIFY_WEBHOOK_SECRET = 'a-long-shared-secret-for-tests';
+      await report({
+        assetId: VENT,
+        description: 'Alarm keeps sounding',
+        takeOutOfUse: true,
+      });
+      jest.spyOn(global, 'fetch').mockImplementation(async () => {
+        // Our lease ran out and someone else claimed it meanwhile.
+        prisma.outbound[0].nextAttemptAt = new Date(Date.now() + 999_999);
+        return new Response('ok', { status: 200 });
+      });
+      expect(await jobs.deliver()).toEqual({ sent: 0, failed: 0 });
+      expect(prisma.outbound[0].sentAt).toBeNull();
+    });
+
+    it('tells every administrator when the facility has no engineer or admin', async () => {
+      prisma.users.find((u) => u.id === ENGINEER)!.isActive = false;
+      prisma.users.push({
+        id: 'user-admin-hq',
+        organizationId: ORG_A,
+        firstName: 'Hana',
+        lastName: 'HQ',
+        role: 'admin',
+        isActive: true,
+        facilityId: 'fac-2',
+      });
+      await report({
+        assetId: VENT,
+        description: 'Alarm keeps sounding',
+        takeOutOfUse: true,
+      });
+      const t0 = (prisma.orders[0].createdAt as Date).getTime();
+      expect(await jobs.escalate(new Date(t0 + 16 * MIN))).toBe(1);
+      expect(
+        prisma.notifications
+          .filter((n) => n.kind === 'escalation')
+          .map((n) => n.userId),
+      ).toEqual(['user-admin-hq']);
+      expect(prisma.orders[0].escalatedAfterMinutes).toBe(15);
+    });
+
+    it('keeps the report and the quarantine even if recording notices fails', async () => {
+      prisma.notification.createMany.mockRejectedValueOnce(
+        new Error('deadlock detected'),
+      );
+      await report({
+        assetId: VENT,
+        description: 'Alarm keeps sounding',
+        takeOutOfUse: true,
+      }).expect(201);
+      expect(prisma.assets[0].assetStatus).toBe('QUARANTINED');
+      expect(prisma.$executeRawUnsafe).toHaveBeenCalledWith(
+        'ROLLBACK TO SAVEPOINT notices',
+      );
+    });
+
+    it('prunes old notices and finished outside messages', async () => {
+      const old = new Date(Date.now() - 100 * 86_400_000);
+      prisma.notifications.push(
+        { id: 'old', createdAt: old },
+        { id: 'new', createdAt: new Date() },
+      );
+      prisma.outbound.push(
+        { id: 'sent-old', sentAt: old, failedAt: null },
+        { id: 'pending', sentAt: null, failedAt: null },
+      );
+      expect(await jobs.prune()).toEqual({ notices: 1, outbound: 1 });
+      expect(prisma.outbound.map((o) => o.id)).toEqual(['pending']);
     });
   });
 });

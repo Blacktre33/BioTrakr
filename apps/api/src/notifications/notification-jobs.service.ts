@@ -7,16 +7,20 @@ import {
 import type { Prisma } from '@prisma/client';
 import { createHmac } from 'crypto';
 
-import { STOP_STATUSES } from '../assets/asset-status.service';
 import { PrismaService } from '../database/prisma.service';
-import { deviceLabel, HIGH_RISK, notificationConfig, notify } from './notify';
+import { deviceLabel, notificationConfig, notify } from './notify';
 
 /** Only fairly recent reports are escalated (not a backlog found on first start). */
 const ESCALATION_WINDOW_MS = 24 * 60 * 60 * 1000;
-/** A claimed message is someone else's for this long, then retried. */
+/** A claimed message is this instance's for this long; far above one send (10 s). */
 const LEASE_MS = 2 * 60 * 1000;
 export const MAX_ATTEMPTS = 8;
 const TIMEOUT_MS = 10_000;
+/** In-app notices are kept this long; outside messages a week after they finish. */
+export const KEEP_NOTICES_DAYS = 90;
+export const KEEP_OUTBOUND_DAYS = 7;
+const PRUNE_EVERY_MS = 60 * 60 * 1000;
+const DAY = 24 * 60 * 60 * 1000;
 
 /** 30 s, 1, 2, 4… minutes, capped at an hour. */
 export function retryDelayMs(attempts: number): number {
@@ -28,11 +32,20 @@ export function signWebhook(secret: string, timestamp: number, body: string) {
   return `sha256=${createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex')}`;
 }
 
+/** Retrying will not help: the gateway refused the request itself. */
+const permanent = (status: number) =>
+  (status >= 300 && status < 400) ||
+  (status >= 400 && status < 500 && status !== 408 && status !== 429);
+
+/** error is set whenever ok is false. */
+type SendResult = { ok: boolean; error?: string; permanent?: boolean };
+
 /**
  * Work that happens without anyone clicking: escalating urgent problem
- * reports nobody has taken on, and delivering outbound messages. Runs every
- * 30 s in each API instance; claims and dedupe keys keep instances from
- * doing the same work twice.
+ * reports nobody has taken on, delivering outbound messages, and pruning
+ * old notices. Runs every 30 s in each API instance (it needs a long-lived
+ * process, not a serverless function); claims keep instances from doing
+ * the same work twice.
  */
 @Injectable()
 export class NotificationJobsService
@@ -41,6 +54,7 @@ export class NotificationJobsService
   private readonly logger = new Logger('Notifications');
   private timer: NodeJS.Timeout | null = null;
   private running = false;
+  private lastPrune = 0;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -57,13 +71,17 @@ export class NotificationJobsService
     if (this.timer) clearInterval(this.timer);
   }
 
-  /** One pass of both jobs. Overlapping passes are skipped. */
-  async tick(now = new Date()): Promise<void> {
+  /** One pass of the jobs. Overlapping passes are skipped. */
+  async tick(): Promise<void> {
     if (this.running) return;
     this.running = true;
     try {
-      await this.escalate(now);
-      await this.deliver(now);
+      await this.escalate();
+      await this.deliver();
+      if (Date.now() - this.lastPrune > PRUNE_EVERY_MS) {
+        this.lastPrune = Date.now();
+        await this.prune();
+      }
     } catch (error) {
       this.logger.error(`Notification job failed: ${(error as Error).message}`);
     } finally {
@@ -72,19 +90,26 @@ export class NotificationJobsService
   }
 
   /**
-   * An urgent report (critical device, or a high-risk device out of use)
-   * still unassigned after 15 and again after 60 minutes goes to the
-   * engineers and administrators, and outside the app.
+   * An emergency report (a high-risk device taken out of use) still
+   * unassigned after 15 and again after 60 minutes goes to the engineers
+   * and administrators, and outside the app. Each level is claimed on the
+   * work order, so it happens once even with several API instances.
    */
   async escalate(now = new Date()): Promise<number> {
     const { escalateAfterMinutes } = notificationConfig();
     let sent = 0;
-    const key = (minutes: number, id: string) => `escalation:${minutes}:${id}`;
     // Latest level first: after downtime, a report due for both 15 and 60
     // minutes gets one message, not two.
     for (const minutes of [...escalateAfterMinutes].reverse()) {
+      const notYet: Prisma.MaintenanceHistoryWhereInput = {
+        OR: [
+          { escalatedAfterMinutes: null },
+          { escalatedAfterMinutes: { lt: minutes } },
+        ],
+      };
       const stuck = await this.prisma.maintenanceHistory.findMany({
         where: {
+          isEmergency: true,
           workOrderType: 'CORRECTIVE_MAINTENANCE',
           workOrderStatus: 'PENDING',
           assignedTechnicianId: null,
@@ -93,19 +118,10 @@ export class NotificationJobsService
             gte: new Date(now.getTime() - ESCALATION_WINDOW_MS),
           },
           asset: { deletedAt: null },
-          OR: [
-            { isEmergency: true },
-            {
-              asset: {
-                criticalityLevel: { in: HIGH_RISK },
-                assetStatus: { in: [...STOP_STATUSES] },
-              },
-            },
-          ],
+          ...notYet,
         },
         select: {
           id: true,
-          description: true,
           asset: {
             select: {
               id: true,
@@ -121,44 +137,41 @@ export class NotificationJobsService
       });
 
       for (const wo of stuck) {
-        const dedupeKey = key(minutes, wo.id);
-        const done = await this.prisma.notification.count({
-          where: {
-            dedupeKey: {
-              in: escalateAfterMinutes
-                .filter((m) => m >= minutes)
-                .map((m) => key(m, wo.id)),
-            },
-          },
-        });
-        if (done) continue;
         await this.prisma.$transaction(async (tx) => {
-          // Taken on in the meantime? Then there is nothing to escalate.
-          const still = await tx.maintenanceHistory.count({
+          // Claim this level; also skips it if someone took the work on.
+          const { count } = await tx.maintenanceHistory.updateMany({
             where: {
               id: wo.id,
               workOrderStatus: 'PENDING',
               assignedTechnicianId: null,
+              ...notYet,
             },
+            data: { escalatedAfterMinutes: minutes },
           });
-          if (!still) return;
-          const reached = await notify(tx, {
+          if (count === 0) return;
+          const notice = {
             organizationId: wo.asset.organizationId,
-            kind: 'escalation',
-            severity: 'critical',
+            kind: 'escalation' as const,
+            severity: 'critical' as const,
             title: `Nobody has taken this on for ${minutes} min: ${deviceLabel(wo.asset)}`,
-            body: wo.description?.split('\n')[0],
             link: '/maintenance',
             assetId: wo.asset.id,
             workOrderId: wo.id,
+            dedupeKey: `escalation:${minutes}:${wo.id}`,
+          };
+          const reached = await notify(tx, {
+            ...notice,
             to: {
               roles: ['admin', 'engineer'],
               facilityId: wo.asset.currentFacilityId,
             },
-            dedupeKey,
             outbound: true,
           });
-          sent += reached > 0 ? 1 : 0;
+          // No engineer or admin for that facility: tell every administrator.
+          if (reached === 0) {
+            await notify(tx, { ...notice, to: { roles: ['admin'] } });
+          }
+          sent++;
         });
       }
     }
@@ -166,19 +179,25 @@ export class NotificationJobsService
     return sent;
   }
 
-  /** Sends due outbound messages, retrying failures with backoff. */
+  /**
+   * Sends due outbound messages, retrying failures with backoff. `now`
+   * picks which messages are due; each one is then timed on its own, so a
+   * slow gateway cannot make later messages' leases or signatures stale.
+   */
   async deliver(now = new Date()): Promise<{ sent: number; failed: number }> {
     const config = notificationConfig();
+    const clock = () => new Date(Math.max(Date.now(), now.getTime()));
     const due = await this.prisma.outboundMessage.findMany({
       where: { sentAt: null, failedAt: null, nextAttemptAt: { lte: now } },
       orderBy: { nextAttemptAt: 'asc' },
       take: 20,
-      select: { id: true, nextAttemptAt: true, payload: true },
+      select: { id: true, nextAttemptAt: true, attempts: true, payload: true },
     });
     let sent = 0;
     let failed = 0;
     for (const message of due) {
       // Claim it: of several API instances, only one sends each message.
+      const lease = new Date(clock().getTime() + LEASE_MS);
       const { count } = await this.prisma.outboundMessage.updateMany({
         where: {
           id: message.id,
@@ -186,65 +205,95 @@ export class NotificationJobsService
           failedAt: null,
           nextAttemptAt: message.nextAttemptAt,
         },
-        data: {
-          nextAttemptAt: new Date(now.getTime() + LEASE_MS),
-          attempts: { increment: 1 },
-        },
+        data: { nextAttemptAt: lease, attempts: { increment: 1 } },
       });
       if (count === 0) continue;
-      const claimed = await this.prisma.outboundMessage.findUnique({
-        where: { id: message.id },
-        select: { attempts: true },
-      });
-      const attempts = claimed?.attempts ?? 1;
+      const attempts = message.attempts + 1;
 
-      let error: string | null = null;
-      if (!config.webhookUrl || !config.webhookSecret) {
-        error =
-          'No webhook is configured (NOTIFY_WEBHOOK_URL and NOTIFY_WEBHOOK_SECRET)';
-      } else {
-        error = await this.post(
-          config.webhookUrl,
-          config.webhookSecret,
-          message.id,
-          message.payload,
-          now,
-        );
-      }
-
-      const data: Prisma.OutboundMessageUpdateInput = error
-        ? attempts >= MAX_ATTEMPTS || !config.webhookUrl
-          ? { failedAt: now, lastError: error.slice(0, 500) }
+      const result: SendResult =
+        config.webhookUrl && config.webhookSecret
+          ? await this.post(
+              config.webhookUrl,
+              config.webhookSecret,
+              message.id,
+              message.payload,
+              clock(),
+            )
           : {
-              nextAttemptAt: new Date(now.getTime() + retryDelayMs(attempts)),
-              lastError: error.slice(0, 500),
+              ok: false,
+              permanent: true,
+              error:
+                'No webhook is configured (NOTIFY_WEBHOOK_URL and NOTIFY_WEBHOOK_SECRET)',
+            };
+
+      const finished = clock();
+      const giveUp =
+        !result.ok && (result.permanent || attempts >= MAX_ATTEMPTS);
+      const data: Prisma.OutboundMessageUpdateManyMutationInput = result.ok
+        ? { sentAt: finished, lastError: null }
+        : giveUp
+          ? {
+              failedAt: finished,
+              lastError: (result.error ?? 'failed').slice(0, 500),
             }
-        : { sentAt: now, lastError: null };
-      await this.prisma.outboundMessage.update({
-        where: { id: message.id },
+          : {
+              nextAttemptAt: new Date(
+                finished.getTime() + retryDelayMs(attempts),
+              ),
+              lastError: (result.error ?? 'failed').slice(0, 500),
+            };
+      // Only if the claim is still ours (it could have expired and been taken).
+      const { count: saved } = await this.prisma.outboundMessage.updateMany({
+        where: {
+          id: message.id,
+          nextAttemptAt: lease,
+          sentAt: null,
+          failedAt: null,
+        },
         data,
       });
-      if (!error) sent++;
-      else if (data.failedAt) {
+      if (!saved) {
+        this.logger.warn(
+          `Outbound message ${message.id}: claim expired during send`,
+        );
+        continue;
+      }
+      if (result.ok) sent++;
+      else if (giveUp) {
         failed++;
         this.logger.error(
-          `Gave up on outbound message ${message.id} after ${attempts} attempt(s): ${error}`,
+          `Gave up on outbound message ${message.id} after ${attempts} attempt(s): ${result.error ?? 'failed'}`,
         );
       }
     }
     return { sent, failed };
   }
 
-  /** Returns null when delivered, otherwise why not. */
+  /** Old notices and finished outside messages (which name staff and their phones) are deleted. */
+  async prune(
+    now = new Date(),
+  ): Promise<{ notices: number; outbound: number }> {
+    const notices = await this.prisma.notification.deleteMany({
+      where: {
+        createdAt: { lt: new Date(now.getTime() - KEEP_NOTICES_DAYS * DAY) },
+      },
+    });
+    const cutoff = new Date(now.getTime() - KEEP_OUTBOUND_DAYS * DAY);
+    const outbound = await this.prisma.outboundMessage.deleteMany({
+      where: { OR: [{ sentAt: { lt: cutoff } }, { failedAt: { lt: cutoff } }] },
+    });
+    return { notices: notices.count, outbound: outbound.count };
+  }
+
   private async post(
     url: string,
     secret: string,
     id: string,
     payload: Prisma.JsonValue,
-    now: Date,
-  ): Promise<string | null> {
+    at: Date,
+  ): Promise<SendResult> {
     const body = JSON.stringify(payload);
-    const timestamp = Math.floor(now.getTime() / 1000);
+    const timestamp = Math.floor(at.getTime() / 1000);
     try {
       const res = await fetch(url, {
         method: 'POST',
@@ -256,15 +305,28 @@ export class NotificationJobsService
           'X-BioTrakr-Signature': signWebhook(secret, timestamp, body),
         },
         body,
-        // A redirect could carry the patient-adjacent payload elsewhere.
+        // A redirect could carry the message elsewhere: not followed.
         redirect: 'manual',
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
-      return res.ok ? null : `HTTP ${res.status}`;
+      // Free the connection; the answer's content is not used.
+      await res.body?.cancel().catch(() => undefined);
+      return res.ok
+        ? { ok: true }
+        : {
+            ok: false,
+            error: `HTTP ${res.status}`,
+            permanent: permanent(res.status),
+          };
     } catch (e) {
-      return (e as Error).name === 'TimeoutError'
-        ? `No answer within ${TIMEOUT_MS / 1000} s`
-        : (e as Error).message;
+      return {
+        ok: false,
+        permanent: false,
+        error:
+          (e as Error).name === 'TimeoutError'
+            ? `No answer within ${TIMEOUT_MS / 1000} s`
+            : (e as Error).message,
+      };
     }
   }
 }

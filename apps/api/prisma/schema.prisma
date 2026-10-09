@@ -943,6 +943,8 @@ model MaintenanceHistory {
   createdAt               DateTime        @default(now())
   createdByUserId         String
   updatedAt               DateTime        @updatedAt
+  /// Minutes-level of the last "nobody has taken this on" escalation (15, 60…).
+  escalatedAfterMinutes   Int?
 
   asset                   Asset           @relation(fields: [assetId], references: [id], onDelete: Restrict) // history outlives the asset; assets are soft-deleted
   assignedTechnician      User?           @relation("MaintenanceAssignedTechnician", fields: [assignedTechnicianId], references: [id])
@@ -1312,6 +1314,7 @@ model Notification {
   @@unique([userId, dedupeKey])
   @@index([userId, readAt, createdAt(sort: Desc)])
   @@index([dedupeKey])
+  @@index([createdAt])
   @@map("notifications")
 }
 

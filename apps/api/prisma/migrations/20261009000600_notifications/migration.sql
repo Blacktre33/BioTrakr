@@ -1,4 +1,7 @@
 
+-- AlterTable
+ALTER TABLE "maintenance_history" ADD COLUMN     "escalatedAfterMinutes" INTEGER;
+
 -- CreateTable
 CREATE TABLE "notifications" (
     "id" TEXT NOT NULL,
@@ -40,6 +43,9 @@ CREATE INDEX "notifications_userId_readAt_createdAt_idx" ON "notifications"("use
 
 -- CreateIndex
 CREATE INDEX "notifications_dedupeKey_idx" ON "notifications"("dedupeKey");
+
+-- CreateIndex
+CREATE INDEX "notifications_createdAt_idx" ON "notifications"("createdAt");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "notifications_userId_dedupeKey_key" ON "notifications"("userId", "dedupeKey");
