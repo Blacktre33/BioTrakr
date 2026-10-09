@@ -1,4 +1,8 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import type { User } from '@prisma/client';
 
@@ -13,6 +17,7 @@ import {
 } from '@biotrakr/utils';
 
 import { PrismaService } from '../database/prisma.service';
+import { passwordProblem } from './password-policy';
 import { normalizeRole } from './roles';
 
 export const MAX_FAILED_LOGINS = 5;
@@ -26,6 +31,8 @@ export interface LoginResult extends TokenPair {
     firstName: string;
     lastName: string;
     role: string;
+    /** Signed in with a one-time password: must choose their own now. */
+    passwordChangeRequired: boolean;
   };
 }
 
@@ -285,6 +292,54 @@ export class AuthService {
       firstName: user.firstName,
       lastName: user.lastName,
       role: normalizeRole(user.role)!,
+      passwordChangeRequired: user.passwordChangeRequired,
     };
+  }
+
+  /**
+   * The signed-in person sets a new password. Every sign-in (including this
+   * one) ends, so a password someone else knew stops working everywhere.
+   */
+  async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<void> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || !user.passwordHash || !user.isActive) {
+      throw new UnauthorizedException(INVALID_CREDENTIALS);
+    }
+    if (!(await verifyPassword(currentPassword, user.passwordHash))) {
+      throw new BadRequestException({
+        message: 'Your current password is not right',
+        fields: ['currentPassword'],
+      });
+    }
+    const problem = passwordProblem(newPassword, user.email);
+    if (problem) {
+      throw new BadRequestException({
+        message: problem,
+        fields: ['newPassword'],
+      });
+    }
+    if (await verifyPassword(newPassword, user.passwordHash)) {
+      throw new BadRequestException({
+        message: 'Choose a password different from the current one',
+        fields: ['newPassword'],
+      });
+    }
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          passwordHash: await hashPassword(newPassword),
+          passwordChangeRequired: false,
+        },
+      }),
+      this.prisma.authSession.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: new Date(), revokedReason: 'password_changed' },
+      }),
+    ]);
   }
 }

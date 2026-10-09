@@ -1,5 +1,10 @@
 import { Body, Controller, Get, Headers, HttpCode, Post } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiProperty,
+  ApiTags,
+} from '@nestjs/swagger';
 import { IsEmail, IsString, MaxLength, MinLength } from 'class-validator';
 
 import type { AuthUser } from './auth-user';
@@ -16,6 +21,18 @@ export class LoginDto {
   @MinLength(1)
   @MaxLength(200)
   password!: string;
+}
+
+export class ChangePasswordDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  currentPassword!: string;
+
+  @ApiProperty({ description: 'At least 10 characters' })
+  @IsString()
+  @MaxLength(200)
+  newPassword!: string;
 }
 
 export class RefreshDto {
@@ -63,6 +80,25 @@ export class AuthController {
   @ApiOperation({ summary: 'End the sign-in this refresh token belongs to' })
   async logout(@Body() body: RefreshDto): Promise<void> {
     await this.authService.logout(body.refreshToken);
+  }
+
+  @Post('change-password')
+  @HttpCode(204)
+  @Roles(...ALL_ROLES)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary:
+      'Set a new password (at least 10 characters). Ends every sign-in; sign in again with the new password.',
+  })
+  async changePassword(
+    @Body() body: ChangePasswordDto,
+    @CurrentUser() user: AuthUser,
+  ): Promise<void> {
+    await this.authService.changePassword(
+      user.userId,
+      body.currentPassword,
+      body.newPassword,
+    );
   }
 
   @Post('logout-all')
