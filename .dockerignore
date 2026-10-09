@@ -14,3 +14,5 @@ apps/web/tests
 deploy/.env
 deploy/certs
 deploy/backups
+*.tar
+*.tar.gz

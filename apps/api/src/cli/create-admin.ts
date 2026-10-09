@@ -8,6 +8,11 @@
  *
  *   ... --email admin@citygeneral.example --reset   (new one-time password)
  *
+ * --reset only works for an administrator. To make someone else an
+ * administrator add --make-admin; a deactivated account also needs
+ * --reactivate. A new organization name needs --create-organization (so a
+ * typo does not create an empty organization).
+ *
  * Prints a one-time password; the person chooses their own at first sign-in.
  */
 import { PrismaClient } from '@prisma/client';
@@ -44,7 +49,12 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export async function createAdmin(
   prisma: PrismaClient,
   args: Args,
-): Promise<{ email: string; password: string; created: boolean }> {
+): Promise<{
+  email: string;
+  password: string;
+  created: boolean;
+  changes: string[];
+}> {
   const email = text(args, 'email')?.toLowerCase();
   if (!email || !EMAIL.test(email)) {
     throw new Error('Give --email with a valid work email');
@@ -60,6 +70,20 @@ export async function createAdmin(
         `${email} already exists. Add --reset to give it a new one-time password.`,
       );
     }
+    const isAdmin = existing.role.toLowerCase() === 'admin';
+    if (!isAdmin && !args['make-admin']) {
+      throw new Error(
+        `${email} is not an administrator (role: ${existing.role}). Reset their password in Settings > People, or add --make-admin to make them an administrator.`,
+      );
+    }
+    if (!existing.isActive && !args.reactivate) {
+      throw new Error(
+        `${email} is deactivated. Add --reactivate if they should have access again.`,
+      );
+    }
+    const changes: string[] = [];
+    if (!isAdmin) changes.push(`role changed from ${existing.role} to admin`);
+    if (!existing.isActive) changes.push('account reactivated');
     await prisma.$transaction([
       prisma.user.update({
         where: { id: existing.id },
@@ -68,8 +92,8 @@ export async function createAdmin(
           passwordChangeRequired: true,
           failedLoginAttempts: 0,
           accountLockedUntil: null,
-          isActive: true,
-          role: 'admin',
+          ...(existing.isActive ? {} : { isActive: true }),
+          ...(isAdmin ? {} : { role: 'admin' }),
         },
       }),
       prisma.authSession.updateMany({
@@ -77,7 +101,7 @@ export async function createAdmin(
         data: { revokedAt: new Date(), revokedReason: 'password_reset' },
       }),
     ]);
-    return { email, password, created: false };
+    return { email, password, created: false, changes };
   }
 
   const first = text(args, 'first');
@@ -95,14 +119,20 @@ export async function createAdmin(
       where: { name: { equals: orgName, mode: 'insensitive' } },
       select: { id: true },
     });
-    organizationId =
-      found?.id ??
-      (
+    if (found) {
+      organizationId = found.id;
+    } else if (organizations.length === 0 || args['create-organization']) {
+      organizationId = (
         await prisma.organization.create({
           data: { name: orgName, type: 'hospital' },
           select: { id: true },
         })
       ).id;
+    } else {
+      throw new Error(
+        `No organization is called "${orgName}" (existing: ${organizations.map((o) => o.name).join(', ')}${organizations.length > 1 ? ', ...' : ''}). Check the spelling, or add --create-organization.`,
+      );
+    }
   } else if (organizations.length === 1) {
     organizationId = organizations[0].id;
   } else {
@@ -126,7 +156,7 @@ export async function createAdmin(
       passwordChangeRequired: true,
     },
   });
-  return { email, password, created: true };
+  return { email, password, created: true, changes: [] };
 }
 
 async function main() {
@@ -139,6 +169,7 @@ async function main() {
         result.created
           ? `Administrator created: ${result.email}`
           : `New one-time password for ${result.email} (signed out everywhere)`,
+        ...result.changes.map((c) => `Also: ${c}`),
         `One-time password: ${result.password}`,
         '',
         'Sign in with it in the browser; you will be asked to choose your own.',

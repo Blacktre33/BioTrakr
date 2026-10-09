@@ -54,6 +54,8 @@ services:
       NOTIFY_WEBHOOK_URL: ${NOTIFY_WEBHOOK_URL:-}
       NOTIFY_WEBHOOK_SECRET: ${NOTIFY_WEBHOOK_SECRET:-}
       NOTIFY_ESCALATE_MINUTES: ${NOTIFY_ESCALATE_MINUTES:-15,60}
+      # No calls home (Prisma update checks); the server may have no internet.
+      CHECKPOINT_DISABLE: "1"
     logging: *logging
 
   web:
@@ -73,9 +75,11 @@ services:
     depends_on:
       web:
         condition: service_healthy
+    # BIND_IP limits which server address answers (Docker's published ports
+    # bypass ufw; see the guide's security checklist).
     ports:
-      - "80:80"
-      - "443:443"
+      - "${BIND_IP:-0.0.0.0}:80:80"
+      - "${BIND_IP:-0.0.0.0}:443:443"
     environment:
       BIOTRAKR_HOST: ${BIOTRAKR_HOST}
       CADDY_TLS: ${CADDY_TLS:-internal}
@@ -103,6 +107,8 @@ services:
     volumes:
       - ./scripts:/scripts:ro
       - ${BACKUP_DIR:-./backups}:/backups
+      # To back up the HTTPS certificate authority Caddy creates (CADDY_TLS=internal).
+      - caddy-data:/caddy:ro
     entrypoint: ["/bin/sh", "/scripts/backup-loop.sh"]
     logging: *logging
 

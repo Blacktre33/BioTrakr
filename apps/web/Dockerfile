@@ -4,17 +4,17 @@
 # The browser calls the API at /api on the same address (the reverse proxy
 # in deploy/ routes it), so one image works on any hostname.
 
-FROM node:20-bookworm-slim AS build
+FROM node:22-bookworm-slim AS build
 RUN corepack enable && corepack prepare pnpm@8.12.0 --activate
 WORKDIR /repo
 COPY . .
-RUN pnpm install --no-frozen-lockfile --filter @biotrakr/web...
+RUN pnpm install --frozen-lockfile --filter @biotrakr/web...
 ARG NEXT_PUBLIC_API_URL=/api
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
     NEXT_TELEMETRY_DISABLED=1
 RUN pnpm --filter @biotrakr/web exec next build
 
-FROM node:20-bookworm-slim
+FROM node:22-bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends tini && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 ENV NODE_ENV=production \
