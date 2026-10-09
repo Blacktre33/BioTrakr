@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { BrowserQRCodeReader, type IScannerControls } from "@zxing/browser";
+import { BrowserMultiFormatReader, type IScannerControls } from "@zxing/browser";
 
 import { Button, Skeleton } from "@/components/ui";
 import { cn } from "@/lib/utils";
@@ -35,7 +35,8 @@ export function AssetQrScanner({ className, onDetected, onError, paused }: Asset
     }
 
     let isCancelled = false;
-    const reader = new BrowserQRCodeReader(undefined, { delayBetweenScanAttempts: 250 });
+    // QR codes and the 1D barcodes (e.g. Code 128) printed on most asset tags.
+    const reader = new BrowserMultiFormatReader(undefined, { delayBetweenScanAttempts: 250 });
 
     async function start() {
       if (!videoRef.current) {
@@ -46,13 +47,18 @@ export function AssetQrScanner({ className, onDetected, onError, paused }: Asset
       setCameraError(null);
 
       try {
-        const controls = await reader.decodeFromVideoDevice(undefined, videoRef.current, (result, _error, controls) => {
-          if (result && !isCancelled) {
-            onDetected(result.getText());
-            controlsRef.current = controls;
-            controls?.stop();
-          }
-        });
+        // Prefer the rear camera on phones and tablets.
+        const controls = await reader.decodeFromConstraints(
+          { video: { facingMode: { ideal: "environment" } } },
+          videoRef.current,
+          (result, _error, controls) => {
+            if (result && !isCancelled) {
+              onDetected(result.getText());
+              controlsRef.current = controls;
+              controls?.stop();
+            }
+          },
+        );
 
         if (isCancelled) {
           controls.stop();

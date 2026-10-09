@@ -176,6 +176,7 @@ model Organization {
   facilities Facility[]
   users      User[]
   assets     Asset[]
+  outboundMessages OutboundMessage[]
 
   @@map("organizations")
 }
@@ -183,7 +184,8 @@ model Organization {
 model Facility {
   id             String   @id @default(uuid())
   organizationId String
-  facilityCode   String   @unique
+  /// Unique within an organization (see @@unique below).
+  facilityCode   String
   facilityName   String
   facilityType   String?
   addressLine1   String?
@@ -209,6 +211,7 @@ model Facility {
   transfersFrom   TransferHistory[] @relation("TransferFrom")
   transfersTo     TransferHistory[] @relation("TransferTo")
 
+  @@unique([organizationId, facilityCode])
   @@index([organizationId])
   @@map("facilities")
 }
@@ -326,6 +329,9 @@ model User {
   isActive              Boolean   @default(true)
   lastLoginAt           DateTime?
   failedLoginAttempts   Int       @default(0)
+  /// Set when an administrator creates the account or resets the password:
+  /// the user must choose their own password at next sign-in.
+  passwordChangeRequired Boolean  @default(false)
   accountLockedUntil    DateTime?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
@@ -361,6 +367,10 @@ model User {
   transfersReceived         TransferHistory[] @relation("TransferReceived")
   trainingRecords           TrainingRecord[]
   mediaUploaded             MediaAttachment[]
+  assetScans                AssetScanLog[] @relation("AssetScanLogUser")
+  assetStatusChanges        AssetStatusChange[] @relation("AssetStatusChangedBy")
+  authSessions              AuthSession[]
+  notifications             Notification[]
 
   @@index([organizationId])
   @@index([email])
@@ -404,7 +414,8 @@ model Asset {
   organizationId                  String
   
   // === BASIC IDENTIFICATION ===
-  assetTagNumber                  String              @unique
+  /// Unique within an organization (see @@unique below), not across hospitals.
+  assetTagNumber                  String
   equipmentName                   String
   manufacturer                    String
   modelNumber                     String
@@ -630,7 +641,12 @@ model Asset {
   trainingRecords                 TrainingRecord[]
   telemetryIngestEvents           TelemetryIngestEvent[]
   scanLogs                        AssetScanLog[]
+  statusChanges                   AssetStatusChange[]
+  telemetry                       AssetTelemetry[]
+  maintenanceEvents               MaintenanceEvent[]
+  errorEvents                     ErrorEvent[]
 
+  @@unique([organizationId, assetTagNumber])
   @@index([organizationId])
   @@index([assetTagNumber])
   @@index([serialNumber])
@@ -646,6 +662,9 @@ model Asset {
   @@index([custodianDepartmentId])
   @@index([assetStatus, criticalityLevel])
   @@index([currentFacilityId, assetStatus])
+  // Fuzzy search (pg_trgm)
+  @@index([equipmentName(ops: raw("gin_trgm_ops"))], type: Gin, map: "idx_assets_equipment_name_trgm")
+  @@index([modelNumber(ops: raw("gin_trgm_ops"))], type: Gin, map: "idx_assets_model_number_trgm")
   @@map("assets")
 }
 
@@ -654,7 +673,7 @@ model Asset {
 // =====================================================
 
 model LocationHistory {
-  id                  String          @id @default(cuid())
+  id                  String          @default(cuid())
   assetId             String
   timestamp           DateTime        @default(now())
   facilityId          String?
@@ -671,7 +690,7 @@ model LocationHistory {
   trackingMethod      TrackingMethod
   recordedByUserId    String?
 
-  asset               Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  asset               Asset           @relation(fields: [assetId], references: [id], onDelete: Restrict) // history outlives the asset; assets are soft-deleted
   facility            Facility?       @relation(fields: [facilityId], references: [id])
   building            Building?       @relation(fields: [buildingId], references: [id])
   floor               Floor?          @relation(fields: [floorId], references: [id])
@@ -681,11 +700,13 @@ model LocationHistory {
   @@index([assetId, timestamp(sort: Desc)])
   @@index([roomId, timestamp(sort: Desc)])
   @@index([timestamp])
+  // TimescaleDB hypertable: every unique key must include the time column.
+  @@id([id, timestamp])
   @@map("location_history")
 }
 
 model UsageLog {
-  id                  String          @id @default(cuid())
+  id                  String          @default(cuid())
   assetId             String
   sessionStartTime    DateTime
   sessionEndTime      DateTime?
@@ -697,18 +718,20 @@ model UsageLog {
   usageCycles         Int             @default(1)
   notes               String?
 
-  asset               Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  asset               Asset           @relation(fields: [assetId], references: [id], onDelete: Restrict) // history outlives the asset; assets are soft-deleted
   operator            User?           @relation(fields: [operatorId], references: [id])
   department          Department?     @relation(fields: [departmentId], references: [id])
 
   @@index([assetId, sessionStartTime(sort: Desc)])
   @@index([operatorId, sessionStartTime(sort: Desc)])
   @@index([sessionStartTime])
+  // TimescaleDB hypertable: every unique key must include the time column.
+  @@id([id, sessionStartTime])
   @@map("usage_logs")
 }
 
 model IoTSensorReading {
-  id                  String          @id @default(cuid())
+  id                  String          @default(cuid())
   assetId             String
   sensorId            String
   timestamp           DateTime        @default(now())
@@ -717,16 +740,18 @@ model IoTSensorReading {
   unit                String?
   status              String?
 
-  asset               Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  asset               Asset           @relation(fields: [assetId], references: [id], onDelete: Restrict) // history outlives the asset; assets are soft-deleted
 
   @@index([sensorId, timestamp(sort: Desc)])
   @@index([assetId, timestamp(sort: Desc)])
   @@index([timestamp])
+  // TimescaleDB hypertable: every unique key must include the time column.
+  @@id([id, timestamp])
   @@map("iot_sensor_readings")
 }
 
 model PredictiveScoreHistory {
-  id                      String          @id @default(cuid())
+  id                      String          @default(cuid())
   assetId                 String
   timestamp               DateTime        @default(now())
   failureProbabilityScore Decimal         @db.Decimal(5, 2)
@@ -736,11 +761,154 @@ model PredictiveScoreHistory {
   confidenceScore         Decimal?        @db.Decimal(5, 2)
   contributingFactors     Json?
 
-  asset                   Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  asset                   Asset           @relation(fields: [assetId], references: [id], onDelete: Restrict) // history outlives the asset; assets are soft-deleted
 
   @@index([assetId, timestamp(sort: Desc)])
   @@index([timestamp])
+  // TimescaleDB hypertable: every unique key must include the time column.
+  @@id([id, timestamp])
   @@map("predictive_scores_history")
+}
+
+// =====================================================
+// TELEMETRY EVENT HYPERTABLES (written by the ingestion pipeline)
+// Column names are snake_case to match the telemetry labeling guide.
+// Hypertable, compression and CHECK constraints live in the
+// *_timescaledb migration because Prisma cannot express them.
+// =====================================================
+
+enum TelemetrySeverity {
+  CRITICAL @map("critical")
+  HIGH     @map("high")
+  MEDIUM   @map("medium")
+  LOW      @map("low")
+  INFO     @map("info")
+
+  @@map("event_severity")
+}
+
+enum TelemetryHealthStatus {
+  CRITICAL  @map("critical")
+  POOR      @map("poor")
+  FAIR      @map("fair")
+  GOOD      @map("good")
+  EXCELLENT @map("excellent")
+
+  @@map("health_status")
+}
+
+enum TelemetryLabelSource {
+  VERIFIED  @map("verified")
+  AUTOMATED @map("automated")
+  INFERRED  @map("inferred")
+  ESTIMATED @map("estimated")
+  SYNTHETIC @map("synthetic")
+
+  @@map("label_source")
+}
+
+enum TelemetryFailureType {
+  NO_FAILURE         @map("no_failure")
+  MECHANICAL_FAILURE @map("mechanical_failure")
+  ELECTRICAL_FAILURE @map("electrical_failure")
+  SOFTWARE_FAILURE   @map("software_failure")
+  CALIBRATION_DRIFT  @map("calibration_drift")
+  COMPONENT_WEAR     @map("component_wear")
+  UNKNOWN_FAILURE    @map("unknown_failure")
+
+  @@map("failure_type")
+}
+
+model AssetTelemetry {
+  id                   String                 @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  time                 DateTime               @db.Timestamptz(6)
+  assetId              String                 @map("asset_id")
+  facilityId           String                 @map("facility_id")
+  assetCategory        String                 @map("asset_category") @db.VarChar(50)
+  assetType            String                 @map("asset_type") @db.VarChar(50)
+  department           String?                @db.VarChar(100)
+  riskClass            String?                @map("risk_class") @db.VarChar(20)
+  metricName           String                 @map("metric_name") @db.VarChar(255)
+  metricValue          Float?                 @map("metric_value")
+  metricUnit           String?                @map("metric_unit") @db.VarChar(50)
+  eventCategory        String                 @map("event_category") @db.VarChar(50)
+  eventSource          String                 @map("event_source") @db.VarChar(50)
+  severity             TelemetrySeverity?     @default(INFO)
+  healthScore          Int?                   @map("health_score")
+  healthStatus         TelemetryHealthStatus? @map("health_status")
+  anomalyDetected      Boolean?               @map("anomaly_detected")
+  failureProbability   Float?                 @map("failure_probability")
+  predictedFailureType TelemetryFailureType?  @map("predicted_failure_type")
+  timeToFailureHours   Float?                 @map("time_to_failure_hours")
+  labelSource          TelemetryLabelSource?  @map("label_source")
+  labelConfidence      Float?                 @map("label_confidence")
+  modelVersion         String?                @map("model_version") @db.VarChar(50)
+  traceId              String?                @map("trace_id") @db.VarChar(100)
+  serviceName          String?                @map("service_name") @db.VarChar(100)
+  rawPayload           Json?                  @map("raw_payload")
+
+  asset                Asset                  @relation(fields: [assetId], references: [id], onDelete: Restrict)
+
+  @@id([id, time])
+  @@index([assetId, time(sort: Desc)], map: "idx_telemetry_asset")
+  @@index([facilityId, time(sort: Desc)], map: "idx_telemetry_facility")
+  @@index([metricName, time(sort: Desc)], map: "idx_telemetry_metric")
+  @@index([assetCategory, time(sort: Desc)], map: "idx_telemetry_category")
+  @@index([healthStatus, time(sort: Desc)], map: "idx_telemetry_health")
+  @@map("asset_telemetry")
+}
+
+model MaintenanceEvent {
+  id              String                @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  time            DateTime              @db.Timestamptz(6)
+  assetId         String                @map("asset_id")
+  facilityId      String                @map("facility_id")
+  workOrderId     String?               @map("work_order_id")
+  eventType       String                @map("event_type") @db.VarChar(50)
+  maintenanceType String?               @map("maintenance_type") @db.VarChar(50)
+  failureOccurred Boolean?              @default(false) @map("failure_occurred")
+  failureType     TelemetryFailureType? @map("failure_type")
+  failureCode     String?               @map("failure_code") @db.VarChar(50)
+  rootCause       String?               @map("root_cause")
+  partsReplaced   Json?                 @map("parts_replaced")
+  laborHours      Float?                @map("labor_hours")
+  downtimeHours   Float?                @map("downtime_hours")
+  cost            Float?
+  technicianId    String?               @map("technician_id")
+  notes           String?
+  rawPayload      Json?                 @map("raw_payload")
+
+  asset           Asset                 @relation(fields: [assetId], references: [id], onDelete: Restrict)
+
+  @@id([id, time])
+  @@index([assetId, time(sort: Desc)], map: "idx_maint_asset")
+  @@index([workOrderId], map: "idx_maint_work_order")
+  @@map("maintenance_events")
+}
+
+model ErrorEvent {
+  id                   String            @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  time                 DateTime          @db.Timestamptz(6)
+  assetId              String            @map("asset_id")
+  facilityId           String            @map("facility_id")
+  errorCode            String            @map("error_code") @db.VarChar(50)
+  errorMessage         String?           @map("error_message")
+  errorCategory        String?           @map("error_category") @db.VarChar(100)
+  severity             TelemetrySeverity
+  component            String?           @db.VarChar(100)
+  operation            String?           @db.VarChar(100)
+  sensorReadings       Json?             @map("sensor_readings")
+  autoRecovered        Boolean?          @default(false) @map("auto_recovered")
+  requiresIntervention Boolean?          @default(false) @map("requires_intervention")
+  rawPayload           Json?             @map("raw_payload")
+
+  asset                Asset             @relation(fields: [assetId], references: [id], onDelete: Restrict)
+
+  @@id([id, time])
+  @@index([assetId, time(sort: Desc)], map: "idx_error_asset")
+  @@index([severity, time(sort: Desc)], map: "idx_error_severity")
+  @@index([errorCode, time(sort: Desc)], map: "idx_error_code")
+  @@map("error_events")
 }
 
 // =====================================================
@@ -775,8 +943,10 @@ model MaintenanceHistory {
   createdAt               DateTime        @default(now())
   createdByUserId         String
   updatedAt               DateTime        @updatedAt
+  /// Minutes-level of the last "nobody has taken this on" escalation (15, 60…).
+  escalatedAfterMinutes   Int?
 
-  asset                   Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  asset                   Asset           @relation(fields: [assetId], references: [id], onDelete: Restrict) // history outlives the asset; assets are soft-deleted
   assignedTechnician      User?           @relation("MaintenanceAssignedTechnician", fields: [assignedTechnicianId], references: [id])
   vendor                  Vendor?         @relation(fields: [vendorId], references: [id])
   createdBy               User            @relation("MaintenanceCreatedBy", fields: [createdByUserId], references: [id])
@@ -829,7 +999,7 @@ model ComplianceEvent {
   createdAt                   DateTime        @default(now())
   createdByUserId             String
 
-  asset                       Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  asset                       Asset           @relation(fields: [assetId], references: [id], onDelete: Restrict) // history outlives the asset; assets are soft-deleted
   createdBy                   User            @relation(fields: [createdByUserId], references: [id])
 
   @@index([assetId, eventDate(sort: Desc)])
@@ -860,7 +1030,7 @@ model AlertHistory {
   notificationMethod      String?
   metadata                Json?
 
-  asset                   Asset?          @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  asset                   Asset?          @relation(fields: [assetId], references: [id], onDelete: Restrict) // history outlives the asset; assets are soft-deleted
   acknowledgedBy          User?           @relation("AlertAcknowledgedBy", fields: [acknowledgedByUserId], references: [id])
   resolvedBy              User?           @relation("AlertResolvedBy", fields: [resolvedByUserId], references: [id])
   escalatedTo             User?           @relation("AlertEscalatedTo", fields: [escalatedToUserId], references: [id])
@@ -887,7 +1057,7 @@ model AssignmentHistory {
   locationAtAssignment    String?
   notes                   String?
 
-  asset                   Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  asset                   Asset           @relation(fields: [assetId], references: [id], onDelete: Restrict) // history outlives the asset; assets are soft-deleted
   assignedToUser          User?           @relation("AssignedTo", fields: [assignedToUserId], references: [id])
   assignedToDepartment    Department?     @relation(fields: [assignedToDepartmentId], references: [id])
   assignedBy              User            @relation("AssignedBy", fields: [assignedByUserId], references: [id])
@@ -913,7 +1083,7 @@ model TransferHistory {
   receivedAt              DateTime?
   notes                   String?
 
-  asset                   Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  asset                   Asset           @relation(fields: [assetId], references: [id], onDelete: Restrict) // history outlives the asset; assets are soft-deleted
   fromFacility            Facility?       @relation("TransferFrom", fields: [fromFacilityId], references: [id])
   toFacility              Facility        @relation("TransferTo", fields: [toFacilityId], references: [id])
   fromRoom                Room?           @relation("TransferFromRoom", fields: [fromRoomId], references: [id])
@@ -942,7 +1112,7 @@ model TrainingRecord {
   attachments             Json?
   createdAt               DateTime        @default(now())
 
-  asset                   Asset?          @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  asset                   Asset?          @relation(fields: [assetId], references: [id], onDelete: Restrict) // history outlives the asset; assets are soft-deleted
   user                    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([assetId, trainingDate(sort: Desc)])
@@ -989,7 +1159,7 @@ model MediaAttachment {
   uploadedByUserId        String?
   uploadedAt              DateTime        @default(now())
 
-  asset                   Asset?          @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  asset                   Asset?          @relation(fields: [assetId], references: [id], onDelete: Restrict) // history outlives the asset; assets are soft-deleted
   uploadedBy              User?           @relation(fields: [uploadedByUserId], references: [id])
 
   @@index([assetId])
@@ -1046,11 +1216,128 @@ model AssetScanLog {
   qrPayload               String
   notes                   String?
   locationHint            String?
+  /// Who scanned it. Null for scans recorded before this was tracked.
+  scannedById             String?
   createdAt               DateTime        @default(now())
 
-  asset                   Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  asset                   Asset           @relation(fields: [assetId], references: [id], onDelete: Restrict) // history outlives the asset; assets are soft-deleted
+  scannedBy               User?           @relation("AssetScanLogUser", fields: [scannedById], references: [id], onDelete: SetNull)
 
   @@index([assetId, createdAt])
+  @@index([scannedById, createdAt])
   @@map("asset_scan_logs")
 }
 
+// =====================================================
+// STATUS HISTORY
+// =====================================================
+
+/// Where a status change came from.
+enum StatusChangeSource {
+  MANUAL        // a person, on the device page
+  FAULT_REPORT  // ward staff reported a problem and took it out of use
+  WORK_ORDER    // a work order was completed or opened
+  DEVICE_ALERT  // a critical fault event from the device itself
+  IMPORT        // an Excel import
+}
+
+/// Every change of an asset's status: who, when, why. Never edited.
+model AssetStatusChange {
+  id           String             @id @default(uuid())
+  assetId      String
+  fromStatus   AssetStatus
+  toStatus     AssetStatus
+  reason       String
+  source       StatusChangeSource @default(MANUAL)
+  changedById  String?
+  workOrderId  String?
+  changedAt    DateTime           @default(now())
+
+  asset        Asset              @relation(fields: [assetId], references: [id], onDelete: Restrict) // history outlives the asset; assets are soft-deleted
+  changedBy    User?              @relation("AssetStatusChangedBy", fields: [changedById], references: [id], onDelete: SetNull)
+
+  @@index([assetId, changedAt(sort: Desc)])
+  @@map("asset_status_changes")
+}
+
+// =====================================================
+// SIGN-IN SESSIONS
+// =====================================================
+
+/// One refresh token. Each refresh replaces it with a new one in the same
+/// family; presenting a replaced token again means it was copied, and the
+/// whole family (that sign-in) is revoked.
+model AuthSession {
+  id            String    @id @default(uuid()) // the refresh token's jti
+  userId        String
+  familyId      String    // the sign-in this token descends from
+  signedInAt    DateTime  @default(now()) // when that sign-in started; caps its lifetime
+  createdAt     DateTime  @default(now())
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  revokedReason String?   // rotated | logout | logout_all | reuse_detected
+  replacedById  String?
+  userAgent     String?
+
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+  @@index([expiresAt])
+  @@map("auth_sessions")
+}
+
+/// Something a person should know about: a problem reported on a device,
+/// work assigned to them, their report resolved. One row per recipient,
+/// written in the same transaction as the event so none are lost.
+model Notification {
+  id             String    @id @default(uuid())
+  organizationId String
+  userId         String
+  /// problem_reported | device_alert | escalation | assigned | resolved | cancelled
+  kind           String    @db.VarChar(40)
+  /// critical | warning | info
+  severity       String    @db.VarChar(10)
+  title          String    @db.VarChar(200)
+  body           String?   @db.VarChar(1000)
+  /// In-app path to open, e.g. /maintenance or /assets/<id>
+  link           String?   @db.VarChar(300)
+  assetId        String?
+  workOrderId    String?
+  /// Stops the same notice reaching the same person twice (e.g. escalations).
+  dedupeKey      String?   @db.VarChar(200)
+  createdAt      DateTime  @default(now())
+  readAt         DateTime?
+
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, readAt, createdAt(sort: Desc)])
+  @@index([dedupeKey])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+/// Notices sent outside the app (a webhook to an SMS/WhatsApp gateway or
+/// paging system). Written with the event, delivered by a background job
+/// with retries.
+model OutboundMessage {
+  id             String    @id @default(uuid())
+  organizationId String
+  channel        String    @db.VarChar(20)
+  dedupeKey      String?   @unique @db.VarChar(200)
+  payload        Json
+  attempts       Int       @default(0)
+  /// Also a lease: a worker that claims a message pushes this forward.
+  nextAttemptAt  DateTime  @default(now())
+  sentAt         DateTime?
+  /// Gave up after the last retry.
+  failedAt       DateTime?
+  lastError      String?   @db.VarChar(500)
+  createdAt      DateTime  @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([sentAt, failedAt, nextAttemptAt])
+  @@map("outbound_messages")
+}

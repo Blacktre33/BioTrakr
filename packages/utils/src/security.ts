@@ -27,6 +27,8 @@ export interface AccessTokenClaims extends JwtPayload {
   firstName: string;
   lastName: string;
   iat?: number;
+  /** Present (true) while the user must replace a one-time password. */
+  pwc?: true;
 }
 
 /**
@@ -36,6 +38,8 @@ export interface AccessTokenClaims extends JwtPayload {
 export interface RefreshTokenClaims extends JwtPayload {
   sub: string;
   type: "refresh";
+  /** Session id; the API rotates and revokes refresh tokens by it. */
+  jti?: string;
 }
 
 function resolveSaltRounds(explicit?: number): number {
@@ -78,6 +82,7 @@ function buildAccessTokenClaims(user: AuthenticatedUser): AccessTokenClaims {
     firstName: user.firstName,
     lastName: user.lastName,
     iat: user.sessionIssuedAt,
+    ...(user.passwordChangeRequired ? { pwc: true as const } : {}),
   };
 }
 
@@ -127,6 +132,8 @@ export function createRefreshToken(
     expiresIn: options.expiresIn ?? security.refreshTokenTtlSeconds,
     ...(issuer !== undefined ? { issuer } : {}),
     ...(audience !== undefined ? { audience } : {}),
+    // The session id, so the server can rotate and revoke this token.
+    ...(options.jwtid !== undefined ? { jwtid: options.jwtid } : {}),
   };
 
   return jwt.sign(claims, security.jwtSecret, signOptions);

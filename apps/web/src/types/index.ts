@@ -19,8 +19,10 @@ export interface Asset {
   warrantyExpiry: string;
   lastMaintenance: string;
   nextMaintenance: string;
-  utilizationRate: number;
-  healthScore: number;
+  /** null until utilization has been measured for this device. */
+  utilizationRate: number | null;
+  /** null until a health score has been computed for this device. */
+  healthScore: number | null;
   tags: string[];
   assignedDepartment: string;
   lastScan?: AssetScan;

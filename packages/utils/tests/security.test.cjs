@@ -4,11 +4,13 @@ const { describe, test } = require("node:test");
 require("./helpers/setup.cjs");
 
 const {
+  createRefreshToken,
   createTokenPair,
   getBearerToken,
   hashPassword,
   verifyAccessToken,
   verifyPassword,
+  verifyRefreshToken,
 } = require("../dist/utils/src/index.js");
 
 process.env.JWT_SECRET =
@@ -44,6 +46,14 @@ describe("security helpers", () => {
 
     assert.equal(claims.sub, baseUser.id);
     assert.deepEqual(claims.permissions, baseUser.permissions);
+  });
+
+  test("carries a session id in refresh tokens when given one", () => {
+    const token = createRefreshToken(baseUser, { jwtid: "session-1" });
+    const claims = verifyRefreshToken(token);
+
+    assert.equal(claims.sub, baseUser.id);
+    assert.equal(claims.jti, "session-1");
   });
 
   test("extracts bearer tokens from authorization headers", () => {

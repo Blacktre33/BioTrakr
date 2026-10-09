@@ -8,9 +8,23 @@ import {
   UsePipes,
   Logger,
   BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
-import { IngestionService } from './ingestion.service';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBody,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
+
+import type { AuthUser } from '../../auth/auth-user';
+import { CurrentUser, Roles } from '../../auth/decorators';
+import { INGESTION_ROLES } from '../../auth/roles';
+import {
+  IngestionService,
+  IngestionValidationError,
+} from './ingestion.service';
 import {
   TelemetryEventDto,
   RTLSEventDto,
@@ -22,8 +36,22 @@ import {
   IngestionResponseDto,
 } from './dto/telemetry.dto';
 
+type ScopedEvent = { assetId: string; facilityId: string };
+
+const NOT_IN_SCOPE = 'Asset or facility not found in your organization';
+const OK: IngestionResponseDto = { success: true, processed: 1, failed: 0 };
+
+/**
+ * Device gateways and integrations push events here (admin or integration
+ * role). Mounted at /api/v1/ingest/* under the global /api prefix.
+ *
+ * Errors: 400 for invalid events, 404 when the asset or facility is not in
+ * the caller's organization, 5xx when storage fails (so gateways retry).
+ */
 @ApiTags('Ingestion')
-@Controller('api/v1/ingest')
+@ApiBearerAuth()
+@Roles(...INGESTION_ROLES)
+@Controller('v1/ingest')
 @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
 export class IngestionController {
   private readonly logger = new Logger(IngestionController.name);
@@ -31,7 +59,7 @@ export class IngestionController {
   constructor(private readonly ingestionService: IngestionService) {}
 
   // ============================================================================
-  // TELEMETRY ENDPOINTS
+  // TELEMETRY
   // ============================================================================
 
   @Post('telemetry')
@@ -41,20 +69,11 @@ export class IngestionController {
   @ApiResponse({ status: 400, description: 'Validation failed' })
   async ingestTelemetry(
     @Body() event: TelemetryEventDto,
+    @CurrentUser() user: AuthUser,
   ): Promise<IngestionResponseDto> {
-    this.logger.log(`Ingesting telemetry: ${event.name} for asset ${event.assetId}`);
-
-    const success = await this.ingestionService.ingestTelemetryEvent(event);
-
-    if (!success) {
-      throw new BadRequestException('Failed to ingest telemetry event');
-    }
-
-    return {
-      success: true,
-      processed: 1,
-      failed: 0,
-    };
+    await this.assertInScope(event, user);
+    await this.run(() => this.ingestionService.ingestTelemetryEvent(event));
+    return OK;
   }
 
   @Post('telemetry/batch')
@@ -65,14 +84,15 @@ export class IngestionController {
   @ApiResponse({ status: 400, description: 'Validation failed' })
   async ingestTelemetryBatch(
     @Body() batch: BatchTelemetryDto,
+    @CurrentUser() user: AuthUser,
   ): Promise<IngestionResponseDto> {
-    this.logger.log(`Ingesting telemetry batch: ${batch.events.length} events`);
-
-    return this.ingestionService.ingestTelemetryBatch(batch);
+    return this.processBatch(batch.events, user, (event) =>
+      this.ingestionService.ingestTelemetryEvent(event),
+    );
   }
 
   // ============================================================================
-  // RTLS ENDPOINTS
+  // RTLS
   // ============================================================================
 
   @Post('rtls')
@@ -82,20 +102,13 @@ export class IngestionController {
   @ApiResponse({ status: 400, description: 'Validation failed' })
   async ingestRTLS(
     @Body() event: RTLSEventDto,
+    @CurrentUser() user: AuthUser,
   ): Promise<IngestionResponseDto> {
-    this.logger.log(`Ingesting RTLS: ${event.eventType} for asset ${event.assetId}`);
-
-    const success = await this.ingestionService.ingestRTLSEvent(event);
-
-    if (!success) {
-      throw new BadRequestException('Failed to ingest RTLS event');
-    }
-
-    return {
-      success: true,
-      processed: 1,
-      failed: 0,
-    };
+    await this.assertInScope(event, user);
+    await this.run(() =>
+      this.ingestionService.ingestRTLSEvent(event, user.organizationId),
+    );
+    return OK;
   }
 
   @Post('rtls/batch')
@@ -105,35 +118,15 @@ export class IngestionController {
   @ApiResponse({ status: 201, description: 'Batch processed' })
   async ingestRTLSBatch(
     @Body() batch: BatchRTLSDto,
+    @CurrentUser() user: AuthUser,
   ): Promise<IngestionResponseDto> {
-    this.logger.log(`Ingesting RTLS batch: ${batch.events.length} events`);
-
-    let processed = 0;
-    const errors: Array<{ index: number; message: string }> = [];
-
-    for (let i = 0; i < batch.events.length; i++) {
-      try {
-        const success = await this.ingestionService.ingestRTLSEvent(batch.events[i]);
-        if (success) {
-          processed++;
-        } else {
-          errors.push({ index: i, message: 'Ingestion failed' });
-        }
-      } catch (error) {
-        errors.push({ index: i, message: error.message || 'Unknown error' });
-      }
-    }
-
-    return {
-      success: errors.length === 0,
-      processed,
-      failed: errors.length,
-      errors: errors.length > 0 ? errors : undefined,
-    };
+    return this.processBatch(batch.events, user, (event) =>
+      this.ingestionService.ingestRTLSEvent(event, user.organizationId),
+    );
   }
 
   // ============================================================================
-  // MAINTENANCE EVENT ENDPOINTS
+  // MAINTENANCE
   // ============================================================================
 
   @Post('maintenance')
@@ -143,20 +136,13 @@ export class IngestionController {
   @ApiResponse({ status: 400, description: 'Validation failed' })
   async ingestMaintenance(
     @Body() event: MaintenanceEventDto,
+    @CurrentUser() user: AuthUser,
   ): Promise<IngestionResponseDto> {
-    this.logger.log(`Ingesting maintenance: ${event.eventType} for asset ${event.assetId}`);
-
-    const success = await this.ingestionService.ingestMaintenanceEvent(event);
-
-    if (!success) {
-      throw new BadRequestException('Failed to ingest maintenance event');
-    }
-
-    return {
-      success: true,
-      processed: 1,
-      failed: 0,
-    };
+    await this.assertInScope(event, user);
+    await this.run(() =>
+      this.ingestionService.ingestMaintenanceEvent(event, user.organizationId),
+    );
+    return OK;
   }
 
   @Post('maintenance/batch')
@@ -166,22 +152,102 @@ export class IngestionController {
   @ApiResponse({ status: 201, description: 'Batch processed' })
   async ingestMaintenanceBatch(
     @Body() batch: BatchMaintenanceDto,
+    @CurrentUser() user: AuthUser,
   ): Promise<IngestionResponseDto> {
-    this.logger.log(`Ingesting maintenance batch: ${batch.events.length} events`);
+    return this.processBatch(batch.events, user, (event) =>
+      this.ingestionService.ingestMaintenanceEvent(event, user.organizationId),
+    );
+  }
 
+  // ============================================================================
+  // ERRORS
+  // ============================================================================
+
+  @Post('error')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Ingest an error event' })
+  @ApiResponse({ status: 201, description: 'Event ingested successfully' })
+  @ApiResponse({ status: 400, description: 'Validation failed' })
+  async ingestError(
+    @Body() event: ErrorEventDto,
+    @CurrentUser() user: AuthUser,
+  ): Promise<IngestionResponseDto> {
+    await this.assertInScope(event, user);
+    await this.run(() =>
+      this.ingestionService.ingestErrorEvent(event, user.organizationId),
+    );
+    return OK;
+  }
+
+  // ============================================================================
+  // HELPERS
+  // ============================================================================
+
+  /** 404 unless the event's asset and facility belong to the caller's organization. */
+  private async assertInScope(
+    event: ScopedEvent,
+    user: AuthUser,
+  ): Promise<void> {
+    const ok = await this.ingestionService.isInOrganization(
+      user.organizationId,
+      event.assetId,
+      event.facilityId,
+    );
+    if (!ok) {
+      throw new NotFoundException(NOT_IN_SCOPE);
+    }
+  }
+
+  /** Validation problems become 400s; storage failures propagate as 5xx. */
+  private async run(ingest: () => Promise<void>): Promise<void> {
+    try {
+      await ingest();
+    } catch (error) {
+      if (error instanceof IngestionValidationError) {
+        throw new BadRequestException({
+          message: 'Validation failed',
+          errors: error.errors,
+        });
+      }
+      throw error;
+    }
+  }
+
+  private async processBatch<T extends ScopedEvent>(
+    events: T[],
+    user: AuthUser,
+    ingest: (event: T) => Promise<void>,
+  ): Promise<IngestionResponseDto> {
     let processed = 0;
     const errors: Array<{ index: number; message: string }> = [];
 
-    for (let i = 0; i < batch.events.length; i++) {
+    for (let i = 0; i < events.length; i++) {
       try {
-        const success = await this.ingestionService.ingestMaintenanceEvent(batch.events[i]);
-        if (success) {
-          processed++;
-        } else {
-          errors.push({ index: i, message: 'Ingestion failed' });
+        const inScope = await this.ingestionService.isInOrganization(
+          user.organizationId,
+          events[i].assetId,
+          events[i].facilityId,
+        );
+        if (!inScope) {
+          errors.push({ index: i, message: NOT_IN_SCOPE });
+          continue;
         }
+        await ingest(events[i]);
+        processed++;
       } catch (error) {
-        errors.push({ index: i, message: error.message || 'Unknown error' });
+        if (error instanceof IngestionValidationError) {
+          errors.push({ index: i, message: error.message });
+        } else {
+          // Don't echo database internals back to the caller.
+          this.logger.error(
+            `Batch event ${i} failed to store`,
+            (error as Error).stack,
+          );
+          errors.push({
+            index: i,
+            message: 'Storage failed; retry this event',
+          });
+        }
       }
     }
 
@@ -192,32 +258,4 @@ export class IngestionController {
       errors: errors.length > 0 ? errors : undefined,
     };
   }
-
-  // ============================================================================
-  // ERROR EVENT ENDPOINTS
-  // ============================================================================
-
-  @Post('error')
-  @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Ingest an error event' })
-  @ApiResponse({ status: 201, description: 'Event ingested successfully' })
-  @ApiResponse({ status: 400, description: 'Validation failed' })
-  async ingestError(
-    @Body() event: ErrorEventDto,
-  ): Promise<IngestionResponseDto> {
-    this.logger.log(`Ingesting error: ${event.errorCode} for asset ${event.assetId}`);
-
-    const success = await this.ingestionService.ingestErrorEvent(event);
-
-    if (!success) {
-      throw new BadRequestException('Failed to ingest error event');
-    }
-
-    return {
-      success: true,
-      processed: 1,
-      failed: 0,
-    };
-  }
 }
-

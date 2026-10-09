@@ -1,162 +1,144 @@
 'use client';
 
-import { useState } from 'react';
-import { motion } from 'framer-motion';
-import { User, Bell, Shield, Database, Palette, Globe } from 'lucide-react';
+import { Suspense, useEffect, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { Building2, LogOut, UserCircle, Users } from 'lucide-react';
+import { toast } from 'sonner';
+
 import { Header } from '@/components/layout';
-import { Card, Button, Input, Badge } from '@/components/ui';
+import { ChangePasswordForm } from '@/components/settings/change-password-form';
+import { LocationsAdmin } from '@/components/settings/locations-admin';
+import { PeopleAdmin } from '@/components/settings/people-admin';
+import { Button, Card } from '@/components/ui';
+import { api, signOut } from '@/lib/api/client';
+import { getSession, ROLE_LABEL, type SessionUser } from '@/lib/auth/session';
 import { cn } from '@/lib/utils';
 
-export default function SettingsPage() {
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [emailNotifications, setEmailNotifications] = useState(true);
-  const [pushNotifications, setPushNotifications] = useState(false);
+const TABS = [
+  { id: 'account', label: 'My account', icon: UserCircle, adminOnly: false },
+  { id: 'locations', label: 'Facilities & rooms', icon: Building2, adminOnly: true },
+  { id: 'people', label: 'People', icon: Users, adminOnly: true },
+] as const;
+type TabId = (typeof TABS)[number]['id'];
 
-  const settingsSections = [
-    {
-      id: 'profile',
-      title: 'Profile Settings',
-      icon: User,
-      description: 'Manage your account information',
-    },
-    {
-      id: 'notifications',
-      title: 'Notifications',
-      icon: Bell,
-      description: 'Configure alert preferences',
-    },
-    {
-      id: 'security',
-      title: 'Security & Privacy',
-      icon: Shield,
-      description: 'Password and security settings',
-    },
-    {
-      id: 'data',
-      title: 'Data Management',
-      icon: Database,
-      description: 'Backup and export settings',
-    },
-    {
-      id: 'appearance',
-      title: 'Appearance',
-      icon: Palette,
-      description: 'Theme and display preferences',
-    },
-    {
-      id: 'localization',
-      title: 'Localization',
-      icon: Globe,
-      description: 'Language and region settings',
-    },
-  ];
+function MyAccount({ me }: { me: SessionUser }) {
+  const [ending, setEnding] = useState(false);
+
+  const signOutEverywhere = async () => {
+    setEnding(true);
+    try {
+      await api.post('/auth/logout-all');
+    } catch (err) {
+      // Don't pretend: the other devices may still be signed in.
+      toast.error(
+        `Could not sign out your other devices: ${err instanceof Error ? err.message : 'please try again'}`,
+      );
+      setEnding(false);
+      return;
+    }
+    await signOut();
+  };
 
   return (
-    <>
-      <Header
-        title="Settings"
-        subtitle="Manage your account and application preferences"
-      />
-
-      <div className="p-6">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="space-y-6"
-        >
-          {/* Settings Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {settingsSections.map((section) => {
-              const Icon = section.icon;
-              return (
-                <Card
-                  key={section.id}
-                  variant="interactive"
-                  className="p-6 cursor-pointer"
-                  onClick={() => {
-                    // In a real app, this would navigate to a detailed settings page
-                    console.log(`Navigate to ${section.id} settings`);
-                  }}
-                >
-                  <div className="flex items-start gap-4">
-                    <div className="p-3 bg-primary-500/20 rounded-xl">
-                      <Icon className="w-6 h-6 text-primary-400" />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-white mb-1">{section.title}</h3>
-                      <p className="text-sm text-gray-400">{section.description}</p>
-                    </div>
-                  </div>
-                </Card>
-              );
-            })}
+    <div className="grid gap-6 lg:grid-cols-2">
+      <Card className="p-6">
+        <h3 className="mb-4 font-semibold text-gray-100">You</h3>
+        <dl className="space-y-3 text-sm">
+          <div>
+            <dt className="text-gray-400">Name</dt>
+            <dd className="text-gray-100">
+              {me.firstName} {me.lastName}
+            </dd>
           </div>
-
-          {/* Notification Preferences */}
-          <Card className="p-6">
-            <div className="flex items-center gap-3 mb-6">
-              <Bell className="w-5 h-5 text-primary-400" />
-              <h2 className="text-lg font-semibold text-white">Notification Preferences</h2>
-            </div>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between p-4 bg-surface-200/30 rounded-xl">
-                <div>
-                  <p className="font-medium text-white">Enable Notifications</p>
-                  <p className="text-sm text-gray-400 mt-0.5">Receive system alerts and updates</p>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={notificationsEnabled}
-                    onChange={(e) => setNotificationsEnabled(e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-surface-300 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-primary-500/50 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-500"></div>
-                </label>
-              </div>
-              <div className="flex items-center justify-between p-4 bg-surface-200/30 rounded-xl">
-                <div>
-                  <p className="font-medium text-white">Email Notifications</p>
-                  <p className="text-sm text-gray-400 mt-0.5">Receive alerts via email</p>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={emailNotifications}
-                    onChange={(e) => setEmailNotifications(e.target.checked)}
-                    className="sr-only peer"
-                    disabled={!notificationsEnabled}
-                  />
-                  <div className={cn(
-                    "w-11 h-6 bg-surface-300 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-primary-500/50 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-500",
-                    !notificationsEnabled && "opacity-50 cursor-not-allowed"
-                  )}></div>
-                </label>
-              </div>
-              <div className="flex items-center justify-between p-4 bg-surface-200/30 rounded-xl">
-                <div>
-                  <p className="font-medium text-white">Push Notifications</p>
-                  <p className="text-sm text-gray-400 mt-0.5">Receive browser push notifications</p>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={pushNotifications}
-                    onChange={(e) => setPushNotifications(e.target.checked)}
-                    className="sr-only peer"
-                    disabled={!notificationsEnabled}
-                  />
-                  <div className={cn(
-                    "w-11 h-6 bg-surface-300 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-primary-500/50 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-500",
-                    !notificationsEnabled && "opacity-50 cursor-not-allowed"
-                  )}></div>
-                </label>
-              </div>
-            </div>
-          </Card>
-        </motion.div>
-      </div>
-    </>
+          <div>
+            <dt className="text-gray-400">Email (you sign in with this)</dt>
+            <dd className="text-gray-100">{me.email}</dd>
+          </div>
+          <div>
+            <dt className="text-gray-400">Role</dt>
+            <dd className="text-gray-100">{ROLE_LABEL[me.role] ?? me.role}</dd>
+          </div>
+        </dl>
+        <p className="mt-4 text-xs text-gray-500">To change your name or role, ask an administrator.</p>
+        <div className="mt-6 border-t border-white/5 pt-4">
+          <Button
+            variant="secondary"
+            size="sm"
+            leftIcon={<LogOut className="h-4 w-4" />}
+            onClick={signOutEverywhere}
+            isLoading={ending}
+          >
+            Sign out on every device
+          </Button>
+          <p className="mt-2 text-xs text-gray-500">Use this if you signed in on a shared or lost device.</p>
+        </div>
+      </Card>
+      <Card className="p-6">
+        <h3 className="mb-4 font-semibold text-gray-100">Change password</h3>
+        <ChangePasswordForm
+          onChanged={() => toast.success('Password changed. Other devices have been signed out.')}
+        />
+      </Card>
+    </div>
   );
 }
 
+function SettingsContent() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [me, setMe] = useState<SessionUser | null>(null);
+  useEffect(() => setMe(getSession()?.user ?? null), []);
+
+  if (!me) return null;
+  const isAdmin = me.role === 'admin';
+  const tabs = TABS.filter((t) => isAdmin || !t.adminOnly);
+  const requested = searchParams.get('tab') as TabId | null;
+  const active: TabId = tabs.some((t) => t.id === requested) ? requested! : 'account';
+
+  const select = (id: TabId) => router.replace(`${pathname}?tab=${id}` as never, { scroll: false });
+
+  return (
+    <div className="space-y-6 p-4 md:p-8">
+      {tabs.length > 1 && (
+        <div role="tablist" aria-label="Settings sections" className="flex flex-wrap gap-2">
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              role="tab"
+              id={`tab-${t.id}`}
+              aria-selected={active === t.id}
+              aria-controls={`panel-${t.id}`}
+              onClick={() => select(t.id)}
+              className={cn(
+                'inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-colors',
+                active === t.id
+                  ? 'bg-primary-500/20 text-primary-300'
+                  : 'text-gray-400 hover:bg-surface-200/50 hover:text-gray-200',
+              )}
+            >
+              <t.icon className="h-4 w-4" aria-hidden="true" />
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
+      <div role="tabpanel" id={`panel-${active}`} aria-labelledby={`tab-${active}`}>
+        {active === 'account' && <MyAccount me={me} />}
+        {active === 'locations' && <LocationsAdmin />}
+        {active === 'people' && <PeopleAdmin />}
+      </div>
+    </div>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <>
+      <Header title="Settings" subtitle="Your account, and setting up your hospital" />
+      <Suspense fallback={null}>
+        <SettingsContent />
+      </Suspense>
+    </>
+  );
+}

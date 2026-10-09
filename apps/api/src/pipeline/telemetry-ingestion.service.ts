@@ -35,7 +35,9 @@ export class TelemetryIngestionService {
 
     const results = await Promise.all(
       pendingEvents.map((event) =>
-        this.processSingleEvent(event as unknown as TelemetryIngestEventWithPayload),
+        this.processSingleEvent(
+          event as unknown as TelemetryIngestEventWithPayload,
+        ),
       ),
     );
 
@@ -62,7 +64,7 @@ export class TelemetryIngestionService {
       asset: { connect: { id: asset.id } },
       timestamp: new Date(payload.recordedAt),
       coordinatesX: payload.longitude, // Mapping longitude to X coordinate
-      coordinatesY: payload.latitude,  // Mapping latitude to Y coordinate
+      coordinatesY: payload.latitude, // Mapping latitude to Y coordinate
       trackingMethod: 'GPS',
       accuracyMeters: 5.0, // Default GPS accuracy
     };
@@ -114,10 +116,12 @@ export class TelemetryIngestionService {
       return this.prisma.asset.findUnique({ where: { id: payloadAssetId } });
     }
 
+    // A tag alone is not enough: tags are unique per organization and these
+    // events carry none, so a tag could name another hospital's device.
     if (payloadExternalId) {
-      return this.prisma.asset.findUnique({
-        where: { assetTagNumber: payloadExternalId },
-      });
+      this.logger.warn(
+        `Telemetry event names only a tag (${payloadExternalId}); send the asset id`,
+      );
     }
 
     return null;

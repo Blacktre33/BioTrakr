@@ -1,47 +1,31 @@
 import type { Metadata } from 'next';
-import { Outfit, JetBrains_Mono, Inter } from 'next/font/google';
-// import localFont from 'next/font/local';
+import localFont from 'next/font/local';
 import './globals.css';
 import { Providers } from '@/components/providers';
 
-const outfit = Outfit({
-  subsets: ['latin'],
+// Fonts are bundled (see fonts/README.md): builds and pages never depend on
+// reaching Google Fonts, which hospital networks often block.
+const outfit = localFont({
+  src: './fonts/OutfitVariable-latin.woff2',
   variable: '--font-outfit',
+  weight: '100 900',
   display: 'swap',
 });
 
-// const geistSans = localFont({
-//   src: './fonts/GeistVF.woff',
-//   variable: '--font-geist-sans',
-//   weight: '100 900',
-//   display: 'swap',
-//   fallback: ['system-ui', 'arial'],
-// });
-
-// const geistMono = localFont({
-//   src: './fonts/GeistMonoVF.woff',
-//   variable: '--font-geist-mono',
-//   weight: '100 900',
-//   display: 'swap',
-//   fallback: ['Consolas', 'monospace'],
-// });
-
-const geistSans = Inter({
-  subsets: ['latin'],
+const sans = localFont({
+  src: './fonts/InterVariable-latin.woff2',
   variable: '--font-geist-sans',
+  weight: '100 900',
   display: 'swap',
+  fallback: ['system-ui', 'arial'],
 });
 
-const geistMono = JetBrains_Mono({
-  subsets: ['latin'],
+const mono = localFont({
+  src: './fonts/JetBrainsMonoVariable-latin.woff2',
   variable: '--font-geist-mono',
+  weight: '100 800',
   display: 'swap',
-});
-
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ['latin'],
-  variable: '--font-mono',
-  display: 'swap',
+  fallback: ['Consolas', 'monospace'],
 });
 
 export const metadata: Metadata = {
@@ -62,14 +46,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${outfit.variable} ${geistSans.variable} ${geistMono.variable} ${jetbrainsMono.variable}`}>
-      <body className="min-h-screen bg-surface-0 font-sans">
+    <html lang="en" className={`${outfit.variable} ${sans.variable} ${mono.variable}`}>
+      <body className="min-h-screen bg-surface-0 font-sans print:bg-white">
         <Providers>
           {/* Noise texture overlay */}
-          <div className="noise-overlay" aria-hidden="true" />
+          <div className="noise-overlay print:hidden" aria-hidden="true" />
           
           {/* Background gradient mesh */}
-          <div className="fixed inset-0 gradient-mesh pointer-events-none" aria-hidden="true" />
+          <div className="fixed inset-0 gradient-mesh pointer-events-none print:hidden" aria-hidden="true" />
           
           {/* Main content */}
           <div className="relative z-10">

@@ -1,5 +1,7 @@
 'use client';
 
+import type { Route } from 'next';
+import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -18,12 +20,25 @@ import {
   HelpCircle,
   Activity,
   TrendingUp,
+  ScanLine,
+  type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useSidebarStore, useAlertStore } from '@/stores';
+import { signOut } from '@/lib/api/client';
+import { getSession, ROLE_LABEL, type SessionUser } from '@/lib/auth/session';
+import { useSidebarStore } from '@/stores';
+import { useNotifications } from '@/lib/hooks/use-notifications';
 import { Avatar, Badge } from '@/components/ui';
 
-const navigationItems = [
+interface NavItem {
+  name: string;
+  href: string;
+  icon: LucideIcon;
+  description: string;
+  badge?: number;
+}
+
+const navigationItems: NavItem[] = [
   {
     name: 'Dashboard',
     href: '/dashboard',
@@ -37,11 +52,16 @@ const navigationItems = [
     description: 'Asset inventory',
   },
   {
-    name: 'Maintenance',
+    name: 'Scan a device',
+    href: '/scan',
+    icon: ScanLine,
+    description: 'Is it safe to use?',
+  },
+  {
+    name: 'Work orders',
     href: '/maintenance',
     icon: Wrench,
-    description: 'Work orders',
-    badge: 5,
+    description: 'Problem reports and scheduled work',
   },
   {
     name: 'Tracking',
@@ -79,7 +99,12 @@ const bottomNavItems = [
 export function Sidebar() {
   const pathname = usePathname();
   const { isCollapsed, toggleCollapsed } = useSidebarStore();
-  const { unreadCount } = useAlertStore();
+  // Same query as the header bell, so one request serves both.
+  const unreadCount = useNotifications().data?.unread ?? 0;
+  const [me, setMe] = useState<SessionUser | null>(null);
+  // Read after mount: the session lives in sessionStorage (browser only).
+  useEffect(() => setMe(getSession()?.user ?? null), []);
+  const myName = me ? `${me.firstName} ${me.lastName}`.trim() : '';
 
   return (
     <motion.aside
@@ -137,7 +162,7 @@ export function Sidebar() {
                     const query = (e.target as HTMLInputElement).value.trim();
                     if (query) {
                       // Navigate to assets page with search query
-                      window.location.href = `/assets?search=${encodeURIComponent(query)}`;
+                      window.location.href = `/assets?q=${encodeURIComponent(query)}`;
                     }
                   }
                 }}
@@ -158,7 +183,7 @@ export function Sidebar() {
             const Icon = item.icon;
 
             return (
-              <Link key={item.name} href={item.href}>
+              <Link key={item.name} href={item.href as Route}>
                 <div
                   className={cn(
                     'group flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200',
@@ -224,7 +249,7 @@ export function Sidebar() {
                   exit={{ opacity: 0, x: -10 }}
                   transition={{ duration: 0.2 }}
                 >
-                  <p className="text-sm font-medium">Alerts</p>
+                  <p className="text-sm font-medium">Notifications</p>
                   <p className="text-xs text-gray-500">{unreadCount} unread</p>
                 </motion.div>
               )}
@@ -240,7 +265,7 @@ export function Sidebar() {
           const isActive = pathname === item.href;
 
           return (
-            <Link key={item.name} href={item.href}>
+            <Link key={item.name} href={item.href as Route}>
               <div className={cn(
                 'flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200',
                 isActive
@@ -271,7 +296,7 @@ export function Sidebar() {
       {/* User Section */}
       <div className="border-t border-white/5 p-4">
         <div className="flex items-center gap-3">
-          <Avatar name="Dr. Sarah Chen" size="md" />
+          <Avatar name={myName || '?'} size="md" />
           <AnimatePresence>
             {!isCollapsed && (
               <motion.div
@@ -280,14 +305,18 @@ export function Sidebar() {
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -10 }}
               >
-                <p className="text-sm font-medium text-gray-200 truncate">Dr. Sarah Chen</p>
-                <p className="text-xs text-gray-500 truncate">Admin • ICU</p>
+                <p className="text-sm font-medium text-gray-200 truncate">{myName}</p>
+                <p className="text-xs text-gray-500 truncate">{me ? ROLE_LABEL[me.role] ?? me.role : ''}</p>
               </motion.div>
             )}
           </AnimatePresence>
           <AnimatePresence>
             {!isCollapsed && (
               <motion.button
+                type="button"
+                onClick={() => void signOut()}
+                aria-label="Sign out"
+                title="Sign out"
                 className="p-2 text-gray-500 hover:text-gray-300 transition-colors"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}

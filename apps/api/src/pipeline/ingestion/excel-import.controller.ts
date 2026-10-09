@@ -19,9 +19,19 @@ import {
   ApiConsumes,
   ApiBody,
   ApiQuery,
+  ApiBearerAuth,
 } from '@nestjs/swagger';
-import { Response, Request } from 'express';
-import { ExcelImportService, ImportResult } from './excel-import.service';
+import { Response } from 'express';
+
+import type { AuthUser } from '../../auth/auth-user';
+import { CurrentUser, Roles } from '../../auth/decorators';
+import { ASSET_EDITOR_ROLES, STAFF_ROLES } from '../../auth/roles';
+import { MAX_IMPORT_FILE_BYTES } from './excel-import.rules';
+import {
+  ExcelImportService,
+  type ImportCheck,
+  type ImportResult,
+} from './excel-import.service';
 
 export interface UploadedMulterFile {
   fieldname: string;
@@ -32,7 +42,30 @@ export interface UploadedMulterFile {
   size: number;
 }
 
+/** One .xlsx file, size-capped before it is read into memory (larger -> 413). */
+const UPLOAD = FileInterceptor('file', {
+  limits: { fileSize: MAX_IMPORT_FILE_BYTES, files: 1 },
+});
+
+function assertExcelFile(
+  file: UploadedMulterFile | undefined,
+): asserts file is UploadedMulterFile {
+  if (!file) {
+    throw new BadRequestException('No file uploaded');
+  }
+  const xlsx =
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  if (
+    file.mimetype !== xlsx &&
+    !file.originalname.toLowerCase().endsWith('.xlsx')
+  ) {
+    throw new BadRequestException('Please upload an Excel file (.xlsx)');
+  }
+}
+
 @ApiTags('Excel Import/Export')
+@ApiBearerAuth()
+@Roles(...STAFF_ROLES)
 @Controller('v1/assets')
 export class ExcelImportController {
   private readonly logger = new Logger(ExcelImportController.name);
@@ -40,12 +73,16 @@ export class ExcelImportController {
   constructor(private readonly excelImportService: ExcelImportService) {}
 
   /**
-   * Import assets from Excel file
+   * Import assets from an Excel file: all rows or none.
    */
   @Post('import')
+  @Roles(...ASSET_EDITOR_ROLES)
   @HttpCode(HttpStatus.OK)
-  @UseInterceptors(FileInterceptor('file'))
-  @ApiOperation({ summary: 'Import assets from Excel file' })
+  @UseInterceptors(UPLOAD)
+  @ApiOperation({
+    summary:
+      'Import assets from Excel. Saves every row or none: if any row has an error, nothing is written and the errors are returned.',
+  })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -54,58 +91,25 @@ export class ExcelImportController {
         file: {
           type: 'string',
           format: 'binary',
-          description: 'Excel file (.xlsx) with asset data',
+          description: 'Excel file (.xlsx), at most 5 MB',
         },
       },
     },
   })
   @ApiResponse({
     status: 200,
-    description: 'Import result',
-    schema: {
-      type: 'object',
-      properties: {
-        success: { type: 'boolean' },
-        totalRows: { type: 'number' },
-        imported: { type: 'number' },
-        failed: { type: 'number' },
-        errors: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              row: { type: 'number' },
-              field: { type: 'string' },
-              message: { type: 'string' },
-            },
-          },
-        },
-      },
-    },
+    description:
+      'Import result (success=false with errors when nothing was saved)',
   })
-  @ApiResponse({ status: 400, description: 'Invalid file or validation errors' })
+  @ApiResponse({ status: 400, description: 'No file, or not an .xlsx file' })
+  @ApiResponse({ status: 413, description: 'File larger than 5 MB' })
   async importAssets(
     @UploadedFile() file: UploadedMulterFile,
+    @CurrentUser() user: AuthUser,
   ): Promise<ImportResult> {
-    if (!file) {
-      throw new BadRequestException('No file uploaded');
-    }
-
-    // Validate file type
-    const validTypes = [
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'application/vnd.ms-excel',
-    ];
-    
-    if (!validTypes.includes(file.mimetype) && !file.originalname.endsWith('.xlsx')) {
-      throw new BadRequestException('Invalid file type. Please upload an Excel file (.xlsx)');
-    }
-
+    assertExcelFile(file);
     this.logger.log(`Importing assets from file: ${file.originalname}`);
-
-    const result = await this.excelImportService.importFromExcel(file.buffer);
-
-    return result;
+    return this.excelImportService.importFromExcel(file.buffer, user);
   }
 
   /**
@@ -127,11 +131,17 @@ export class ExcelImportController {
   })
   async exportAssets(
     @Res() res: Response,
+    @CurrentUser() user: AuthUser,
     @Query('facilityId') facilityId?: string,
   ) {
-    this.logger.log(`Exporting assets${facilityId ? ` for facility ${facilityId}` : ''}`);
+    this.logger.log(
+      `Exporting assets${facilityId ? ` for facility ${facilityId}` : ''}`,
+    );
 
-    const buffer = await this.excelImportService.exportToExcel(facilityId);
+    const buffer = await this.excelImportService.exportToExcel(
+      user.organizationId,
+      facilityId,
+    );
 
     const filename = `biotrakr_assets_${new Date().toISOString().split('T')[0]}.xlsx`;
 
@@ -171,48 +181,32 @@ export class ExcelImportController {
   }
 
   /**
-   * Validate Excel file without importing
+   * Check a file and preview the import. Never writes.
    */
   @Post('validate')
+  @Roles(...ASSET_EDITOR_ROLES)
   @HttpCode(HttpStatus.OK)
-  @UseInterceptors(FileInterceptor('file'))
-  @ApiOperation({ summary: 'Validate Excel file without importing' })
+  @UseInterceptors(UPLOAD)
+  @ApiOperation({
+    summary:
+      'Check an Excel file and preview what an import would do. Nothing is saved.',
+  })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
       type: 'object',
-      properties: {
-        file: {
-          type: 'string',
-          format: 'binary',
-        },
-      },
+      properties: { file: { type: 'string', format: 'binary' } },
     },
   })
   @ApiResponse({
     status: 200,
-    description: 'Validation result',
+    description: 'Errors, warnings, counts and a preview of the first rows',
   })
   async validateFile(
     @UploadedFile() file: UploadedMulterFile,
-  ) {
-    if (!file) {
-      throw new BadRequestException('No file uploaded');
-    }
-
-    // For validation only, we would parse and validate without inserting
-    // This is a simplified version - in production, refactor to separate validation
-    
-    const result = await this.excelImportService.importFromExcel(file.buffer);
-    
-    // Return validation results without actually committing
-    // In a real implementation, wrap the import in a transaction and rollback
-    
-    return {
-      valid: result.errors.length === 0,
-      totalRows: result.totalRows,
-      errors: result.errors,
-      warnings: result.warnings,
-    };
+    @CurrentUser() user: AuthUser,
+  ): Promise<ImportCheck> {
+    assertExcelFile(file);
+    return this.excelImportService.checkFile(file.buffer, user);
   }
 }

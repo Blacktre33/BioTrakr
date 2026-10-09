@@ -253,7 +253,7 @@ export interface TelemetryIngestPayload {
   status: AssetStatus;
   recordedAt: string;
   metadata?: Record<string, unknown>;
-  
+
   // Enhanced fields for labeling standards
   metricName?: string; // domain.entity.action.metric_type
   metricValue?: number;
@@ -315,7 +315,9 @@ export type UserRole =
   | "engineer"
   | "technician"
   | "clinical_staff"
-  | "viewer";
+  | "viewer"
+  /** Machine account for RTLS/telemetry gateways; ingestion endpoints only. */
+  | "integration";
 
 export interface Permission {
   name: string;
@@ -348,6 +350,8 @@ export interface AuthenticatedUser {
   firstName: string;
   lastName: string;
   sessionIssuedAt: number;
+  /** Signed in with a one-time password that must be replaced first. */
+  passwordChangeRequired?: boolean;
 }
 
 export interface TokenPair {

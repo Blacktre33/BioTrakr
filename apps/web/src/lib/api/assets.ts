@@ -23,16 +23,47 @@ export interface ImportError {
   value?: any;
 }
 
+export interface ImportWarning {
+  /** Excel row number; 0 means the file as a whole. */
+  row: number;
+  message: string;
+}
+
+/** Result of an import: every row is saved, or none are. */
 export interface ImportResult {
   success: boolean;
   totalRows: number;
   imported: number;
+  created: number;
+  updated: number;
+  /** Rows with at least one error. */
   failed: number;
   errors: ImportError[];
-  warnings?: Array<{
-    row: number;
-    message: string;
-  }>;
+  warnings: ImportWarning[];
+}
+
+export interface ImportPreviewRow {
+  row: number;
+  action: "create" | "update";
+  assetTagNumber: string;
+  equipmentName: string;
+  facility: string;
+  department: string;
+  status: string;
+  category: string;
+  /** For updates: the columns whose values will change. */
+  changes?: string[];
+}
+
+/** Result of checking a file before import. Nothing is saved. */
+export interface ImportCheck {
+  valid: boolean;
+  totalRows: number;
+  toCreate: number;
+  toUpdate: number;
+  errors: ImportError[];
+  warnings: ImportWarning[];
+  preview: ImportPreviewRow[];
 }
 
 export async function createAssetScan(
@@ -88,11 +119,11 @@ export async function downloadAssetTemplate(): Promise<Blob> {
 /**
  * Validate Excel file without importing
  */
-export async function validateExcelFile(file: File): Promise<ImportResult> {
+export async function validateExcelFile(file: File): Promise<ImportCheck> {
   const formData = new FormData();
   formData.append("file", file);
 
-  const { data } = await api.post<ImportResult>("/v1/assets/validate", formData, {
+  const { data } = await api.post<ImportCheck>("/v1/assets/validate", formData, {
     headers: {
       "Content-Type": "multipart/form-data",
     },
@@ -124,13 +155,24 @@ export interface Asset {
   createdAt: string;
   updatedAt: string;
   deletedAt?: string | null;
+  lastPmDate?: string | null;
+  nextPmDueDate?: string | null;
+  warrantyEndDate?: string | null;
+  pmFrequencyDays?: number | null;
+  udiDeviceIdentifier?: string | null;
+  notes?: string | null;
   currentFacility?: {
     id: string;
     facilityName: string;
   } | null;
   currentRoom?: {
     id: string;
-    roomNumber: string;
+    roomName: string;
+    roomCode: string;
+  } | null;
+  custodianDepartment?: {
+    id: string;
+    departmentName: string;
   } | null;
 }
 
@@ -147,7 +189,10 @@ export interface CreateAssetPayload {
   purchaseDate: string;
   purchaseCost: number;
   usefulLifeYears: number;
-  organizationId: string;
+  pmFrequencyDays?: number;
+  /** YYYY-MM-DD */
+  lastPmDate?: string;
+  // organizationId comes from the signed-in user's token; never sent by the client.
   currentFacilityId: string;
   primaryCustodianId: string;
   custodianDepartmentId: string;
@@ -171,35 +216,86 @@ export interface CreateAssetPayload {
   notes?: string;
 }
 
+/** Editable details. Status changes go through changeAssetStatus (needs a reason). */
 export interface UpdateAssetPayload {
   equipmentName?: string;
   manufacturer?: string;
   modelNumber?: string;
   serialNumber?: string;
-  assetStatus?: string;
+  deviceCategory?: string;
+  criticalityLevel?: string;
+  riskClassification?: string;
   currentFacilityId?: string;
   currentRoomId?: string;
+  custodianDepartmentId?: string;
+  primaryCustodianId?: string;
+  pmFrequencyDays?: number;
+  usefulLifeYears?: number;
+  warrantyEndDate?: string;
+  udiDeviceIdentifier?: string;
   notes?: string;
 }
+
+export interface StatusChange {
+  id: string;
+  fromStatus: string;
+  toStatus: string;
+  reason: string;
+  source: "MANUAL" | "FAULT_REPORT" | "WORK_ORDER" | "DEVICE_ALERT" | "IMPORT";
+  workOrderId?: string | null;
+  changedAt: string;
+  changedBy: string | null;
+}
+
+export async function changeAssetStatus(
+  assetId: string,
+  body: { status: string; reason: string; expectedStatus: string; confirmSafe?: boolean },
+): Promise<{ changed: true; fromStatus: string; toStatus: string; changedAt: string }> {
+  const { data } = await api.post(`/assets/${assetId}/status`, body);
+  return data;
+}
+
+export async function getStatusHistory(assetId: string): Promise<StatusChange[]> {
+  const { data } = await api.get<StatusChange[]>(`/assets/${assetId}/status-history`);
+  return data;
+}
+
+export type AssetSort = "tag" | "name" | "status" | "nextPm" | "updated";
 
 export interface ListAssetsParams {
   skip?: number;
   take?: number;
   search?: string;
-  status?: string;
-  category?: string;
+  /** Database values, e.g. ["QUARANTINED", "IN_MAINTENANCE"]. */
+  status?: string[];
+  category?: string[];
+  criticality?: string[];
   facilityId?: string;
+  departmentId?: string;
+  pmOverdue?: boolean;
+  sort?: AssetSort;
+  order?: "asc" | "desc";
+}
+
+export interface AssetPage {
+  total: number;
+  items: Asset[];
 }
 
 /**
  * List all assets with optional pagination and filters
  */
-export async function listAssets(params?: ListAssetsParams): Promise<Asset[]> {
-  const queryParams = new URLSearchParams();
-  if (params?.skip !== undefined) queryParams.append('skip', params.skip.toString());
-  if (params?.take !== undefined) queryParams.append('take', params.take.toString());
-  
-  const { data } = await api.get<Asset[]>(`/assets?${queryParams.toString()}`);
+export async function listAssets(params: ListAssetsParams = {}): Promise<AssetPage> {
+  const query: Record<string, string> = {};
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === "" || value === false) continue;
+    if (Array.isArray(value)) {
+      if (value.length) query[key] = value.join(",");
+    } else {
+      query[key] = String(value);
+    }
+  }
+  const { data } = await api.get<AssetPage>("/assets", { params: query });
   return data;
 }
 
@@ -235,3 +331,50 @@ export async function deleteAsset(assetId: string): Promise<Asset> {
   return data;
 }
 
+
+/** A device as staff need to see it at the bedside, from GET /assets/lookup. */
+export interface AssetLookup {
+  id: string;
+  assetTagNumber: string;
+  equipmentName: string;
+  manufacturer: string;
+  modelNumber: string;
+  serialNumber: string;
+  deviceCategory: string;
+  criticalityLevel: string;
+  riskClassification: string;
+  assetStatus: string;
+  recallStatus: string;
+  lastSeenTimestamp: string | null;
+  /** False when any alert says not to use the device. */
+  safeToUse: boolean;
+  alerts: Array<{ level: "stop" | "caution"; message: string }>;
+  location: { facility: string | null; room: string | null };
+  department: string | null;
+  pm: { lastPmDate: string | null; nextPmDueDate: string | null; overdue: boolean };
+  recentMaintenance: Array<{
+    id: string;
+    workOrderType: string;
+    workOrderStatus: string;
+    scheduledDate: string;
+    completedAt: string | null;
+    description: string | null;
+  }>;
+  pmFrequencyDays: number | null;
+  /** Work orders not yet completed or cancelled (e.g. problems already reported). */
+  openWorkOrders: number;
+  recentStatusChanges: Array<Omit<StatusChange, "workOrderId">>;
+  recentScans: Array<{
+    id: string;
+    createdAt: string;
+    notes: string | null;
+    locationHint: string | null;
+    scannedBy: string | null;
+  }>;
+}
+
+/** Finds the device behind a scanned or typed code (tag, id, QR payload or scan link). */
+export async function lookupAsset(code: string): Promise<AssetLookup> {
+  const { data } = await api.get<AssetLookup>("/assets/lookup", { params: { code } });
+  return data;
+}

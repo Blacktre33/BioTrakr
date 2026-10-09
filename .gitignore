@@ -42,3 +42,10 @@ mlruns/
 apps/ml-service/artifacts/
 # Docker
 *.pid
+
+# Compiled output must never sit next to package sources: Jest and
+# ts-node resolve .js before .ts, so a stale copy silently replaces the code.
+packages/*/src/**/*.js
+packages/*/src/**/*.js.map
+packages/*/src/**/*.d.ts
+!packages/utils/src/externals.d.ts

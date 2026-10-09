@@ -1,25 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import type { Route } from 'next';
+import { signOut } from '@/lib/api/client';
+import { getSession } from '@/lib/auth/session';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
-import {
-  Bell,
-  Search,
-  Plus,
-  ChevronDown,
-  X,
-  AlertTriangle,
-  AlertCircle,
-  Info,
-  Check,
-  Clock,
-} from 'lucide-react';
-import { cn, formatRelativeTime } from '@/lib/utils';
-import { useAlertStore } from '@/stores';
-import { mockAlerts } from '@/lib/mock-data';
-import { Button, Avatar, Badge } from '@/components/ui';
+import { Plus, ChevronDown } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { NotificationBell } from '@/components/notifications/notification-bell';
+import { Button, Avatar } from '@/components/ui';
 
 interface HeaderProps {
   title: string;
@@ -31,22 +21,11 @@ export function Header({ title, subtitle, actions }: HeaderProps) {
   const router = useRouter();
   const [showNotifications, setShowNotifications] = useState(false);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
-  const { alerts, acknowledgeAlert, dismissAlert } = useAlertStore();
-
-  // Use mock alerts if store is empty
-  const displayAlerts = alerts.length > 0 ? alerts : mockAlerts;
-  const unreadAlerts = displayAlerts.filter((a) => !a.acknowledged);
-
-  const getAlertIcon = (type: string) => {
-    switch (type) {
-      case 'critical':
-        return <AlertTriangle className="w-4 h-4 text-critical-500" />;
-      case 'warning':
-        return <AlertCircle className="w-4 h-4 text-warning-500" />;
-      default:
-        return <Info className="w-4 h-4 text-primary-400" />;
-    }
-  };
+  const [myName, setMyName] = useState('');
+  useEffect(() => {
+    const u = getSession()?.user;
+    setMyName(u ? `${u.firstName} ${u.lastName}`.trim() : '');
+  }, []);
 
   const quickAddOptions = [
     { label: 'New Asset', icon: Plus, href: '/assets', action: () => router.push('/assets?new=true') },
@@ -58,7 +37,7 @@ export function Header({ title, subtitle, actions }: HeaderProps) {
     if (option.action) {
       option.action();
     } else {
-      router.push(option.href);
+      router.push(option.href as Route);
     }
   };
 
@@ -121,143 +100,17 @@ export function Header({ title, subtitle, actions }: HeaderProps) {
           </div>
 
           {/* Notifications */}
-          <div className="relative">
-            <button
-              onClick={() => setShowNotifications(!showNotifications)}
-              className={cn(
-                'relative p-2.5 rounded-xl transition-all duration-200',
-                showNotifications
-                  ? 'bg-primary-500/20 text-primary-400'
-                  : unreadAlerts.length > 0
-                    ? 'text-primary-400 hover:bg-surface-200/50'
-                    : 'text-gray-400 hover:bg-surface-200/50 hover:text-gray-200'
-              )}
-            >
-              <Bell 
-                className="w-5 h-5" 
-                fill={unreadAlerts.length > 0 ? 'currentColor' : 'none'}
-              />
-              {unreadAlerts.length > 0 && (
-                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 flex items-center justify-center bg-critical-500 text-white text-[10px] font-bold rounded-full">
-                  {unreadAlerts.length > 99 ? '99+' : unreadAlerts.length}
-                </span>
-              )}
-            </button>
-
-            <AnimatePresence>
-              {showNotifications && (
-                <>
-                  <motion.div
-                    className="fixed inset-0 z-40"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    onClick={() => setShowNotifications(false)}
-                  />
-                  <motion.div
-                    className="absolute right-0 mt-2 w-96 bg-surface-100 border border-white/10 rounded-2xl shadow-xl overflow-hidden z-50"
-                    initial={{ opacity: 0, y: -10, scale: 0.95 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: -10, scale: 0.95 }}
-                    transition={{ duration: 0.15 }}
-                  >
-                    {/* Header */}
-                    <div className="flex items-center justify-between px-4 py-3 border-b border-white/5">
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-semibold text-white">Notifications</h3>
-                        {unreadAlerts.length > 0 && (
-                          <Badge variant="critical" size="sm">
-                            {unreadAlerts.length} new
-                          </Badge>
-                        )}
-                      </div>
-                      <button
-                        onClick={() => setShowNotifications(false)}
-                        className="p-1 text-gray-500 hover:text-gray-300 transition-colors"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-
-                    {/* Alerts List */}
-                    <div className="max-h-96 overflow-y-auto">
-                      {displayAlerts.length === 0 ? (
-                        <div className="py-8 text-center text-gray-500">
-                          <Bell className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                          <p className="text-sm">No notifications</p>
-                        </div>
-                      ) : (
-                        displayAlerts.slice(0, 5).map((alert) => (
-                          <div
-                            key={alert.id}
-                            className={cn(
-                              'px-4 py-3 border-b border-white/5 hover:bg-surface-200/30 transition-colors',
-                              !alert.acknowledged && 'bg-surface-200/20'
-                            )}
-                          >
-                            <div className="flex gap-3">
-                              <div className="mt-0.5">{getAlertIcon(alert.type)}</div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-start justify-between gap-2">
-                                  <p className="text-sm font-medium text-white">{alert.title}</p>
-                                  <span className="text-xs text-gray-500 whitespace-nowrap">
-                                    {formatRelativeTime(alert.timestamp)}
-                                  </span>
-                                </div>
-                                <p className="text-xs text-gray-400 mt-0.5 line-clamp-2">
-                                  {alert.message}
-                                </p>
-                                {alert.asset && (
-                                  <p className="text-xs text-gray-500 mt-1">
-                                    Asset: {alert.asset.name}
-                                  </p>
-                                )}
-                                <div className="flex items-center gap-2 mt-2">
-                                  {!alert.acknowledged && (
-                                    <button
-                                      onClick={() => acknowledgeAlert(alert.id)}
-                                      className="flex items-center gap-1 text-xs text-primary-400 hover:text-primary-300 transition-colors"
-                                    >
-                                      <Check className="w-3 h-3" />
-                                      Acknowledge
-                                    </button>
-                                  )}
-                                  <button
-                                    onClick={() => dismissAlert(alert.id)}
-                                    className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-400 transition-colors"
-                                  >
-                                    <X className="w-3 h-3" />
-                                    Dismiss
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-
-                    {/* Footer */}
-                    {displayAlerts.length > 0 && (
-                      <div className="px-4 py-3 border-t border-white/5">
-                        <Link
-                          href="/alerts"
-                          className="text-sm text-primary-400 hover:text-primary-300 transition-colors"
-                          onClick={() => setShowNotifications(false)}
-                        >
-                          View all notifications →
-                        </Link>
-                      </div>
-                    )}
-                  </motion.div>
-                </>
-              )}
-            </AnimatePresence>
-          </div>
+          <NotificationBell />
 
           {/* User Avatar */}
-          <button className="flex items-center gap-2 p-1.5 rounded-xl hover:bg-surface-200/50 transition-colors">
-            <Avatar name="Dr. Sarah Chen" size="sm" />
+          <button
+            type="button"
+            onClick={() => void signOut()}
+            aria-label={myName ? `Signed in as ${myName}. Sign out` : 'Sign out'}
+            title="Sign out"
+            className="flex items-center gap-2 p-1.5 rounded-xl hover:bg-surface-200/50 transition-colors"
+          >
+            <Avatar name={myName || '?'} size="sm" />
           </button>
         </div>
       </div>

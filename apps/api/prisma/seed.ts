@@ -8,10 +8,10 @@ async function main() {
 
   // 1. Create Organization
   const organization = await prisma.organization.upsert({
-    where: { id: 'org-demo-001' },
+    where: { id: '00000000-0000-4000-8000-00000000d001' },
     update: {},
     create: {
-      id: 'org-demo-001',
+      id: '00000000-0000-4000-8000-00000000d001',
       name: 'Demo Hospital System',
       type: 'hospital_network',
       settings: {
@@ -24,10 +24,15 @@ async function main() {
 
   // 2. Create Facility
   const facility = await prisma.facility.upsert({
-    where: { facilityCode: 'MAIN_CAMPUS' },
+    where: {
+      organizationId_facilityCode: {
+        organizationId: organization.id,
+        facilityCode: 'MAIN_CAMPUS',
+      },
+    },
     update: {},
     create: {
-      id: 'fac-demo-001',
+      id: '00000000-0000-4000-8000-00000000f001',
       organizationId: organization.id,
       facilityName: 'Main Medical Center',
       facilityCode: 'MAIN_CAMPUS',
@@ -102,7 +107,7 @@ async function main() {
       passwordHash: hashedPassword,
       firstName: 'System',
       lastName: 'Admin',
-      role: 'ADMIN',
+      role: 'admin',
       departmentId: deptBiomed.id,
     },
   });
@@ -117,7 +122,7 @@ async function main() {
       passwordHash: hashedPassword,
       firstName: 'Alex',
       lastName: 'Technician',
-      role: 'TECHNICIAN',
+      role: 'technician',
       departmentId: deptBiomed.id,
     },
   });
