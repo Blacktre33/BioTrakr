@@ -11,6 +11,7 @@ import { IngestionModule } from './pipeline/ingestion.module';
 import { PrismaModule } from './database/prisma.module';
 import { ReferenceModule } from './reference/reference.module';
 import { WorkOrdersModule } from './work-orders/work-orders.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { AdminModule } from './admin/admin.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { requestIdMiddleware } from './common/request-id';
@@ -28,6 +29,7 @@ import { AppService } from './app.service';
     ReferenceModule,
     WorkOrdersModule,
     AdminModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [

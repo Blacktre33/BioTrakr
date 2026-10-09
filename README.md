@@ -122,6 +122,22 @@ must already exist. Limits: 5 MB, 2,000 rows per file.
 - On SIGTERM, the API finishes in-flight requests and closes database connections.
 - JSON bodies can be up to 2 MB, enough for ingestion batches of 500 events.
 
+### Notifications
+
+Biomed sees notices in the app's bell: problem reports on their facility's devices, device faults that took a device out of use, work assigned to them. Reporters hear when their report is fixed or closed. An urgent report (a critical device, or a high-risk device taken out of use) that nobody takes on is escalated to engineers and administrators after 15 and again after 60 minutes.
+
+Urgent notices can also go to your own gateway (SMS, WhatsApp, pager) as a signed webhook:
+
+| Variable | Meaning |
+|---|---|
+| `NOTIFY_WEBHOOK_URL` | Where to POST urgent notices. Unset: in-app only. |
+| `NOTIFY_WEBHOOK_SECRET` | At least 16 characters. Required with the URL; nothing is sent unsigned. |
+| `APP_URL` | Public address of the web app, used for links in messages. |
+| `NOTIFY_ESCALATE_MINUTES` | Escalation steps, default `15,60`. |
+| `NOTIFY_JOBS` | `off` stops escalation and delivery in this instance (they run every 30 s). |
+
+Each POST carries `X-BioTrakr-Timestamp` and `X-BioTrakr-Signature: sha256=<hex>`, the HMAC-SHA256 of `<timestamp>.<body>` with the secret. Check it, and reject timestamps older than a few minutes. The body names the recipients with their phone numbers and emails so the gateway can reach them; keep the gateway inside the hospital network. Failed deliveries are retried with backoff (8 attempts over about 2 hours), then logged as given up. `X-BioTrakr-Delivery` is a stable id for de-duplicating retries.
+
 ### Service Entry Points
 
 Run individual apps when iterating on specific surfaces:

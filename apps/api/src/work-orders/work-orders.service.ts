@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { Prisma, WorkOrderStatus } from '@prisma/client';
+import type { AssetStatus, Prisma, WorkOrderStatus } from '@prisma/client';
 
 import {
   changeAssetStatus,
@@ -14,6 +14,13 @@ import { recordPmCompleted } from '../assets/pm-dates';
 import type { AuthUser } from '../auth/auth-user';
 import { BIOMED_ROLES, normalizeRole } from '../auth/roles';
 import { PrismaService } from '../database/prisma.service';
+import {
+  deviceForNotice,
+  deviceLabel,
+  HIGH_RISK,
+  notify,
+  type Severity,
+} from '../notifications/notify';
 import type {
   ListWorkOrdersQuery,
   ReportProblemDto,
@@ -165,11 +172,24 @@ export class WorkOrdersService {
         takenOutOfUse = change.changed;
       }
 
+      const outOfUse = takenOutOfUse || isStopStatus(asset.assetStatus);
+      await this.noticeProblemReported(tx, {
+        workOrderId: workOrder.id,
+        assetId: dto.assetId,
+        user,
+        description,
+        where,
+        takenOutOfUse,
+        outOfUse,
+        urgent:
+          (dto.takeOutOfUse ?? false) && asset.criticalityLevel === 'CRITICAL',
+      });
+
       return {
         workOrderId: workOrder.id,
         takenOutOfUse,
         // Already out of use counts as out of use for the reporter.
-        outOfUse: takenOutOfUse || isStopStatus(asset.assetStatus),
+        outOfUse,
       };
     });
   }
@@ -210,7 +230,17 @@ export class WorkOrdersService {
           startedAt: true,
           assignedTechnicianId: true,
           assetId: true,
-          asset: { select: { assetStatus: true, deletedAt: true } },
+          isEmergency: true,
+          createdByUserId: true,
+          description: true,
+          asset: {
+            select: {
+              assetStatus: true,
+              deletedAt: true,
+              assetTagNumber: true,
+              equipmentName: true,
+            },
+          },
         },
       });
       if (!current) throw new NotFoundException('Work order not found');
@@ -341,12 +371,169 @@ export class WorkOrdersService {
         }
       }
 
+      await this.noticeWorkOrderChange(tx, {
+        id,
+        current,
+        next,
+        assignedTo: data.assignedTechnicianId as string | undefined,
+        note,
+        released,
+        user,
+      });
+
       const row = await tx.maintenanceHistory.findFirst({
         where: { id },
         select: LIST_SELECT,
       });
       return { ...present(row!), deviceReleased: released };
     });
+  }
+
+  /**
+   * Biomed hears about every report on their facility's devices. An urgent
+   * one (critical device, or a high-risk device taken out of use) is also
+   * sent outside the app when a webhook is set up.
+   */
+  private async noticeProblemReported(
+    tx: Prisma.TransactionClient,
+    e: {
+      workOrderId: string;
+      assetId: string;
+      user: AuthUser;
+      description: string;
+      where?: string;
+      takenOutOfUse: boolean;
+      outOfUse: boolean;
+      urgent: boolean;
+    },
+  ) {
+    const device = await deviceForNotice(tx, e.assetId, e.user.organizationId);
+    if (!device) return;
+    const reporter = await tx.user.findUnique({
+      where: { id: e.user.userId },
+      select: { firstName: true, lastName: true },
+    });
+    const severity: Severity =
+      e.urgent ||
+      (e.takenOutOfUse && HIGH_RISK.includes(device.criticalityLevel))
+        ? 'critical'
+        : e.outOfUse
+          ? 'warning'
+          : 'info';
+    const place =
+      e.where ??
+      device.currentRoom?.roomName ??
+      device.custodianDepartment?.departmentName;
+    await notify(tx, {
+      organizationId: e.user.organizationId,
+      kind: 'problem_reported',
+      severity,
+      title: `${severity === 'critical' ? 'Urgent: ' : ''}${deviceLabel(device)} reported faulty`,
+      body: [
+        e.description,
+        place ? `Where: ${place}` : null,
+        `Reported by ${reporter ? `${reporter.firstName} ${reporter.lastName}`.trim() : 'staff'}${
+          e.takenOutOfUse ? ' · taken out of use' : ''
+        }`,
+      ]
+        .filter(Boolean)
+        .join('\n'),
+      link: '/maintenance',
+      assetId: device.id,
+      workOrderId: e.workOrderId,
+      to: { roles: BIOMED_ROLES, facilityId: device.currentFacilityId },
+      excludeUserId: e.user.userId,
+      dedupeKey: `reported:${e.workOrderId}`,
+      outbound: severity === 'critical',
+    });
+  }
+
+  /** Tells the assignee about new work, and the reporter how their report ended. */
+  private async noticeWorkOrderChange(
+    tx: Prisma.TransactionClient,
+    e: {
+      id: string;
+      current: {
+        workOrderStatus: WorkOrderStatus;
+        workOrderType: string;
+        assignedTechnicianId: string | null;
+        assetId: string;
+        isEmergency: boolean;
+        createdByUserId: string;
+        description: string | null;
+        asset: {
+          assetStatus: AssetStatus;
+          assetTagNumber: string;
+          equipmentName: string;
+        };
+      };
+      next: WorkOrderStatus;
+      assignedTo?: string;
+      note?: string;
+      released: boolean;
+      user: AuthUser;
+    },
+  ) {
+    const { current } = e;
+    const label = deviceLabel(current.asset);
+    const base = {
+      organizationId: e.user.organizationId,
+      assetId: current.assetId,
+      workOrderId: e.id,
+      excludeUserId: e.user.userId,
+    };
+
+    if (e.assignedTo && e.assignedTo !== current.assignedTechnicianId) {
+      await notify(tx, {
+        ...base,
+        kind: 'assigned',
+        severity: current.isEmergency ? 'critical' : 'info',
+        title: `Assigned to you: ${label}`,
+        body: current.description?.split('\n')[0],
+        link: '/maintenance?view=mine',
+        to: { userIds: [e.assignedTo] },
+        dedupeKey: `assigned:${e.id}:${e.assignedTo}`,
+      });
+    }
+
+    // Reporters hear back about their problem reports, not routine PM.
+    if (current.workOrderType !== 'CORRECTIVE_MAINTENANCE') return;
+    if (e.next === 'COMPLETED' && current.workOrderStatus !== 'COMPLETED') {
+      const stillOut = !e.released && isStopStatus(current.asset.assetStatus);
+      await notify(tx, {
+        ...base,
+        kind: 'resolved',
+        severity: 'info',
+        title: e.released
+          ? `Back in service: ${label}`
+          : `Work finished: ${label}`,
+        body: [
+          e.note,
+          stillOut
+            ? 'It stays marked "Do not use" until biomed releases it.'
+            : null,
+        ]
+          .filter(Boolean)
+          .join('\n'),
+        link: `/assets/${current.assetId}`,
+        to: { userIds: [current.createdByUserId] },
+        dedupeKey: `closed:${e.id}`,
+      });
+    } else if (
+      e.next === 'CANCELLED' &&
+      current.workOrderStatus !== 'CANCELLED'
+    ) {
+      await notify(tx, {
+        ...base,
+        kind: 'cancelled',
+        severity: 'info',
+        title: `Your report was closed: ${label}`,
+        body: e.note,
+        link: `/assets/${current.assetId}`,
+        to: { userIds: [current.createdByUserId] },
+        dedupeKey: `closed:${e.id}`,
+      });
+    }
   }
 
   /** Biomed staff in the caller's organization who can be assigned work. */

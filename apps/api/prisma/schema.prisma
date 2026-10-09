@@ -176,6 +176,7 @@ model Organization {
   facilities Facility[]
   users      User[]
   assets     Asset[]
+  outboundMessages OutboundMessage[]
 
   @@map("organizations")
 }
@@ -369,6 +370,7 @@ model User {
   assetScans                AssetScanLog[] @relation("AssetScanLogUser")
   assetStatusChanges        AssetStatusChange[] @relation("AssetStatusChangedBy")
   authSessions              AuthSession[]
+  notifications             Notification[]
 
   @@index([organizationId])
   @@index([email])
@@ -1281,4 +1283,58 @@ model AuthSession {
   @@index([familyId])
   @@index([expiresAt])
   @@map("auth_sessions")
+}
+
+/// Something a person should know about: a problem reported on a device,
+/// work assigned to them, their report resolved. One row per recipient,
+/// written in the same transaction as the event so none are lost.
+model Notification {
+  id             String    @id @default(uuid())
+  organizationId String
+  userId         String
+  /// problem_reported | device_alert | escalation | assigned | resolved | cancelled
+  kind           String    @db.VarChar(40)
+  /// critical | warning | info
+  severity       String    @db.VarChar(10)
+  title          String    @db.VarChar(200)
+  body           String?   @db.VarChar(1000)
+  /// In-app path to open, e.g. /maintenance or /assets/<id>
+  link           String?   @db.VarChar(300)
+  assetId        String?
+  workOrderId    String?
+  /// Stops the same notice reaching the same person twice (e.g. escalations).
+  dedupeKey      String?   @db.VarChar(200)
+  createdAt      DateTime  @default(now())
+  readAt         DateTime?
+
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, readAt, createdAt(sort: Desc)])
+  @@index([dedupeKey])
+  @@map("notifications")
+}
+
+/// Notices sent outside the app (a webhook to an SMS/WhatsApp gateway or
+/// paging system). Written with the event, delivered by a background job
+/// with retries.
+model OutboundMessage {
+  id             String    @id @default(uuid())
+  organizationId String
+  channel        String    @db.VarChar(20)
+  dedupeKey      String?   @unique @db.VarChar(200)
+  payload        Json
+  attempts       Int       @default(0)
+  /// Also a lease: a worker that claims a message pushes this forward.
+  nextAttemptAt  DateTime  @default(now())
+  sentAt         DateTime?
+  /// Gave up after the last retry.
+  failedAt       DateTime?
+  lastError      String?   @db.VarChar(500)
+  createdAt      DateTime  @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([sentAt, failedAt, nextAttemptAt])
+  @@map("outbound_messages")
 }

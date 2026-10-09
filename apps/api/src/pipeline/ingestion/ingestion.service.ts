@@ -12,7 +12,13 @@ import {
   isStopStatus,
 } from '../../assets/asset-status.service';
 import { recordPmCompleted } from '../../assets/pm-dates';
+import { BIOMED_ROLES } from '../../auth/roles';
 import { PrismaService } from '../../database/prisma.service';
+import {
+  deviceForNotice,
+  deviceLabel,
+  notify,
+} from '../../notifications/notify';
 import {
   TelemetryEventDto,
   RTLSEventDto,
@@ -390,15 +396,39 @@ export class IngestionService {
         select: { assetStatus: true },
       });
       if (!asset || isStopStatus(asset.assetStatus)) return;
-      await changeAssetStatus(tx, {
+      const reason = `Critical fault ${event.errorCode}${
+        event.errorMessage ? `: ${event.errorMessage}` : ''
+      } (needs intervention)`.slice(0, 1000);
+      const change = await changeAssetStatus(tx, {
         assetId: event.assetId,
         organizationId,
         toStatus: 'QUARANTINED',
         expectedStatus: asset.assetStatus,
         source: 'DEVICE_ALERT',
-        reason: `Critical fault ${event.errorCode}${
-          event.errorMessage ? `: ${event.errorMessage}` : ''
-        } (needs intervention)`.slice(0, 1000),
+        reason,
+      });
+      if (!change.changed) return;
+      // Nobody on the ward pressed anything: biomed must hear about it.
+      const device = await deviceForNotice(tx, event.assetId, organizationId);
+      if (!device) return;
+      await notify(tx, {
+        organizationId,
+        kind: 'device_alert',
+        severity: 'critical',
+        title: `Device fault: ${deviceLabel(device)} taken out of use`,
+        body: [
+          reason,
+          device.currentRoom?.roomName
+            ? `Last seen: ${device.currentRoom.roomName}`
+            : null,
+        ]
+          .filter(Boolean)
+          .join('\n'),
+        link: `/assets/${device.id}`,
+        assetId: device.id,
+        to: { roles: BIOMED_ROLES, facilityId: device.currentFacilityId },
+        dedupeKey: `device-alert:${device.id}:${change.changedAt.toISOString()}`,
+        outbound: true,
       });
     });
   }

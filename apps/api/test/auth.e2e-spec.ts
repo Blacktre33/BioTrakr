@@ -27,11 +27,13 @@ function buildPrisma() {
     currentRoomId?: string | null;
     lastSeenTimestamp?: Date | null;
     assetStatus?: string;
+    equipmentName?: string;
   }> = [
     {
       id: ASSET_A,
       organizationId: ORG_A,
       assetTagNumber: 'VENT-A',
+      equipmentName: 'ICU ventilator',
       deletedAt: null,
       pmFrequencyDays: 30,
       lastPmDate: null,
@@ -203,7 +205,22 @@ function buildPrisma() {
     assetTelemetry: { create: jest.fn(async ({ data }) => data) },
     maintenanceEvent: { create: jest.fn(async ({ data }) => data) },
     errorEvent: { create: jest.fn(async ({ data }) => data) },
+    notifications: [] as Array<Record<string, unknown>>,
+    notification: {
+      createMany: jest.fn(async ({ data }) => {
+        mock.notifications.push(...data);
+        return { count: data.length };
+      }),
+    },
+    outboundMessage: { createMany: jest.fn(async () => ({ count: 0 })) },
     user: {
+      // Recipients of notices: active people in the organization (the
+      // role filter is checked in the work-order tests).
+      findMany: jest.fn(async ({ where }) =>
+        users.filter(
+          (u) => u.organizationId === where.organizationId && u.isActive,
+        ),
+      ),
       count: jest.fn(async ({ where }) =>
         where.organizationId === ORG_A ? 1 : 0,
       ),
@@ -661,6 +678,15 @@ describe('Authentication and authorization (e2e)', () => {
         }),
       ]);
       expect(prisma.assets[1].assetStatus).toBeUndefined();
+      // Nobody on the ward pressed anything, so biomed is told.
+      expect(prisma.notifications).toEqual([
+        expect.objectContaining({
+          userId: 'u-admin',
+          kind: 'device_alert',
+          severity: 'critical',
+          title: 'Device fault: ICU ventilator (VENT-A) taken out of use',
+        }),
+      ]);
     });
 
     it('reports per-event results in a batch without leaking database errors', async () => {
