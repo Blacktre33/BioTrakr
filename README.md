@@ -146,6 +146,29 @@ Delivery: a timeout, network error, 408, 429 or 5xx is retried with backoff (8 a
 
 Escalation and delivery run inside the API process every 30 s, so the API must run as a long-lived service (not serverless). Faults reported by devices take the device out of use and notify biomed once; they are not escalated, because no work order exists for them yet.
 
+### Dashboard
+
+`/dashboard` (`GET /api/dashboard`, any staff role) is counted live from the database, optionally for one facility:
+
+- **Devices**: in use, out of use (quarantined or being repaired) with the highest-risk ones listed first, and a count per status. Retired, condemned and disposed devices are not counted as inventory.
+- **PM**: overdue, due in the next 30 days, devices without a PM schedule, and compliance (the share of scheduled devices that are not overdue). The overdue list shows whether a work order is already open.
+- **Work orders**: open, urgent, not assigned, waiting for parts; opened and completed per week over 8 weeks.
+- **Time to repair**: mean and median hours from report to completion, for repairs finished in the last 90 days.
+
+### Preventive maintenance schedule
+
+A device is on the PM schedule once it has a next-PM date, set from its PM interval when it is added or when a PM work order is completed. Every hour the API opens a PM work order for each device whose PM falls due within `PM_LEAD_DAYS` (default 14) and has none open. The work order is scheduled for the due date. Biomed at that facility gets one notice per run listing the devices. The database allows one scheduled work order per device and due date, so several API instances never open the same one twice.
+
+- Cancelling a scheduled PM work order means "not this time": it is not reopened, and the device stays overdue until a PM is recorded. Use **Open work order** on the PM schedule to open one by hand.
+- To keep a device off the schedule, clear its next-PM date. Devices with automatic work orders turned off (`autoGenerateWorkOrders`) still appear on the calendar, but nothing is opened for them.
+- `/maintenance/schedule` shows a month calendar (due, work order open, overdue, done) and the overdue list. API: `GET /api/pm/schedule?from=&to=` (at most 93 days), `POST /api/pm/work-orders` (open one now), and `POST /api/pm/run` (administrators: run the hourly pass now, for example after an import).
+
+| Variable | Meaning |
+|---|---|
+| `PM_LEAD_DAYS` | Open PM work orders this many days before they fall due (0–90, default 14). |
+| `PM_JOBS` | `off` stops the hourly PM pass in this instance. |
+| `TZ` | The hospital's time zone, for the due date written in work orders. |
+
 ### Service Entry Points
 
 Run individual apps when iterating on specific surfaces:

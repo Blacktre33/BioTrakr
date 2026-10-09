@@ -21,6 +21,18 @@ export const STOP_STATUSES: ReadonlySet<AssetStatus> = new Set<AssetStatus>([
 
 export const isStopStatus = (status: AssetStatus) => STOP_STATUSES.has(status);
 
+/** Out of use for now: being repaired or held back after a fault. */
+export const OUT_OF_USE_STATUSES: AssetStatus[] = [
+  'QUARANTINED',
+  'IN_MAINTENANCE',
+];
+/** No longer in service: not counted as stock and never due for PM. */
+export const RETIRED_STATUSES: AssetStatus[] = [
+  'CONDEMNED',
+  'RETIRED',
+  'DISPOSED',
+];
+
 type Tx = Prisma.TransactionClient;
 
 export interface StatusChangeInput {

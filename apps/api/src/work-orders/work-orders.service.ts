@@ -10,6 +10,7 @@ import {
   changeAssetStatus,
   isStopStatus,
 } from '../assets/asset-status.service';
+import { describeLocation, LOCATION_SELECT } from '../assets/location';
 import { recordPmCompleted } from '../assets/pm-dates';
 import type { AuthUser } from '../auth/auth-user';
 import { BIOMED_ROLES, normalizeRole } from '../auth/roles';
@@ -69,9 +70,7 @@ const LIST_SELECT = {
       equipmentName: true,
       assetStatus: true,
       criticalityLevel: true,
-      currentFacility: { select: { facilityName: true } },
-      currentRoom: { select: { roomName: true, roomCode: true } },
-      custodianDepartment: { select: { departmentName: true } },
+      ...LOCATION_SELECT,
     },
   },
   createdBy: { select: { id: true, firstName: true, lastName: true } },
@@ -95,15 +94,7 @@ function present(row: Row) {
       equipmentName: asset.equipmentName,
       assetStatus: asset.assetStatus,
       criticalityLevel: asset.criticalityLevel,
-      location: [
-        asset.currentRoom
-          ? `${asset.currentRoom.roomName} (${asset.currentRoom.roomCode})`
-          : null,
-        asset.custodianDepartment?.departmentName ?? null,
-        asset.currentFacility?.facilityName ?? null,
-      ]
-        .filter(Boolean)
-        .join(', '),
+      location: describeLocation(asset),
     },
     reportedBy: fullName(createdBy),
     assignedTo: assignedTechnician
@@ -466,7 +457,7 @@ export class WorkOrdersService {
         assignedTechnicianId: string | null;
         assetId: string;
         isEmergency: boolean;
-        createdByUserId: string;
+        createdByUserId: string | null;
         description: string | null;
         asset: {
           assetStatus: AssetStatus;
@@ -503,7 +494,11 @@ export class WorkOrdersService {
     }
 
     // Reporters hear back about their problem reports, not routine PM.
-    if (current.workOrderType !== 'CORRECTIVE_MAINTENANCE') return;
+    if (
+      current.workOrderType !== 'CORRECTIVE_MAINTENANCE' ||
+      !current.createdByUserId
+    )
+      return;
     if (e.next === 'COMPLETED' && current.workOrderStatus !== 'COMPLETED') {
       const stillOut = !e.released && isStopStatus(current.asset.assetStatus);
       await notify(tx, {

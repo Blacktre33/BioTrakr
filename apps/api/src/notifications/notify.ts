@@ -13,7 +13,8 @@ export type NotificationKind =
   | 'escalation'
   | 'assigned'
   | 'resolved'
-  | 'cancelled';
+  | 'cancelled'
+  | 'pm_due';
 
 /** Settings, read when used so tests and restarts pick up changes. */
 export function notificationConfig() {

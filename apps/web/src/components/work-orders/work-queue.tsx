@@ -258,7 +258,11 @@ function WorkOrderCard({ order, technicians }: { order: WorkOrder; technicians: 
         <p className="mt-2 rounded-lg bg-surface-200/40 p-2 text-sm text-gray-300">{order.workPerformed}</p>
       )}
       <p className="mt-2 text-xs text-gray-500">
-        Reported by {order.reportedBy ?? "unknown"}
+        {order.reportedBy
+          ? `Reported by ${order.reportedBy}`
+          : order.workOrderType === "PREVENTIVE_MAINTENANCE"
+            ? "Opened by the PM schedule"
+            : "Reporter unknown"}
         {order.assignedTo ? ` · Assigned to ${order.assignedTo.name}` : " · Not assigned"}
         {order.completedAt ? ` · Closed ${formatDate(order.completedAt, "MMM d, HH:mm")}` : ""}
       </p>
