@@ -28,6 +28,11 @@ jobs:
       - run: pnpm install --no-frozen-lockfile --filter @biotrakr/web...
       - run: pnpm --filter @biotrakr/web run typecheck
       - run: pnpm --filter @biotrakr/web test -- --ci
+      # Fonts are bundled, so the production build needs no network.
+      - run: pnpm --filter @biotrakr/web build
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:3001/api
+          NEXT_TELEMETRY_DISABLED: 1
 
   packages:
     name: Shared package tests

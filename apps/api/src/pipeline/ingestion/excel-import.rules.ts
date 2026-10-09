@@ -9,7 +9,7 @@ import {
   DeviceCategory,
   RiskClassification,
 } from '@prisma/client';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 
 import { ASSET_FORM_ENUMS } from '../../reference/asset-form-options';
 
@@ -307,20 +307,41 @@ export const ALLOWED_VALUES = {
   riskClass: allowed(ASSET_FORM_ENUMS.riskClassification),
 };
 
-/** A date from an Excel date cell (serial number) or a YYYY-MM-DD string, as UTC midnight. */
 /** Earliest plausible date; also catches a bare year (2024 = 1905-07-16 as a date). */
 export const MIN_YEAR = 1950;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** Day 0 of Excel's two date systems (1900 counts from 1899-12-30 because of its leap-year bug). */
+const EXCEL_EPOCH = {
+  1900: Date.UTC(1899, 11, 30),
+  1904: Date.UTC(1904, 0, 1),
+};
+
+/**
+ * A date from an Excel date cell, an Excel day number, or a YYYY-MM-DD
+ * string, as UTC midnight of that calendar day.
+ */
 
 export function parseDateCell(
   value: unknown,
   date1904 = false,
 ): Date | null | 'invalid' {
   if (value === null || value === undefined || value === '') return null;
+  if (value instanceof Date) {
+    // Date-formatted cells arrive as Dates (the reader applies the 1904
+    // system itself). Keep the calendar day; round away float noise.
+    if (Number.isNaN(value.getTime())) return 'invalid';
+    const day = new Date(Math.round(value.getTime() / DAY_MS) * DAY_MS);
+    return day.getUTCFullYear() < MIN_YEAR ? 'invalid' : day;
+  }
   if (typeof value === 'number') {
-    // Workbooks saved by older Mac Excel count days from 1904, not 1900.
-    const parts = XLSX.SSF.parse_date_code(value, { date1904 });
-    if (!parts || parts.y < MIN_YEAR) return 'invalid';
-    return new Date(Date.UTC(parts.y, parts.m - 1, parts.d));
+    // A plain number in a date column: an Excel day number. Workbooks saved
+    // by older Mac Excel count days from 1904, not 1900.
+    if (!Number.isFinite(value) || value <= 0) return 'invalid';
+    const day = new Date(
+      EXCEL_EPOCH[date1904 ? 1904 : 1900] + Math.floor(value) * DAY_MS,
+    );
+    return day.getUTCFullYear() < MIN_YEAR ? 'invalid' : day;
   }
   const text = String(value).trim();
   const match = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -334,10 +355,10 @@ export function parseDateCell(
     : 'invalid';
 }
 
-/** Rupee amounts: 125000, "₹1,25,000", "1.25 lakh", "2 crore". */
 /** purchase_cost is DECIMAL(12,2). */
 export const MAX_PRICE = 9_999_999_999.99;
 
+/** Rupee amounts: 125000, "₹1,25,000", "1.25 lakh", "2 crore". */
 export function parsePrice(value: unknown): number | null | 'invalid' {
   const n = parseAmount(value);
   return typeof n === 'number' && n > MAX_PRICE ? 'invalid' : n;
@@ -442,26 +463,54 @@ const TEXT_COLUMNS = new Set<ColumnKey>([
   'notes',
 ]);
 
+/**
+ * A cell's value as a plain number, string, boolean or Date: formulas give
+ * their result, rich text and hyperlinks their text.
+ */
+function plainValue(value: ExcelJS.CellValue): unknown {
+  if (value === null || value === undefined) return null;
+  if (value instanceof Date || typeof value !== 'object') return value;
+  if ('richText' in value) return value.richText.map((r) => r.text).join('');
+  if ('result' in value) return plainValue(value.result as ExcelJS.CellValue);
+  if ('text' in value) return plainValue(value.text as ExcelJS.CellValue);
+  if ('error' in value) return String(value.error);
+  return null;
+}
+
+/**
+ * The text Excel would show for identifier columns: a number formatted
+ * "00000" (zero-padded tags) keeps its leading zeros.
+ */
+function shownText(cell: ExcelJS.Cell): unknown {
+  const value = plainValue(cell.value);
+  if (typeof value === 'number' && Number.isInteger(value)) {
+    const fmt = cell.numFmt ?? '';
+    return /^0+$/.test(fmt)
+      ? String(value).padStart(fmt.length, '0')
+      : String(value);
+  }
+  return value;
+}
+
 /** Reads the first suitable sheet into rows keyed by column, with Excel row numbers. */
-export function readSheet(buffer: Buffer): {
+export async function readSheet(buffer: Buffer): Promise<{
   rows: SheetRow[];
   missing: ColumnSpec[];
   ignored: string[];
   duplicates: string[];
   sheetName: string;
-} {
-  // cellDates off: dates stay Excel serial numbers, parsed exactly by parseDateCell.
-  const workbook = XLSX.read(buffer, {
-    type: 'buffer',
-    cellDates: false,
-    dense: true,
-  });
-  const date1904 = Boolean(workbook.Workbook?.WBProps?.date1904);
+}> {
+  const workbook = new ExcelJS.Workbook();
+  // exceljs's typings predate today's generic Node Buffer type.
+  await workbook.xlsx.load(
+    buffer as unknown as Parameters<typeof workbook.xlsx.load>[0],
+  );
+  const date1904 = Boolean(workbook.properties?.date1904);
+  const names = workbook.worksheets.map((w) => w.name);
   const preferred = ['Asset Entry', 'Assets', 'Quick Entry', 'Sheet1'];
-  const sheetName =
-    preferred.find((n) => workbook.SheetNames.includes(n)) ??
-    workbook.SheetNames[0];
-  if (!sheetName) {
+  const sheetName = preferred.find((n) => names.includes(n)) ?? names[0];
+  const sheet = sheetName ? workbook.getWorksheet(sheetName) : undefined;
+  if (!sheet) {
     return {
       rows: [],
       missing: IMPORT_COLUMNS.filter((c) => c.required),
@@ -471,36 +520,33 @@ export function readSheet(buffer: Buffer): {
     };
   }
 
-  const sheet = workbook.Sheets[sheetName];
-  const options = { header: 1 as const, defval: null, blankrows: true };
-  const rawMatrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
-    ...options,
-    raw: true,
-  });
-  const shownMatrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
-    ...options,
-    raw: false,
-  });
-  const headerRow = (rawMatrix[0] ?? []).map((h) => text(h));
-  const { columns, missing, ignored, duplicates } = mapHeaders(headerRow);
+  // Header cells, by 1-based column number.
+  const headerRow = sheet.getRow(1);
+  const headers: string[] = [];
+  for (let c = 1; c <= sheet.columnCount; c++) {
+    headers.push(text(plainValue(headerRow.getCell(c).value)));
+  }
+  const { columns, missing, ignored, duplicates } = mapHeaders(headers);
 
   const rows: SheetRow[] = [];
-  for (let i = 1; i < rawMatrix.length; i++) {
+  sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+    if (rowNumber === 1) return;
     const values: Partial<Record<ColumnKey, unknown>> = {};
-    for (const [c, key] of columns) {
-      const cell =
-        (TEXT_COLUMNS.has(key) ? shownMatrix[i] : rawMatrix[i])?.[c] ?? null;
-      values[key] = typeof cell === 'string' ? cell.trim() : cell;
+    for (const [index, key] of columns) {
+      const cell = row.getCell(index + 1);
+      const value = TEXT_COLUMNS.has(key)
+        ? shownText(cell)
+        : plainValue(cell.value);
+      values[key] = typeof value === 'string' ? value.trim() : value;
     }
     if (
       Object.values(values).every(
         (v) => v === null || v === undefined || v === '',
       )
-    ) {
-      continue;
-    }
-    rows.push({ row: i + 1, values, date1904 });
-  }
+    )
+      return;
+    rows.push({ row: rowNumber, values, date1904 });
+  });
   return { rows, missing, ignored, duplicates, sheetName };
 }
 

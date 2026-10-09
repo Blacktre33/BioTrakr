@@ -1,6 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 
 import { bearer, createTestApp, ORG_A, ORG_B } from './helpers';
 
@@ -40,14 +40,18 @@ const row = (tag: string, overrides: Partial<Record<string, unknown>> = {}) => {
   return HEADERS.map((h) => base[h] ?? null);
 };
 
-function workbook(rows: unknown[][], headers = HEADERS): Buffer {
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(
-    wb,
-    XLSX.utils.aoa_to_sheet([headers, ...rows]),
-    'Asset Entry',
-  );
-  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+/** An .xlsx file with one "Asset Entry" sheet: a header row, then the rows. */
+async function workbook(
+  rows: unknown[][],
+  headers = HEADERS,
+  edit?: (sheet: ExcelJS.Worksheet) => void,
+): Promise<Buffer> {
+  const wb = new ExcelJS.Workbook();
+  const sheet = wb.addWorksheet('Asset Entry');
+  sheet.addRow(headers);
+  rows.forEach((r) => sheet.addRow(r));
+  edit?.(sheet);
+  return Buffer.from(await wb.xlsx.writeBuffer());
 }
 
 function buildPrisma() {
@@ -166,7 +170,7 @@ describe('Excel import (e2e)', () => {
   it('checks a file and previews it without saving anything', async () => {
     const { body } = await upload(
       'validate',
-      workbook([row('PUMP-1'), row('pump-old')]),
+      await workbook([row('PUMP-1'), row('pump-old')]),
     ).expect(200);
 
     expect(body).toMatchObject({
@@ -201,7 +205,7 @@ describe('Excel import (e2e)', () => {
   it('saves nothing when any row has a problem, and says which', async () => {
     const { body } = await upload(
       'import',
-      workbook([
+      await workbook([
         row('PUMP-1'),
         row('PUMP-2', { 'Risk Class*': 'IIb' }),
         row('PUMP-1'),
@@ -230,7 +234,7 @@ describe('Excel import (e2e)', () => {
   it('saves every row in one transaction when the file is valid', async () => {
     const { body } = await upload(
       'import',
-      workbook([row('PUMP-1'), row('PUMP-OLD')]),
+      await workbook([row('PUMP-1'), row('PUMP-OLD')]),
     ).expect(200);
 
     expect(body).toMatchObject({
@@ -282,20 +286,18 @@ describe('Excel import (e2e)', () => {
   });
 
   it('keeps leading zeros in tags and rejects a repeated column', async () => {
-    const wb = XLSX.utils.book_new();
-    const sheet = XLSX.utils.aoa_to_sheet([HEADERS, row('X')]);
     // A numeric cell formatted to show 00123, as Excel does for zero-padded tags.
-    sheet['A2'] = { t: 'n', v: 123, z: '00000', w: '00123' };
-    XLSX.utils.book_append_sheet(wb, sheet, 'Asset Entry');
-    const { body } = await upload(
-      'validate',
-      XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }),
-    ).expect(200);
+    const zeros = await workbook([row('X')], HEADERS, (sheet) => {
+      const cell = sheet.getCell('A2');
+      cell.value = 123;
+      cell.numFmt = '00000';
+    });
+    const { body } = await upload('validate', zeros).expect(200);
     expect(body.preview[0].assetTagNumber).toBe('00123');
 
     const twice = await upload(
       'validate',
-      workbook(
+      await workbook(
         [[...row('PUMP-1'), 'Quarantined']],
         [...HEADERS, 'Asset Status'],
       ),
@@ -312,9 +314,10 @@ describe('Excel import (e2e)', () => {
     prisma.tx.asset.create.mockRejectedValueOnce(
       Object.assign(new Error('Unique'), { code: 'P2002' }),
     );
-    const { body } = await upload('import', workbook([row('PUMP-1')])).expect(
-      200,
-    );
+    const { body } = await upload(
+      'import',
+      await workbook([row('PUMP-1')]),
+    ).expect(200);
     expect(body).toMatchObject({
       success: false,
       imported: 0,
@@ -325,6 +328,20 @@ describe('Excel import (e2e)', () => {
           message: expect.stringContaining('added by someone else'),
         },
       ],
+    });
+  });
+
+  it('reads real Excel date cells', async () => {
+    const dated = await workbook([row('PUMP-D')], HEADERS, (sheet) => {
+      const cell = sheet.getCell(2, HEADERS.indexOf('Purchase Date*') + 1);
+      cell.value = new Date(Date.UTC(2023, 5, 30));
+      cell.numFmt = 'dd/mm/yyyy';
+    });
+    await upload('import', dated).expect(200);
+    expect(prisma.tx.asset.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        purchaseDate: new Date('2023-06-30T00:00:00Z'),
+      }),
     });
   });
 
@@ -343,7 +360,7 @@ describe('Excel import (e2e)', () => {
     ];
     const { body } = await upload(
       'validate',
-      workbook(
+      await workbook(
         [
           [
             'T1',
@@ -379,22 +396,29 @@ describe('Excel import (e2e)', () => {
         r.on('end', () => cb(null, Buffer.concat(chunks)));
       })
       .expect(200);
-    const wb = XLSX.read(res.body, { type: 'buffer' });
-    expect(wb.SheetNames).toEqual([
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(res.body);
+    expect(wb.worksheets.map((w) => w.name)).toEqual([
       'Asset Entry',
-      'Instructions',
       'Allowed Values',
+      'Instructions',
     ]);
-    const [headers] = XLSX.utils.sheet_to_json<string[]>(
-      wb.Sheets['Asset Entry'],
-      { header: 1 },
-    );
+    const entry = wb.getWorksheet('Asset Entry')!;
+    const headers = (entry.getRow(1).values as unknown[])
+      .slice(1)
+      .map((h) => String(h));
+    // Coded columns offer a drop-down of the allowed values.
+    const statusCol = headers.indexOf('Status*') + 1;
+    expect(entry.getCell(2, statusCol).dataValidation).toMatchObject({
+      type: 'list',
+      formulae: [expect.stringContaining('Allowed Values')],
+    });
 
     // Fill the template's own header row, so its column names are what is tested.
     const sample = Object.fromEntries(
       HEADERS.map((h, i) => [h.replace('*', ''), row('PUMP-9')[i]]),
     );
-    const filled = workbook(
+    const filled = await workbook(
       [headers.map((h) => sample[h.replace('*', '')] ?? null)],
       headers,
     );
@@ -408,7 +432,11 @@ describe('Excel import (e2e)', () => {
       .set(bearer('engineer'))
       .attach('file', Buffer.from('a,b'), 'assets.csv')
       .expect(400);
-    await upload('import', workbook([row('PUMP-1')]), 'technician').expect(403);
+    await upload(
+      'import',
+      await workbook([row('PUMP-1')]),
+      'technician',
+    ).expect(403);
     noWrites();
   });
 });

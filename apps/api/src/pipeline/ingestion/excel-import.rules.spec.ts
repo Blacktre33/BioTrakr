@@ -136,6 +136,16 @@ describe('parseDateCell', () => {
     expect(parseDateCell('05/01/2024')).toBe('invalid');
     expect(parseDateCell('2024-02-30')).toBe('invalid');
   });
+  it('reads date cells (as the reader gives them) by calendar day', () => {
+    expect(parseDateCell(new Date('2024-01-15T00:00:00Z'))).toEqual(
+      new Date('2024-01-15T00:00:00Z'),
+    );
+    // Floating-point noise from the day fraction rounds to the right day.
+    expect(parseDateCell(new Date('2024-01-14T23:59:59.990Z'))).toEqual(
+      new Date('2024-01-15T00:00:00Z'),
+    );
+    expect(parseDateCell(new Date('1905-07-16T00:00:00Z'))).toBe('invalid');
+  });
   it('rejects a bare year typed into a date column', () => {
     // As an Excel date, 2024 is 1905-07-16.
     expect(parseDateCell(2024)).toBe('invalid');

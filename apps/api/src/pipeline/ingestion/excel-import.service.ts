@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { AssetStatus } from '@prisma/client';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 
 import type { AuthUser } from '../../auth/auth-user';
 import { PrismaService } from '../../database/prisma.service';
@@ -327,9 +327,9 @@ export class ExcelImportService {
       drafts: [],
     });
 
-    let sheet: ReturnType<typeof readSheet>;
+    let sheet: Awaited<ReturnType<typeof readSheet>>;
     try {
-      sheet = readSheet(fileBuffer);
+      sheet = await readSheet(fileBuffer);
     } catch {
       errors.push({
         row: 0,
@@ -572,139 +572,194 @@ export class ExcelImportService {
     return found;
   }
 
-  /**
-   * Export assets to Excel format
-   */
+  /** The organization's devices (optionally one facility) as a workbook. */
   async exportToExcel(
     organizationId: string,
     facilityId?: string,
   ): Promise<Buffer> {
-    const whereClause = {
-      organizationId,
-      ...(facilityId ? { currentFacilityId: facilityId } : {}),
-    };
-
     const assets = await this.prisma.asset.findMany({
       where: {
-        ...whereClause,
+        organizationId,
         deletedAt: null,
+        ...(facilityId ? { currentFacilityId: facilityId } : {}),
       },
       include: {
-        currentFacility: true,
+        currentFacility: { select: { facilityName: true, facilityCode: true } },
+        custodianDepartment: { select: { departmentCode: true } },
       },
-      orderBy: {
-        assetTagNumber: 'asc',
-      },
+      orderBy: { assetTagNumber: 'asc' },
     });
 
-    // Create workbook
-    const wb = XLSX.utils.book_new();
-
-    // Transform data for Excel
-    const excelData = assets.map((a) => ({
-      'Asset Tag': a.assetTagNumber,
-      'Serial Number': a.serialNumber,
-      Manufacturer: a.manufacturer,
-      'Model Number': a.modelNumber,
-      Facility: a.currentFacility?.facilityName || '',
-      Status: a.assetStatus,
-      'Acquisition Date': a.purchaseDate,
-      'Installation Date': a.installationDate,
-      'Warranty Expiry': a.warrantyEndDate,
-      'Purchase Price': a.purchaseCost,
-      UDI: a.udiDeviceIdentifier,
-      'RTLS Tracked': a.rfidTagId || a.bleBeaconMac ? 'Yes' : 'No',
-      'RTLS Tag ID': a.rfidTagId,
-      'BLE Beacon ID': a.bleBeaconMac,
-      Notes: a.notes,
-    }));
-
-    const ws = XLSX.utils.json_to_sheet(excelData);
-    XLSX.utils.book_append_sheet(wb, ws, 'Assets');
-
-    // Write to buffer
-    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-    return buffer;
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Assets', {
+      views: [{ state: 'frozen', ySplit: 1 }],
+    });
+    const label = (
+      options: Array<{ value: string; label: string }>,
+      v: string,
+    ) => labelOf(options, v);
+    // The same columns as the import template, so an export can be edited
+    // and imported back.
+    ws.columns = [
+      ...IMPORT_COLUMNS.map((c) => ({
+        header: c.header,
+        key: c.key,
+        width: Math.max(c.header.length + 4, 16),
+      })),
+      { header: 'Next PM Due', key: 'nextPm', width: 14 },
+      { header: 'Last PM', key: 'lastPm', width: 14 },
+    ];
+    ws.getRow(1).font = { bold: true };
+    for (const a of assets) {
+      ws.addRow({
+        assetTag: a.assetTagNumber,
+        equipmentName: a.equipmentName,
+        manufacturer: a.manufacturer,
+        modelNumber: a.modelNumber,
+        serialNumber: a.serialNumber,
+        category: label(ASSET_FORM_ENUMS.deviceCategory, a.deviceCategory),
+        criticality: label(
+          ASSET_FORM_ENUMS.criticalityLevel,
+          a.criticalityLevel,
+        ),
+        riskClass: label(
+          ASSET_FORM_ENUMS.riskClassification,
+          a.riskClassification,
+        ),
+        status: label(ASSET_FORM_ENUMS.assetStatus, a.assetStatus),
+        facilityCode: a.currentFacility?.facilityCode ?? '',
+        departmentCode: a.custodianDepartment?.departmentCode ?? '',
+        purchaseDate: a.purchaseDate,
+        purchasePrice: a.purchaseCost === null ? null : Number(a.purchaseCost),
+        usefulLifeYears: a.usefulLifeYears,
+        installationDate: a.installationDate,
+        warrantyExpiry: a.warrantyEndDate,
+        udi: a.udiDeviceIdentifier,
+        rtlsTagId: a.rfidTagId,
+        bleBeaconId: a.bleBeaconMac,
+        notes: a.notes,
+        nextPm: a.nextPmDueDate,
+        lastPm: a.lastPmDate,
+      });
+    }
+    for (const key of [
+      'purchaseDate',
+      'installationDate',
+      'warrantyExpiry',
+      'nextPm',
+      'lastPm',
+    ]) {
+      ws.getColumn(key).numFmt = 'yyyy-mm-dd';
+    }
+    return Buffer.from(await wb.xlsx.writeBuffer());
   }
 
   /**
    * Blank template: an entry sheet with only the header row (no example to
-   * delete), an instructions sheet, and the allowed values for each list.
+   * delete) and drop-down lists for the coded columns, an instructions
+   * sheet, and the allowed values for each list.
    */
   async generateTemplate(): Promise<Buffer> {
-    const wb = XLSX.utils.book_new();
+    const wb = new ExcelJS.Workbook();
 
-    const headers = IMPORT_COLUMNS.map((c) =>
-      c.required ? `${c.header}*` : c.header,
-    );
-    const entry = XLSX.utils.aoa_to_sheet([headers]);
-    entry['!cols'] = headers.map((h) => ({ wch: Math.max(h.length + 2, 16) }));
-    XLSX.utils.book_append_sheet(wb, entry, 'Asset Entry');
+    const entry = wb.addWorksheet('Asset Entry', {
+      views: [{ state: 'frozen', ySplit: 1 }],
+    });
+    entry.columns = IMPORT_COLUMNS.map((c) => ({
+      header: c.required ? `${c.header}*` : c.header,
+      key: c.key,
+      width: Math.max(c.header.length + 4, 16),
+    }));
+    entry.getRow(1).font = { bold: true };
+    // Identifiers are text, so "00123" keeps its zeros.
+    for (const key of [
+      'assetTag',
+      'serialNumber',
+      'facilityCode',
+      'departmentCode',
+    ]) {
+      entry.getColumn(key).numFmt = '@';
+    }
+    for (const key of ['purchaseDate', 'installationDate', 'warrantyExpiry']) {
+      entry.getColumn(key).numFmt = 'yyyy-mm-dd';
+    }
 
-    const instructions = [
+    const lists: Array<{
+      key: ColumnKey;
+      title: string;
+      options: Array<{ label: string }>;
+    }> = [
+      {
+        key: 'category',
+        title: 'Category',
+        options: ASSET_FORM_ENUMS.deviceCategory,
+      },
+      { key: 'status', title: 'Status', options: ASSET_FORM_ENUMS.assetStatus },
+      {
+        key: 'criticality',
+        title: 'Criticality',
+        options: ASSET_FORM_ENUMS.criticalityLevel,
+      },
+      {
+        key: 'riskClass',
+        title: 'Risk Class',
+        options: ASSET_FORM_ENUMS.riskClassification,
+      },
+    ];
+
+    const allowed = wb.addWorksheet('Allowed Values');
+    lists.forEach((list, i) => {
+      const column = allowed.getColumn(i + 1);
+      column.values = [list.title, ...list.options.map((o) => o.label)];
+      column.width = 22;
+    });
+    allowed.getRow(1).font = { bold: true };
+
+    // Drop-downs on the coded columns, for the rows people will fill.
+    lists.forEach((list, i) => {
+      const letter = String.fromCharCode(65 + i); // A, B, C, D on Allowed Values
+      const formula = `'Allowed Values'!$${letter}$2:$${letter}$${list.options.length + 1}`;
+      const col = entry.getColumn(list.key).number;
+      for (let r = 2; r <= MAX_IMPORT_ROWS + 1; r++) {
+        entry.getCell(r, col).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: [formula],
+          showErrorMessage: true,
+          errorTitle: 'Not an allowed value',
+          error: `Pick a ${list.title.toLowerCase()} from the list.`,
+        };
+      }
+    });
+
+    const instructions = wb.addWorksheet('Instructions');
+    instructions.columns = [{ width: 28 }, { width: 10 }, { width: 70 }];
+    [
       ['BioTrakr asset import'],
       [],
       [
         '1. Fill in one row per device on the "Asset Entry" sheet. Columns marked * are required.',
       ],
       [
-        '2. Use the exact words from the "Allowed Values" sheet for Category, Status, Criticality and Risk Class.',
+        '2. Category, Status, Criticality and Risk Class have drop-down lists (see "Allowed Values").',
       ],
-      [
-        '3. Facility Code and Department Code must already exist in BioTrakr (Settings).',
-      ],
+      ['3. Facility Code and Department Code must already exist in BioTrakr.'],
       ['4. Dates: YYYY-MM-DD (e.g. 2024-01-15), or an Excel date.'],
       [
         '5. A row whose Asset Tag already exists in your organization updates that device.',
       ],
       [
-        '6. Upload, then press "Check file". Nothing is saved until every row is valid and you press Import.',
+        '6. Upload, then check the file. Nothing is saved until every row is valid and you press Import.',
       ],
       [],
       ['Column', 'Required', 'What to enter'],
       ...IMPORT_COLUMNS.map((c) => [c.header, c.required ? 'Yes' : '', c.help]),
-      [],
-      ['Example row'],
-      [
-        'ASSET-001 (this tag is never imported)',
-        'ICU ventilator',
-        'Philips',
-        'V60',
-        'SN123456',
-        'Life Support',
-        'Critical',
-        'Class II',
-        'Active',
-        'CG',
-        'ICU',
-        '2024-01-15',
-      ],
-    ];
-    const wsInstructions = XLSX.utils.aoa_to_sheet(instructions);
-    wsInstructions['!cols'] = [{ wch: 28 }, { wch: 10 }, { wch: 70 }];
-    XLSX.utils.book_append_sheet(wb, wsInstructions, 'Instructions');
+    ].forEach((r) => instructions.addRow(r));
+    instructions.getRow(1).font = { bold: true, size: 14 };
+    instructions.getRow(10).font = { bold: true };
 
-    const lists = [
-      ['Category', 'Status', 'Criticality', 'Risk Class'],
-      ...Array.from(
-        {
-          length: Math.max(
-            ASSET_FORM_ENUMS.deviceCategory.length,
-            ASSET_FORM_ENUMS.assetStatus.length,
-          ),
-        },
-        (_, i) => [
-          ASSET_FORM_ENUMS.deviceCategory[i]?.label ?? '',
-          ASSET_FORM_ENUMS.assetStatus[i]?.label ?? '',
-          ASSET_FORM_ENUMS.criticalityLevel[i]?.label ?? '',
-          ASSET_FORM_ENUMS.riskClassification[i]?.label ?? '',
-        ],
-      ),
-    ];
-    const wsLists = XLSX.utils.aoa_to_sheet(lists);
-    wsLists['!cols'] = [{ wch: 22 }, { wch: 18 }, { wch: 14 }, { wch: 12 }];
-    XLSX.utils.book_append_sheet(wb, wsLists, 'Allowed Values');
-
-    return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    // Opens on the data-entry sheet.
+    wb.views = [{ activeTab: 0 } as ExcelJS.WorkbookView];
+    return Buffer.from(await wb.xlsx.writeBuffer());
   }
 }
