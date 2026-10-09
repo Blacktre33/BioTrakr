@@ -202,8 +202,8 @@ export class ExcelImportService {
           return false;
         }
 
-        // Accept row if it has Asset Tag, Serial Number, or at minimum a Manufacturer
-        // (rows with just manufacturer will get auto-generated Asset Tags)
+        // Keep rows with an identifier or a Manufacturer; rows lacking both
+        // Asset Tag and Serial Number are reported as failed by validateRow
         const hasIdentifier = assetTag || serialNumber;
         const hasRequiredData = manufacturer;
 
@@ -707,14 +707,15 @@ export class ExcelImportService {
       [],
       ['Instructions:'],
       ['1. Required fields are marked with *'],
-      ['2. Status values: Available, In_Use, Maintenance, Repair, Decommissioned, Quarantine'],
-      ['3. Condition values: Excellent, Good, Fair, Poor, Critical'],
+      ['2. Status values (any case): Available, In_Use, Maintenance, Repair, Decommissioned, Quarantine'],
+      ['3. Condition values (any case): Excellent, Good, Fair, Poor, Critical'],
       ['4. Date format: YYYY-MM-DD (e.g., 2024-01-15)'],
       ['5. Yes/No fields: Use "Yes" or "No"'],
-      ['6. Delete the example row before importing'],
+      ['6. The example row (ASSET-001) is skipped automatically on import'],
+      ['7. Every row needs an Asset Tag or a Serial Number, plus a Manufacturer'],
       [],
       ['Column Descriptions:'],
-      ['Asset Tag*: Unique identifier for the asset'],
+      ['Asset Tag*: Unique identifier for the asset. If blank, one is generated from the Serial Number (AUTO-SN-<serial>)'],
       ['Serial Number: Manufacturer serial number'],
       ['Barcode: Barcode identifier'],
       ['Asset Category*: Category of the asset (e.g., Medical Equipment)'],
@@ -729,7 +730,7 @@ export class ExcelImportService {
       ['Acquisition Date: Date asset was acquired'],
       ['Installation Date: Date asset was installed'],
       ['Warranty Expiry: Warranty expiration date'],
-      ['Purchase Price: Purchase cost in rupees'],
+      ['Purchase Price: Purchase cost in rupees (e.g., 125000, "1.25 Lakh", "1 Crore", "₹1,25,000")'],
       ['UDI: Unique Device Identifier'],
       ['Lot Number: Lot/batch number'],
       ['Is FDA Regulated: Yes/No'],

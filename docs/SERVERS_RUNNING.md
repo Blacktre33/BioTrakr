@@ -70,7 +70,7 @@
 - **Features:** 
   - Asset management
   - Telemetry ingestion
-  - Excel import/export
+  - Excel import/export (see [excel-import-guide.md](./excel-import-guide.md))
   - Database: Prisma + PostgreSQL
 
 ## Notes
