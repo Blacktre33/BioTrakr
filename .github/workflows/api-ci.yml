@@ -49,7 +49,16 @@ jobs:
       - name: Apply migrations to an empty database
         run: pnpm --filter @biotrakr/api run db:migrate
       - name: Fail if migrations and schema.prisma disagree
-        run: pnpm --filter @biotrakr/api run db:drift
+        working-directory: apps/api
+        # On drift, the SQL that would fix it is shown as annotations on the
+        # run (readable without downloading the log).
+        run: |
+          if pnpm run db:drift; then exit 0; fi
+          npx prisma migrate diff --from-migrations prisma/migrations \
+            --to-schema-datamodel prisma/schema.prisma \
+            --shadow-database-url "$SHADOW_DATABASE_URL" --script > drift.sql || true
+          grep -v '^\s*$' drift.sql | head -60 | while IFS= read -r line; do echo "::error title=Schema drift::$line"; done
+          exit 1
       - name: Confirm TimescaleDB hypertables exist
         run: |
           n=$(PGPASSWORD=postgres psql -h localhost -U postgres -d biotrakr_ci -Atc \
