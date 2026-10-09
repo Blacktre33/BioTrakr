@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, History, Pencil, ShieldCheck } from "lucide-react";
+import { ArrowLeft, History, Pencil, QrCode, ShieldCheck } from "lucide-react";
 
 import { AssetBedsideCard } from "@/components/scan/asset-bedside-card";
 import { Button, Skeleton } from "@/components/ui";
@@ -100,6 +100,11 @@ export function DevicePage({ assetId }: { assetId: string }) {
                   Edit details
                 </Button>
               )}
+              <Link href={`/labels?id=${encodeURIComponent(assetId)}` as never}>
+                <Button type="button" variant="ghost" leftIcon={<QrCode className="h-4 w-4" />}>
+                  Print label
+                </Button>
+              </Link>
             </div>
           )}
 

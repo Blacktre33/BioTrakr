@@ -2,8 +2,8 @@
 
 import { Suspense, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { Download, Plus, ScanLine } from 'lucide-react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Download, Plus, QrCode, ScanLine } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { AssetCreateForm, AssetExcelImport } from '@/components/assets';
@@ -16,8 +16,16 @@ import { getSession } from '@/lib/auth/session';
 /** Must match the API's ASSET_EDITOR_ROLES. */
 const EDITOR_ROLES = ['admin', 'engineer'];
 
+/** Labels for what the list is showing: same filters, no paging or form state. */
+function labelQuery(searchParams: URLSearchParams | { toString(): string }): string {
+  const next = new URLSearchParams(searchParams.toString());
+  for (const key of ['page', 'new', 'sort', 'order']) next.delete(key);
+  return next.toString();
+}
+
 function AssetsPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const canEdit = EDITOR_ROLES.includes(getSession()?.user.role ?? '');
   const [exporting, setExporting] = useState(false);
 
@@ -62,6 +70,11 @@ function AssetsPageContent() {
             </Button>
             {canEdit && (
               <>
+                <Link href={`/labels?${labelQuery(searchParams)}` as never}>
+                  <Button variant="ghost" size="sm" leftIcon={<QrCode className="w-4 h-4" />}>
+                    Print labels
+                  </Button>
+                </Link>
                 <AssetExcelImport
                   onImportComplete={(result) => toast.success(`Imported ${result.imported} devices`)}
                 />

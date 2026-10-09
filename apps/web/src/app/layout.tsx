@@ -47,13 +47,13 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={`${outfit.variable} ${sans.variable} ${mono.variable}`}>
-      <body className="min-h-screen bg-surface-0 font-sans">
+      <body className="min-h-screen bg-surface-0 font-sans print:bg-white">
         <Providers>
           {/* Noise texture overlay */}
-          <div className="noise-overlay" aria-hidden="true" />
+          <div className="noise-overlay print:hidden" aria-hidden="true" />
           
           {/* Background gradient mesh */}
-          <div className="fixed inset-0 gradient-mesh pointer-events-none" aria-hidden="true" />
+          <div className="fixed inset-0 gradient-mesh pointer-events-none print:hidden" aria-hidden="true" />
           
           {/* Main content */}
           <div className="relative z-10">
