@@ -12,9 +12,13 @@ COPY . .
 RUN pnpm install --no-frozen-lockfile --filter @biotrakr/api...
 RUN pnpm --filter @biotrakr/api exec prisma generate
 RUN pnpm --filter @biotrakr/api exec nest build
-# Production dependencies only, then the Prisma client for them.
+# Production dependencies only, then the Prisma client for them. The schema
+# is copied in first: Prisma writes the client next to the @prisma/client
+# that the schema's folder resolves, so it must be generated from /out.
 RUN pnpm --filter @biotrakr/api deploy --prod /out \
- && cd /out && ./node_modules/.bin/prisma generate --schema /repo/apps/api/prisma/schema.prisma
+ && rm -rf /out/prisma && cp -r /repo/apps/api/prisma /out/prisma \
+ && cd /out && ./node_modules/.bin/prisma generate --schema prisma/schema.prisma \
+ && node -e "require('@prisma/client'); console.log('Prisma client OK')"
 
 FROM node:20-bookworm-slim
 RUN apt-get update \
