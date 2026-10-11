@@ -7,6 +7,11 @@ import {
 } from '../assets/asset-status.service';
 import { describeLocation, LOCATION_SELECT } from '../assets/location';
 import type { AuthUser } from '../auth/auth-user';
+import {
+  endOfDay,
+  ENDING_SOON_DAYS,
+  startOfDay,
+} from '../contracts/contract-status';
 import { PrismaService } from '../database/prisma.service';
 import { OPEN_STATUSES } from '../work-orders/work-orders.service';
 
@@ -112,6 +117,89 @@ export class DashboardService {
   }
 
   /**
+   * How many devices in service are covered by a warranty or an AMC/CMC
+   * (the BMMP "% under contract" figure), what the contracts cost a year,
+   * and what is ending within 90 days and not yet renewed.
+   */
+  private async cover(
+    inService: Prisma.AssetWhereInput,
+    organizationId: string,
+    facilityId: string | undefined,
+    now: Date,
+  ) {
+    const today = startOfDay(now);
+    const soon = endOfDay(new Date(now.getTime() + ENDING_SOON_DAYS * DAY));
+    const inForce: Prisma.ServiceContractWhereInput = {
+      organizationId,
+      terminatedAt: null,
+      startDate: { lte: endOfDay(now) },
+      endDate: { gte: today },
+      // With a facility chosen: contracts covering a device there.
+      ...(facilityId
+        ? { devices: { some: { asset: { currentFacilityId: facilityId } } } }
+        : {}),
+    };
+    const underWarranty: Prisma.AssetWhereInput = {
+      warrantyEndDate: { gte: today },
+    };
+    const underContract: Prisma.AssetWhereInput = {
+      serviceContracts: {
+        some: {
+          contract: {
+            terminatedAt: null,
+            startDate: { lte: endOfDay(now) },
+            endDate: { gte: today },
+          },
+        },
+      },
+    };
+    const [
+      devices,
+      covered,
+      warranty,
+      contract,
+      warrantiesEnding,
+      contractsEnding,
+      value,
+    ] = await Promise.all([
+      this.prisma.asset.count({ where: inService }),
+      this.prisma.asset.count({
+        where: { ...inService, OR: [underWarranty, underContract] },
+      }),
+      this.prisma.asset.count({ where: { ...inService, ...underWarranty } }),
+      this.prisma.asset.count({ where: { ...inService, ...underContract } }),
+      this.prisma.asset.count({
+        where: { ...inService, warrantyEndDate: { gte: today, lte: soon } },
+      }),
+      this.prisma.serviceContract.count({
+        where: {
+          ...inForce,
+          endDate: { gte: today, lte: soon },
+          renewedBy: { is: null },
+        },
+      }),
+      this.prisma.serviceContract.aggregate({
+        where: inForce,
+        _sum: { annualValue: true },
+      }),
+    ]);
+    return {
+      devices,
+      covered,
+      /** Share of devices in service under warranty or contract; null with no devices. */
+      coveredPercent: devices ? round1((covered / devices) * 100) : null,
+      underWarranty: warranty,
+      underContract: contract,
+      endingSoonDays: ENDING_SOON_DAYS,
+      /** Contracts in force, ending within the window and not renewed. */
+      contractsEnding,
+      warrantiesEnding,
+      /** What the contracts in force cost a year, together. */
+      annualValue: Number(value._sum.annualValue ?? 0),
+    };
+  }
+
+  /**
    * What biomed needs at a glance: which devices are out of use, which are
    * overdue for preventive maintenance, the work waiting, and how long
    * repairs take. Everything is counted live from the database.
@@ -163,6 +251,7 @@ export class DashboardService {
       repairs,
       calibration,
       safetyTests,
+      cover,
     ] = await Promise.all([
       this.prisma.asset.groupBy({
         by: ['assetStatus'],
@@ -269,6 +358,7 @@ export class DashboardService {
         dueField: 'nextSafetyInspectionDue',
         failed: { lastSafetyTestPassed: false },
       }),
+      this.cover(inService, user.organizationId, query.facilityId, now),
     ]);
 
     const byStatus = Object.fromEntries(
@@ -376,6 +466,8 @@ export class DashboardService {
       calibration,
       /** Electrical safety tests (IS/IEC 62353). */
       safetyTests,
+      /** Warranty and AMC/CMC cover. */
+      cover,
       workOrders: {
         open: openCount,
         urgent,

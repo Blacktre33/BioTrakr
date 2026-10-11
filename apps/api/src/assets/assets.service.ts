@@ -22,28 +22,18 @@ interface OrgReferences {
   roomId?: string | null;
 }
 
+/**
+ * Dates arrive as strings, often just "2025-04-01" from a date input;
+ * Prisma takes only a full timestamp or a Date.
+ */
+const asDate = (value?: string) => (value ? new Date(value) : undefined);
+
 @Injectable()
 export class AssetsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(createAssetDto: CreateAssetDto, user: AuthUser): Promise<Asset> {
-    // Extract AMC/CMC tracking fields that aren't in the schema
-    const {
-      amcInitialCost,
-      amcYearsPaid,
-      amcIncreaseAmount,
-      amcIncreasePercentage,
-      cmcCostAnnual,
-      cmcContractNumber,
-      cmcStartDate,
-      cmcEndDate,
-      cmcInitialCost,
-      cmcYearsPaid,
-      cmcIncreaseAmount,
-      cmcIncreasePercentage,
-      notes,
-      ...baseDto
-    } = createAssetDto;
+    const { notes, ...baseDto } = createAssetDto;
 
     await this.assertReferencesInOrganization(user.organizationId, {
       facilityId: baseDto.currentFacilityId,
@@ -69,65 +59,26 @@ export class AssetsService {
       throw new ConflictException('This asset tag number is already in use');
     }
 
-    // Build contract tracking data to store in notes (for fields not in schema)
-    const contractTracking: Record<string, Record<string, unknown>> = {};
-
-    if (
-      amcInitialCost ||
-      amcYearsPaid ||
-      amcIncreaseAmount ||
-      amcIncreasePercentage
-    ) {
-      contractTracking.amc = {};
-      if (amcInitialCost) contractTracking.amc.initialCost = amcInitialCost;
-      if (amcYearsPaid) contractTracking.amc.yearsPaid = amcYearsPaid;
-      if (amcIncreaseAmount)
-        contractTracking.amc.increaseAmount = amcIncreaseAmount;
-      if (amcIncreasePercentage)
-        contractTracking.amc.increasePercentage = amcIncreasePercentage;
-    }
-
-    // All CMC data (schema only has cmcProviderId, no cost/date fields)
-    if (
-      cmcCostAnnual ||
-      cmcContractNumber ||
-      cmcStartDate ||
-      cmcEndDate ||
-      cmcInitialCost ||
-      cmcYearsPaid ||
-      cmcIncreaseAmount ||
-      cmcIncreasePercentage
-    ) {
-      contractTracking.cmc = {};
-      if (cmcCostAnnual) contractTracking.cmc.costAnnual = cmcCostAnnual;
-      if (cmcContractNumber)
-        contractTracking.cmc.contractNumber = cmcContractNumber;
-      if (cmcStartDate) contractTracking.cmc.startDate = cmcStartDate;
-      if (cmcEndDate) contractTracking.cmc.endDate = cmcEndDate;
-      if (cmcInitialCost) contractTracking.cmc.initialCost = cmcInitialCost;
-      if (cmcYearsPaid) contractTracking.cmc.yearsPaid = cmcYearsPaid;
-      if (cmcIncreaseAmount)
-        contractTracking.cmc.increaseAmount = cmcIncreaseAmount;
-      if (cmcIncreasePercentage)
-        contractTracking.cmc.increasePercentage = cmcIncreasePercentage;
-    }
-
-    let finalNotes = notes || '';
-    if (Object.keys(contractTracking).length > 0) {
-      const trackingJson = JSON.stringify(contractTracking, null, 2);
-      finalNotes = finalNotes
-        ? `${finalNotes}\n\n[CONTRACT_TRACKING]\n${trackingJson}`
-        : `[CONTRACT_TRACKING]\n${trackingJson}`;
-    }
-
     const lastPmDate = baseDto.lastPmDate
       ? new Date(baseDto.lastPmDate)
       : undefined;
     if (lastPmDate && lastPmDate.getTime() > Date.now() + 24 * 60 * 60 * 1000) {
       throw new BadRequestException('The last PM date cannot be in the future');
     }
+    if (
+      baseDto.warrantyStartDate &&
+      baseDto.warrantyEndDate &&
+      new Date(baseDto.warrantyEndDate) < new Date(baseDto.warrantyStartDate)
+    ) {
+      throw new BadRequestException(
+        'The warranty must end on or after the day it starts',
+      );
+    }
     const data: Prisma.AssetUncheckedCreateInput = {
       ...baseDto,
+      purchaseDate: new Date(baseDto.purchaseDate),
+      warrantyStartDate: asDate(baseDto.warrantyStartDate),
+      warrantyEndDate: asDate(baseDto.warrantyEndDate),
       lastPmDate,
       nextPmDueDate: nextPmDue(lastPmDate, baseDto.pmFrequencyDays, new Date()),
       // A device that needs calibration but has no known due date is due now:
@@ -143,7 +94,7 @@ export class AssetsService {
         : baseDto.requiresSafetyTest
           ? new Date()
           : undefined,
-      notes: finalNotes || undefined,
+      notes: notes?.trim() || undefined,
       // Ownership and audit fields always come from the caller's token.
       organizationId: user.organizationId,
       createdById: user.userId,
@@ -327,6 +278,7 @@ export class AssetsService {
       where: { id, organizationId: user.organizationId, deletedAt: null },
       data: {
         ...updateAssetDto,
+        warrantyEndDate: asDate(updateAssetDto.warrantyEndDate),
         ...pmSchedule,
         ...calibrationSchedule,
         ...safetyTestSchedule,

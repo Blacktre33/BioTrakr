@@ -58,6 +58,20 @@ export interface DashboardSummary {
   };
   /** Electrical safety tests (IS/IEC 62353), counted the same way. */
   safetyTests: DashboardSummary["calibration"];
+  /** Warranty and AMC/CMC cover of devices in service. */
+  cover: {
+    devices: number;
+    covered: number;
+    coveredPercent: number | null;
+    underWarranty: number;
+    underContract: number;
+    endingSoonDays: number;
+    /** Contracts in force, ending within the window and not renewed. */
+    contractsEnding: number;
+    warrantiesEnding: number;
+    /** What the contracts in force cost a year, together. */
+    annualValue: number;
+  };
   workOrders: {
     open: number;
     urgent: number;

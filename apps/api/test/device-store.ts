@@ -1,7 +1,7 @@
 /**
- * In-memory Prisma for the dashboard, PM schedule, calibration and safety
- * test specs: assets, work orders, users, notices, status history,
- * calibration and safety test records, with the query features those services use (relation filters,
+ * In-memory Prisma for the dashboard, PM schedule, calibration, safety
+ * test and contract specs: assets, work orders, users, notices, status
+ * history, calibration and safety test records, vendors and contracts, with the query features those services use (relation filters,
  * nested selects, groupBy, ordering, conditional updates).
  */
 import { ORG_A, ORG_B } from './helpers';
@@ -110,6 +110,10 @@ export function buildStore() {
   const notifications: Rec[] = [];
   const calibrations: Rec[] = [];
   const safetyTests: Rec[] = [];
+  const vendors: Rec[] = [];
+  const contracts: Rec[] = [];
+  /** Which devices each contract covers. */
+  const contractAssets: Rec[] = [];
   /** Calibration and safety test records: their ids never collide. */
   const records = () => [...calibrations, ...safetyTests];
   const users: Rec[] = [
@@ -160,7 +164,30 @@ export function buildStore() {
     },
   ];
 
+  /** some / none over related rows. */
+  const anyOf = (rows: Rec[], where: Rec) => {
+    if (where.none) return !rows.some((r) => matches(r, where.none));
+    if (where.some) return rows.some((r) => matches(r, where.some));
+    return true;
+  };
   const relations: Record<string, (row: Rec, where: Rec) => boolean> = {
+    contract: (row, where) =>
+      matches(contracts.find((c) => c.id === row.contractId)!, where),
+    devices: (row, where) =>
+      anyOf(
+        contractAssets.filter((ca) => ca.contractId === row.id),
+        where,
+      ),
+    serviceContracts: (row, where) =>
+      anyOf(
+        contractAssets.filter((ca) => ca.assetId === row.id),
+        where,
+      ),
+    // renewedBy: { is: null } — no contract renews this one.
+    renewedBy: (row, where) => {
+      const renewed = contracts.some((c) => c.renewsId === row.id);
+      return where.is === null ? !renewed : renewed;
+    },
     asset: (row, where) =>
       matches(assets.find((a) => a.id === row.assetId)!, where),
     maintenanceHistory: (row, where) => {
@@ -188,12 +215,7 @@ export function buildStore() {
   }
 
   /** Related records, by relation name. */
-  function related(
-    row: Rec,
-    key: string,
-    args: Rec,
-    of: 'asset' | 'order' | 'record',
-  ): unknown {
+  function related(row: Rec, key: string, args: Rec, of: string): unknown {
     if (of === 'asset') {
       if (key === 'currentFacility')
         return {
@@ -235,6 +257,45 @@ export function buildStore() {
         return u ? project(u, args.select, 'user') : null;
       }
     }
+    if (of === 'asset' && key === 'serviceContracts') {
+      return contractAssets
+        .filter((ca) => ca.assetId === row.id)
+        .map((ca) => project(ca, args.select, 'contractAsset'));
+    }
+    if (of === 'contract') {
+      if (key === 'vendor')
+        return project(
+          vendors.find((v) => v.id === row.vendorId)!,
+          args.select,
+          'vendor',
+        );
+      if (key === 'renews') {
+        const c = contracts.find((x) => x.id === row.renewsId);
+        return c ? project(c, args.select, 'contract') : null;
+      }
+      if (key === 'renewedBy') {
+        const c = contracts.find((x) => x.renewsId === row.id);
+        return c ? { id: c.id } : null;
+      }
+      if (key === 'devices')
+        return contractAssets
+          .filter((ca) => ca.contractId === row.id)
+          .map((ca) => project(ca, args.select, 'contractAsset'));
+    }
+    if (of === 'contractAsset') {
+      if (key === 'asset')
+        return project(
+          assets.find((a) => a.id === row.assetId)!,
+          args.select,
+          'asset',
+        );
+      if (key === 'contract')
+        return project(
+          contracts.find((c) => c.id === row.contractId)!,
+          args.select,
+          'contract',
+        );
+    }
     if (of === 'record') {
       if (key === 'recordedBy') {
         const u = users.find((x) => x.id === row.recordedById);
@@ -256,20 +317,15 @@ export function buildStore() {
       if (!want) continue;
       out[key] =
         want === true && !(key in row) && of !== 'change' && of !== 'user'
-          ? related(row, key, {}, of as 'asset' | 'order' | 'record')
+          ? related(row, key, {}, of)
           : want === true
             ? row[key]
-            : related(
-                row,
-                key,
-                want as Rec,
-                of as 'asset' | 'order' | 'record',
-              );
+            : related(row, key, want as Rec, of);
     }
     return out;
   }
 
-  function finder(rows: Rec[], of: 'asset' | 'order' | 'record') {
+  function finder(rows: Rec[], of: string) {
     const findMany = async ({ where, select, orderBy, take }: Rec = {}) =>
       sortBy(
         rows.filter((r) => matches(r, where)),
@@ -414,7 +470,101 @@ export function buildStore() {
       'safety_test_records',
       '5a000000',
     ),
+    vendors,
+    contracts,
+    contractAssets,
+    vendor: {
+      ...finder(vendors, 'vendor'),
+      // Unique (organizationId, vendorName).
+      create: jest.fn(async ({ data, select }: Rec) => {
+        if (
+          vendors.some(
+            (v) =>
+              v.organizationId === data.organizationId &&
+              v.vendorName === data.vendorName,
+          )
+        ) {
+          throw Object.assign(new Error('Unique constraint failed'), {
+            code: 'P2002',
+          });
+        }
+        const row = {
+          id: `ee000000-0000-4000-8000-${String(vendors.length + 1).padStart(12, '0')}`,
+          ...data,
+        };
+        vendors.push(row);
+        return project(row, select, 'vendor');
+      }),
+    },
+    serviceContract: {
+      ...finder(contracts, 'contract'),
+      // Unique renewsId: a contract is renewed at most once.
+      create: jest.fn(async ({ data, select }: Rec) => {
+        if (
+          data.renewsId &&
+          contracts.some((c) => c.renewsId === data.renewsId)
+        ) {
+          throw Object.assign(new Error('Unique constraint failed'), {
+            code: 'P2002',
+          });
+        }
+        const row = {
+          id: `c0000000-0000-4000-8000-${String(contracts.length + 1).padStart(12, '0')}`,
+          terminatedAt: null,
+          terminationReason: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          ...data,
+        };
+        contracts.push(row);
+        return project(row, select, 'contract');
+      }),
+      groupBy: jest.fn(async ({ by, where }: Rec) => {
+        const counts = new Map<string, number>();
+        for (const c of contracts.filter((r) => matches(r, where))) {
+          counts.set(c[by[0]], (counts.get(c[by[0]]) ?? 0) + 1);
+        }
+        return [...counts].map(([key, n]) => ({
+          [by[0]]: key,
+          _count: { _all: n },
+        }));
+      }),
+      aggregate: jest.fn(async ({ where }: Rec) => ({
+        _sum: {
+          annualValue: contracts
+            .filter((c) => matches(c, where))
+            .reduce((sum, c) => sum + (c.annualValue ?? 0), 0),
+        },
+      })),
+    },
+    serviceContractAsset: {
+      ...finder(contractAssets, 'contractAsset'),
+      // The (contractId, assetId) key.
+      createMany: jest.fn(async ({ data, skipDuplicates }: Rec) => {
+        let count = 0;
+        for (const d of data as Rec[]) {
+          const dup = contractAssets.some(
+            (ca) => ca.contractId === d.contractId && ca.assetId === d.assetId,
+          );
+          if (dup && !skipDuplicates) throw new Error('P2002');
+          if (dup) continue;
+          contractAssets.push({ ...d });
+          count++;
+        }
+        return { count };
+      }),
+      deleteMany: jest.fn(async ({ where }: Rec) => {
+        const gone = contractAssets.filter((r) => matches(r, where));
+        for (const r of gone)
+          contractAssets.splice(contractAssets.indexOf(r), 1);
+        return { count: gone.length };
+      }),
+    },
     notification: {
+      count: jest.fn(
+        async ({ where }: Rec = {}) =>
+          notifications.filter((n) => matches(n, where)).length,
+      ),
       createMany: jest.fn(async ({ data }: Rec) => {
         for (const row of data as Rec[]) {
           const dup =

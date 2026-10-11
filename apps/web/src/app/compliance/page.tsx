@@ -11,7 +11,7 @@ export default function CompliancePage() {
       title="Compliance"
       icon={<Shield className="h-8 w-8" />}
       heading="A compliance report is not available yet"
-      description="PM, calibration and electrical safety compliance are on the dashboard, and each device's certificates, test readings and history are on its page. Contract (AMC/CMC) records are not in BioTrakr yet."
+      description="PM, calibration, electrical safety and contract cover are on the dashboard, AMC and CMC contracts are under Contracts, and each device's certificates, test readings and history are on its page."
       link={{ href: '/dashboard', label: 'Go to the dashboard' }}
     />
   );

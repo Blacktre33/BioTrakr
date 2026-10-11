@@ -4,14 +4,25 @@ import { useState } from "react";
 import type { Route } from "next";
 import Link from "next/link";
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { AlertOctagon, CalendarClock, CheckCircle2, Clock, Gauge, ShieldCheck, Wrench, Zap, type LucideIcon } from "lucide-react";
+import {
+  AlertOctagon,
+  CalendarClock,
+  CheckCircle2,
+  Clock,
+  FileText,
+  Gauge,
+  ShieldCheck,
+  Wrench,
+  Zap,
+  type LucideIcon,
+} from "lucide-react";
 
 import { Header } from "@/components/layout";
 import { FacilityPicker } from "@/components/layout/facility-picker";
 import { Badge, Card, Skeleton } from "@/components/ui";
 import type { DashboardSummary, DeviceStatus } from "@/lib/api/dashboard";
 import { useDashboard } from "@/lib/hooks/use-dashboard";
-import { cn, formatDate, formatNumber, formatRelativeTime } from "@/lib/utils";
+import { cn, formatCurrency, formatDate, formatNumber, formatRelativeTime } from "@/lib/utils";
 
 import { ChartContainer, CustomTooltip } from "./charts";
 
@@ -123,10 +134,10 @@ function ProgrammeTile({
 }
 
 function Tiles({ data }: { data: DashboardSummary }) {
-  const { devices, pm, calibration, safetyTests, workOrders, repairs } = data;
+  const { devices, pm, calibration, safetyTests, cover, workOrders, repairs } = data;
   const compliance = pm.compliancePercent;
   return (
-    <ul aria-label="Key figures" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <ul aria-label="Key figures" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
       <Tile
         title="In use"
         value={formatNumber(devices.inUse)}
@@ -164,6 +175,31 @@ function Tiles({ data }: { data: DashboardSummary }) {
       />
       <ProgrammeTile title="Calibration" figures={calibration} programme="calibration" icon={Gauge} />
       <ProgrammeTile title="Electrical safety" figures={safetyTests} programme="electrical safety test" icon={Zap} />
+      <Tile
+        title="Under warranty or contract"
+        value={cover.coveredPercent === null ? "–" : `${cover.coveredPercent}%`}
+        detail={
+          cover.contractsEnding + cover.warrantiesEnding > 0
+            ? [
+                cover.contractsEnding > 0 ? `${plural(cover.contractsEnding, "contract")} ending` : null,
+                cover.warrantiesEnding > 0 ? `${plural(cover.warrantiesEnding, "warranty", "warranties")} ending` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ") + ` in ${cover.endingSoonDays} days`
+            : cover.annualValue > 0
+              ? `Contracts cost ${formatCurrency(cover.annualValue)} a year`
+              : `${formatNumber(cover.covered)} of ${plural(cover.devices, "device")}`
+        }
+        href="/contracts"
+        icon={FileText}
+        tone={
+          cover.coveredPercent === null
+            ? "neutral"
+            : cover.contractsEnding + cover.warrantiesEnding > 0
+              ? "warning"
+              : "neutral"
+        }
+      />
       <Tile
         title="Open work orders"
         value={formatNumber(workOrders.open)}

@@ -17,6 +17,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { PmModule } from './pm/pm.module';
 import { CalibrationModule } from './calibration/calibration.module';
 import { SafetyTestsModule } from './safety-tests/safety-tests.module';
+import { ContractsModule } from './contracts/contracts.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { requestIdMiddleware } from './common/request-id';
 import { AppController } from './app.controller';
@@ -38,6 +39,7 @@ import { AppService } from './app.service';
     PmModule,
     CalibrationModule,
     SafetyTestsModule,
+    ContractsModule,
   ],
   controllers: [AppController],
   providers: [

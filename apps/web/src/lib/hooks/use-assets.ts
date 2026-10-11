@@ -69,6 +69,9 @@ export function useUpdateAssetMutation() {
       queryClient.invalidateQueries({ queryKey: ["assets"] });
       queryClient.invalidateQueries({ queryKey: ["assets", data.id] });
       queryClient.invalidateQueries({ queryKey: ["asset-lookup"] });
+      // The warranty shows with the device's contracts.
+      queryClient.invalidateQueries({ queryKey: ["contracts", "cover", data.id] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
   });
 }

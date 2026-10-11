@@ -18,7 +18,9 @@ export type NotificationKind =
   | 'calibration_due'
   | 'calibration_failed'
   | 'safety_test_due'
-  | 'safety_test_failed';
+  | 'safety_test_failed'
+  | 'contract_expiring'
+  | 'warranty_expiring';
 
 /** Settings, read when used so tests and restarts pick up changes. */
 export function notificationConfig() {

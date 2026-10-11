@@ -86,6 +86,13 @@ enum ServiceProvider {
 
 /// IEC 60601-1 protection class: earthed (I), double insulated (II), or
 /// battery only (internally powered).
+/// AMC: annual maintenance (labour and PM visits; parts charged). CMC:
+/// comprehensive maintenance (parts included).
+enum ContractType {
+  AMC
+  CMC
+}
+
 enum ElectricalClass {
   CLASS_I
   CLASS_II
@@ -226,6 +233,8 @@ model Organization {
   users      User[]
   assets     Asset[]
   outboundMessages OutboundMessage[]
+  vendors          Vendor[]
+  serviceContracts ServiceContract[]
 
   @@map("organizations")
 }
@@ -420,6 +429,8 @@ model User {
   assetStatusChanges        AssetStatusChange[] @relation("AssetStatusChangedBy")
   calibrationRecords        CalibrationRecord[] @relation("CalibrationRecordedBy")
   safetyTestRecords         SafetyTestRecord[]  @relation("SafetyTestRecordedBy")
+  contractsCreated          ServiceContract[]   @relation("ContractCreatedBy")
+  contractsUpdated          ServiceContract[]   @relation("ContractUpdatedBy")
   authSessions              AuthSession[]
   notifications             Notification[]
 
@@ -430,9 +441,12 @@ model User {
   @@map("users")
 }
 
+/// A manufacturer, supplier or service company. Each hospital keeps its own
+/// list (organizationId); rows from before that have none and are not shown.
 model Vendor {
   id                   String       @id @default(uuid())
-  vendorCode           String       @unique
+  organizationId       String?
+  vendorCode           String?
   vendorName           String
   vendorType           VendorType
   contactPerson        String?
@@ -447,12 +461,16 @@ model Vendor {
   createdAt            DateTime     @default(now())
   updatedAt            DateTime     @updatedAt
 
+  organization         Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   assetsSupplied       Asset[] @relation("AssetVendor")
   assetsWithAMC        Asset[] @relation("AssetAMCProvider")
   assetsWithCMC        Asset[] @relation("AssetCMCProvider")
   maintenanceHistory   MaintenanceHistory[]
   spareParts           SparePart[]
+  serviceContracts     ServiceContract[]
 
+  @@unique([organizationId, vendorCode])
+  @@unique([organizationId, vendorName])
   @@map("vendors")
 }
 
@@ -704,6 +722,7 @@ model Asset {
   statusChanges                   AssetStatusChange[]
   calibrationRecords              CalibrationRecord[]
   safetyTestRecords               SafetyTestRecord[]
+  serviceContracts                ServiceContractAsset[]
   telemetry                       AssetTelemetry[]
   maintenanceEvents               MaintenanceEvent[]
   errorEvents                     ErrorEvent[]
@@ -719,6 +738,7 @@ model Asset {
   @@index([lastSeenTimestamp])
   @@index([nextPmDueDate])
   @@index([nextCalibrationDue])
+  @@index([warrantyEndDate])
   @@index([deletedAt])
   @@index([primaryCustodianId])
   @@index([custodianDepartmentId])
@@ -1113,6 +1133,61 @@ model SafetyTestRecord {
   @@index([assetId, testedAt(sort: Desc)])
   @@index([workOrderId])
   @@map("safety_test_records")
+}
+
+/// A maintenance contract (AMC or CMC) with a vendor, covering one or more
+/// devices for a period. A renewal is a new contract that names the one it
+/// renews, so the cost of each year is kept.
+model ServiceContract {
+  id                     String           @id @default(uuid())
+  organizationId         String
+  vendorId               String
+  contractType           ContractType
+  /// Contract, work order or purchase order number.
+  contractNumber         String           @db.VarChar(100)
+  startDate              DateTime
+  /// The last day of cover.
+  endDate                DateTime
+  /// For one year, all covered devices together.
+  annualValue            Decimal?         @db.Decimal(12, 2)
+  pmVisitsPerYear        Int?
+  /// Hours the vendor has to attend a breakdown.
+  responseTimeHours      Int?
+  uptimeGuaranteePercent Decimal?         @db.Decimal(5, 2)
+  notes                  String?          @db.VarChar(2000)
+  renewsId               String?          @unique
+  /// Ended before its end date (cancelled, or entered by mistake).
+  terminatedAt           DateTime?
+  terminationReason      String?          @db.VarChar(1000)
+  createdById            String
+  createdAt              DateTime         @default(now())
+  updatedById            String
+  updatedAt              DateTime         @updatedAt
+
+  organization           Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  vendor                 Vendor           @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  renews                 ServiceContract? @relation("ContractRenewal", fields: [renewsId], references: [id], onDelete: Restrict)
+  renewedBy              ServiceContract? @relation("ContractRenewal")
+  createdBy              User             @relation("ContractCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy              User             @relation("ContractUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+  devices                ServiceContractAsset[]
+
+  @@index([organizationId, endDate])
+  @@index([vendorId])
+  @@map("service_contracts")
+}
+
+/// A device covered by a contract.
+model ServiceContractAsset {
+  contractId             String
+  assetId                String
+
+  contract               ServiceContract  @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  asset                  Asset            @relation(fields: [assetId], references: [id], onDelete: Restrict)
+
+  @@id([contractId, assetId])
+  @@index([assetId])
+  @@map("service_contract_assets")
 }
 
 model SparePart {

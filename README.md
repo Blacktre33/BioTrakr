@@ -35,6 +35,7 @@ biotrakr/
 - **Preventive maintenance**: work orders opened automatically ahead of each due date, and a month calendar.
 - **Calibration**: scheduled like PM; certificates recorded with the details NABH and NHSRC expect (NABL accreditation number, measurement uncertainty, or the reference equipment for in-house work). A failed calibration takes the device out of use until a passing one is recorded.
 - **Electrical safety tests (IS/IEC 62353)**: scheduled like PM; the readings are checked against the standard's limits for the device's class and applied parts, and a failure takes the device out of use.
+- **AMC/CMC contracts and warranties**: each contract with its vendor, period, yearly cost and the devices it covers; renewals keep what every year cost. Reminders go out 90, 60, 30 and 7 days before a contract ends and 90 and 30 days before a warranty ends (NHSRC advises renewing three months ahead). The dashboard shows the share of devices under warranty or contract.
 - **Records that cannot be changed**: calibration and safety test records are never edited or deleted (the database refuses); a mistake is corrected by a new record that replaces it, with a reason, and the original stays on file.
 - **Dashboard**: devices out of use, PM, calibration and electrical safety compliance, open work orders, time to repair.
 - **Notifications**: in-app and browser notices, escalation of urgent reports, and a signed webhook for an SMS/WhatsApp gateway.
@@ -42,7 +43,7 @@ biotrakr/
 
 ### Not built yet
 
-- **Tracking** (live device locations), **Utilization** (usage figures) and a **Compliance** report show a "not available yet" notice and are not in the sidebar. Contract (AMC/CMC) records are not built.
+- **Tracking** (live device locations), **Utilization** (usage figures) and a **Compliance** report show a "not available yet" notice and are not in the sidebar.
 - **Device feeds**: the API accepts telemetry, RTLS, maintenance and error events ([docs/data-pipeline.md](./docs/data-pipeline.md)), but no screen shows them yet.
 - **`apps/ml-service`** is experimental: its failure model is trained on generated data and nothing in the app calls it.
 
