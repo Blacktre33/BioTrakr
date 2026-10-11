@@ -10,6 +10,11 @@ const record = jest.fn();
 const correct = jest.fn();
 let records: CalibrationRecord[] = [];
 
+jest.mock("@/lib/hooks/use-documents", () => ({
+  useDocuments: () => ({ isPending: false, isError: false, data: [] }),
+  useUploadDocument: () => ({ mutateAsync: jest.fn(), isPending: false }),
+  useWithdrawDocument: () => ({ mutateAsync: jest.fn(), isPending: false }),
+}));
 jest.mock("sonner", () => ({ toast: { success: jest.fn(), error: jest.fn() } }));
 jest.mock("@/lib/hooks/use-calibration", () => ({
   useCalibrations: () => ({ isPending: false, data: records }),
@@ -36,6 +41,7 @@ const cert = (over: Partial<CalibrationRecord> = {}): CalibrationRecord => ({
   supersedesId: null,
   correctionReason: null,
   correctedBy: null,
+  documents: 0,
   ...over,
 });
 

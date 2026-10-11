@@ -7,6 +7,7 @@ import { ArrowLeft, History, Pencil, QrCode, ShieldCheck } from "lucide-react";
 
 import { CalibrationSection } from "@/components/calibration/calibration-section";
 import { ServiceCoverSection } from "@/components/contracts/service-cover-section";
+import { DocumentsSection } from "@/components/documents/documents-section";
 import { SafetyTestSection } from "@/components/safety-tests/safety-test-section";
 import { AssetBedsideCard } from "@/components/scan/asset-bedside-card";
 import { Button, Skeleton } from "@/components/ui";
@@ -129,6 +130,10 @@ export function DevicePage({ assetId }: { assetId: string }) {
           <SafetyTestSection assetId={assetId} device={device} canRecord={canChangeStatus} />
 
           {canChangeStatus && <ServiceCoverSection device={device} canEdit={canEdit} />}
+
+          {(canChangeStatus || role === "viewer") && (
+            <DocumentsSection assetId={assetId} canUpload={canChangeStatus} />
+          )}
 
           <section aria-labelledby="status-history-heading" className="rounded-2xl border border-white/10 p-4">
             <h2 id="status-history-heading" className="flex items-center gap-2 font-medium text-gray-200">

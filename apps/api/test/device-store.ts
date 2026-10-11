@@ -1,7 +1,8 @@
 /**
  * In-memory Prisma for the dashboard, PM schedule, calibration, safety
- * test and contract specs: assets, work orders, users, notices, status
- * history, calibration and safety test records, vendors and contracts, with the query features those services use (relation filters,
+ * test, contract and document specs: assets, work orders, users, notices,
+ * status history, calibration and safety test records, vendors, contracts
+ * and files, with the query features those services use (relation filters,
  * nested selects, groupBy, ordering, conditional updates).
  */
 import { ORG_A, ORG_B } from './helpers';
@@ -114,6 +115,8 @@ export function buildStore() {
   const contracts: Rec[] = [];
   /** Which devices each contract covers. */
   const contractAssets: Rec[] = [];
+  const documents: Rec[] = [];
+  const withdrawals: Rec[] = [];
   /** Calibration and safety test records: their ids never collide. */
   const records = () => [...calibrations, ...safetyTests];
   const users: Rec[] = [
@@ -183,6 +186,11 @@ export function buildStore() {
         contractAssets.filter((ca) => ca.assetId === row.id),
         where,
       ),
+    // withdrawal: { is: null } — the file has not been withdrawn.
+    withdrawal: (row, where) => {
+      const withdrawn = withdrawals.some((w) => w.documentId === row.id);
+      return where.is === null ? !withdrawn : withdrawn;
+    },
     // renewedBy: { is: null } — no contract renews this one.
     renewedBy: (row, where) => {
       const renewed = contracts.some((c) => c.renewsId === row.id);
@@ -282,6 +290,30 @@ export function buildStore() {
           .filter((ca) => ca.contractId === row.id)
           .map((ca) => project(ca, args.select, 'contractAsset'));
     }
+    if (of === 'document') {
+      if (key === 'uploadedBy')
+        return project(
+          users.find((u) => u.id === row.uploadedById) ?? {
+            firstName: 'Someone',
+            lastName: '',
+          },
+          args.select,
+          'user',
+        );
+      if (key === 'withdrawal') {
+        const w = withdrawals.find((x) => x.documentId === row.id);
+        return w ? project(w, args.select, 'withdrawal') : null;
+      }
+    }
+    if (of === 'withdrawal' && key === 'withdrawnBy')
+      return project(
+        users.find((u) => u.id === row.withdrawnById) ?? {
+          firstName: 'Someone',
+          lastName: '',
+        },
+        args.select,
+        'user',
+      );
     if (of === 'contractAsset') {
       if (key === 'asset')
         return project(
@@ -558,6 +590,52 @@ export function buildStore() {
         for (const r of gone)
           contractAssets.splice(contractAssets.indexOf(r), 1);
         return { count: gone.length };
+      }),
+    },
+    documents,
+    withdrawals,
+    document: {
+      ...finder(documents, 'document'),
+      // Written once (a database trigger refuses changes).
+      updateMany: jest.fn(async () => {
+        throw new Error('documents cannot be changed');
+      }),
+      create: jest.fn(async ({ data, select }: Rec) => {
+        const row = {
+          id: `d0000000-0000-4000-8000-${String(documents.length + 1).padStart(12, '0')}`,
+          assetId: null,
+          calibrationRecordId: null,
+          safetyTestRecordId: null,
+          contractId: null,
+          workOrderId: null,
+          uploadedAt: new Date(),
+          ...data,
+        };
+        documents.push(row);
+        return project(row, select, 'document');
+      }),
+      groupBy: jest.fn(async ({ by, where }: Rec) => {
+        const counts = new Map<string, number>();
+        for (const d of documents.filter((r) => matches(r, where))) {
+          counts.set(d[by[0]], (counts.get(d[by[0]]) ?? 0) + 1);
+        }
+        return [...counts].map(([key, n]) => ({
+          [by[0]]: key,
+          _count: { _all: n },
+        }));
+      }),
+    },
+    documentWithdrawal: {
+      // documentId is the key: a file is withdrawn once.
+      create: jest.fn(async ({ data }: Rec) => {
+        if (withdrawals.some((w) => w.documentId === data.documentId)) {
+          throw Object.assign(new Error('Unique constraint failed'), {
+            code: 'P2002',
+          });
+        }
+        const row = { withdrawnAt: new Date(), ...data };
+        withdrawals.push(row);
+        return row;
       }),
     },
     notification: {

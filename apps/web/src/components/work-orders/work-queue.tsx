@@ -12,6 +12,7 @@ import {
   emptyCalibration,
   toCalibrationInput,
 } from "@/components/calibration/calibration-fields";
+import { Attachments } from "@/components/documents/attachments";
 import { ERROR_BORDER, Field, SELECT_CLASS, describedBy } from "@/components/forms/form-field";
 import {
   SafetyTestFields,
@@ -40,6 +41,8 @@ import { cn, formatDate, formatRelativeTime } from "@/lib/utils";
 const PAGE_SIZE = 25;
 const OUT_OF_USE = ["QUARANTINED", "IN_MAINTENANCE", "CONDEMNED", "RETIRED", "DISPOSED"];
 const RELEASABLE = ["QUARANTINED", "IN_MAINTENANCE"];
+/** Must match the API's BIOMED_ROLES. */
+const BIOMED_ROLES = ["admin", "engineer", "technician"];
 /** Work the schedule opens by itself. */
 const SCHEDULED = ["PREVENTIVE_MAINTENANCE", "CALIBRATION", "ELECTRICAL_SAFETY_TEST"];
 const FAILURE_CATEGORIES = [
@@ -245,6 +248,8 @@ function CloseDialog({
 
 function WorkOrderCard({ order, technicians }: { order: WorkOrder; technicians: Array<{ id: string; name: string }> }) {
   const me = getSession()?.user.id;
+  // Signed service reports, from the vendor or our own engineers.
+  const canAttach = BIOMED_ROLES.includes(getSession()?.user.role ?? "");
   const mutation = useUpdateWorkOrderMutation();
   const [closing, setClosing] = useState<"complete" | "cancel" | null>(null);
   const open = !["COMPLETED", "CANCELLED"].includes(order.workOrderStatus);
@@ -300,6 +305,13 @@ function WorkOrderCard({ order, technicians }: { order: WorkOrder; technicians: 
       {order.workPerformed && (
         <p className="mt-2 rounded-lg bg-surface-200/40 p-2 text-sm text-gray-300">{order.workPerformed}</p>
       )}
+      <Attachments
+        targetType="workOrder"
+        targetId={order.id}
+        canUpload={canAttach}
+        label={{ one: "Service report", none: "No service report on file" }}
+        defaultTitle={`Service report, ${order.asset.assetTagNumber}`}
+      />
       <p className="mt-2 text-xs text-gray-500">
         {order.reportedBy
           ? `Reported by ${order.reportedBy}`

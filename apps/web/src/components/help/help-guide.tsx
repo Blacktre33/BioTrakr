@@ -58,7 +58,7 @@ const tasks: Task[] = [
     title: 'Calibration and safety tests',
     href: '/maintenance',
     icon: Gauge,
-    body: 'For biomed: the schedule opens calibration and electrical safety (IS/IEC 62353) work orders before they fall due. Completing one records the certificate or readings, and a failure takes the device out of use. Earlier records are on each device page.',
+    body: 'For biomed: the schedule opens calibration and electrical safety (IS/IEC 62353) work orders before they fall due. Completing one records the certificate or readings, and a failure takes the device out of use. Earlier records, with the certificate or analyser report attached, are on each device page.',
   },
   {
     title: 'AMC and CMC contracts',

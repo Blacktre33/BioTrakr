@@ -24,6 +24,13 @@ export const STAFF_ROLES: Role[] = [
 export const ASSET_EDITOR_ROLES: Role[] = ['admin', 'engineer'];
 /** Biomedical engineering: may change a device's status and work on work orders. */
 export const BIOMED_ROLES: Role[] = ['admin', 'engineer', 'technician'];
+/** May open evidence files (certificates, reports, contracts): biomed, and auditors with a viewer account. */
+export const DOCUMENT_READ_ROLES: Role[] = [
+  'admin',
+  'engineer',
+  'technician',
+  'viewer',
+];
 /** May record QR scans. */
 export const SCAN_ROLES: Role[] = [
   'admin',

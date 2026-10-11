@@ -90,6 +90,8 @@ export interface SafetyTestRecord {
   supersedesId: string | null;
   correctionReason: string | null;
   correctedBy: string | null;
+  /** Files attached and not withdrawn (the certificate or report). */
+  documents: number;
 }
 
 /**

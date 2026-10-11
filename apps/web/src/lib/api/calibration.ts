@@ -50,6 +50,8 @@ export interface CalibrationRecord {
   correctionReason: string | null;
   /** The correction that replaced this record, if any. */
   correctedBy: string | null;
+  /** Files attached and not withdrawn (the certificate or report). */
+  documents: number;
 }
 
 /**

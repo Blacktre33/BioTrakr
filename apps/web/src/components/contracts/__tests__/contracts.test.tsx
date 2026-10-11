@@ -18,6 +18,11 @@ let cover: DeviceCover;
 let role = "engineer";
 let searchParams = new URLSearchParams();
 
+jest.mock("@/lib/hooks/use-documents", () => ({
+  useDocuments: () => ({ isPending: false, isError: false, data: [] }),
+  useUploadDocument: () => ({ mutateAsync: jest.fn(), isPending: false }),
+  useWithdrawDocument: () => ({ mutateAsync: jest.fn(), isPending: false }),
+}));
 jest.mock("sonner", () => ({ toast: { success: jest.fn(), error: jest.fn() } }));
 jest.mock("next/navigation", () => ({ useSearchParams: () => searchParams }));
 jest.mock("@/lib/auth/session", () => ({ getSession: () => ({ user: { id: "u1", role } }) }));
@@ -82,6 +87,7 @@ const cmc = (over: Partial<Contract> = {}): Contract => ({
   status: "active",
   daysLeft: 20,
   renewedById: null,
+  documents: 1,
   previous: { id: "c0", contractNumber: "PH/CMC/2025/09", annualValue: 120000 },
   ...over,
 });

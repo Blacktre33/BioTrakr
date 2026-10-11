@@ -75,7 +75,7 @@ export function ServiceCoverSection({
           {current.length > 0 ? (
             <ul className="mt-3 space-y-3">
               {current.map((c) => (
-                <ContractCard key={c.id} contract={c} />
+                <ContractCard key={c.id} contract={c} canAttach={canEdit} />
               ))}
             </ul>
           ) : (
@@ -107,7 +107,7 @@ export function ServiceCoverSection({
               {showPast && (
                 <ul className="mt-2 space-y-3">
                   {past.map((c) => (
-                    <ContractCard key={c.id} contract={c} />
+                    <ContractCard key={c.id} contract={c} canAttach={canEdit} />
                   ))}
                 </ul>
               )}
