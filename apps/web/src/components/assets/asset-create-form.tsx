@@ -410,6 +410,47 @@ export function AssetCreateForm({ open, onOpenChange, onAssetCreated }: AssetCre
             </div>
           </section>
 
+          <section className="space-y-4" aria-labelledby="calibration-heading">
+            <h3 id="asset-calibration-heading" className="text-sm font-semibold uppercase tracking-wide text-gray-400">
+              Calibration
+            </h3>
+            <label className="flex items-start gap-3 text-sm text-gray-100">
+              <input
+                type="checkbox"
+                id="requiresCalibration"
+                checked={values.requiresCalibration === "yes"}
+                onChange={(e) => setField("requiresCalibration", e.target.checked ? "yes" : "")}
+                className="mt-1"
+              />
+              <span>
+                Needs periodic calibration
+                <span className="block text-xs text-gray-400">
+                  Measuring devices such as BP monitors, infusion pumps, defibrillators and weighing scales.
+                </span>
+              </span>
+            </label>
+            {values.requiresCalibration === "yes" && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field
+                  field="calibrationFrequencyDays"
+                  label="Calibrate every (days)"
+                  error={errorFor("calibrationFrequencyDays")}
+                  hint="Used when a certificate gives no due date"
+                >
+                  {textInput("calibrationFrequencyDays", "365", { type: "number", min: 1, max: 3650, step: 1, inputMode: "numeric" })}
+                </Field>
+                <Field
+                  field="nextCalibrationDue"
+                  label="Calibration due"
+                  error={errorFor("nextCalibrationDue")}
+                  hint="From the current certificate or sticker. Empty: due now."
+                >
+                  {textInput("nextCalibrationDue", "", { type: "date" })}
+                </Field>
+              </div>
+            )}
+          </section>
+
           <details className="border-t border-white/10 pt-4 group">
             <summary className="cursor-pointer text-sm font-semibold uppercase tracking-wide text-gray-400">
               Service contracts (AMC / CMC) — optional

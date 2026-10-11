@@ -6,6 +6,12 @@ import Link from "next/link";
 import { AlertOctagon, Siren } from "lucide-react";
 import { toast } from "sonner";
 
+import {
+  CalibrationFields,
+  calibrationErrors,
+  emptyCalibration,
+  toCalibrationInput,
+} from "@/components/calibration/calibration-fields";
 import { ERROR_BORDER, Field, SELECT_CLASS, describedBy } from "@/components/forms/form-field";
 import {
   Badge,
@@ -79,7 +85,12 @@ function CloseDialog({
   const [submitted, setSubmitted] = useState(false);
   const [serverError, setServerError] = useState<string>();
   const mutation = useUpdateWorkOrderMutation();
-  const canRelease = mode === "complete" && RELEASABLE.includes(order.asset.assetStatus);
+  // Completing a calibration work order records the calibration itself.
+  const calibrating = mode === "complete" && order.workOrderType === "CALIBRATION";
+  const [calibration, setCalibration] = useState(emptyCalibration);
+  const calibrationInvalid = calibrating && Object.keys(calibrationErrors(calibration)).length > 0;
+  const failedCalibration = calibrating && calibration.result === "FAIL";
+  const canRelease = mode === "complete" && RELEASABLE.includes(order.asset.assetStatus) && !failedCalibration;
 
   const noteError = submitted && note.trim().length < 5 ? (mode === "complete" ? "Say what was done" : "Say why") : undefined;
   const safeError = submitted && release && !confirmSafe ? "Confirm the device is safe before releasing it" : undefined;
@@ -88,7 +99,7 @@ function CloseDialog({
     e.preventDefault();
     setSubmitted(true);
     setServerError(undefined);
-    if (note.trim().length < 5 || (release && !confirmSafe)) return;
+    if (note.trim().length < 5 || (release && !confirmSafe) || calibrationInvalid) return;
     try {
       const result = await mutation.mutateAsync({
         id: order.id,
@@ -97,7 +108,8 @@ function CloseDialog({
           status: mode === "complete" ? "COMPLETED" : "CANCELLED",
           workPerformed: note.trim(),
           ...(failureCategory ? { failureCategory } : {}),
-          ...(release ? { releaseDevice: true, confirmSafe: true } : {}),
+          ...(release && canRelease ? { releaseDevice: true, confirmSafe: true } : {}),
+          ...(calibrating ? { calibration: toCalibrationInput(calibration) } : {}),
         },
       });
       toast.success(
@@ -105,7 +117,9 @@ function CloseDialog({
           ? "Work order cancelled"
           : result.deviceReleased
             ? `Completed. ${order.asset.equipmentName} is back in use.`
-            : "Work order completed",
+            : failedCalibration
+              ? `Calibration recorded as failed. ${order.asset.equipmentName} is out of use.`
+              : "Work order completed",
       );
       onClose();
     } catch (err) {
@@ -115,9 +129,11 @@ function CloseDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className={cn("max-w-lg", calibrating && "max-h-[90vh] max-w-2xl overflow-y-auto")}>
         <DialogHeader>
-          <DialogTitle>{mode === "complete" ? "Complete work order" : "Cancel work order"}</DialogTitle>
+          <DialogTitle>
+            {calibrating ? "Record calibration" : mode === "complete" ? "Complete work order" : "Cancel work order"}
+          </DialogTitle>
           <DialogDescription>
             {order.asset.equipmentName} ({order.asset.assetTagNumber})
           </DialogDescription>
@@ -134,7 +150,8 @@ function CloseDialog({
               className={cn(noteError && ERROR_BORDER)}
             />
           </Field>
-          {mode === "complete" && (
+          {calibrating && <CalibrationFields values={calibration} onChange={setCalibration} showErrors={submitted} idPrefix="wo-cal" />}
+          {mode === "complete" && !calibrating && (
             <Field field="wo-failure" label="Cause (optional)">
               <select
                 {...describedBy("wo-failure")}

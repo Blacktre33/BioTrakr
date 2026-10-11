@@ -91,4 +91,67 @@ describe("WorkQueue", () => {
       },
     });
   });
+
+  describe("a calibration work order", () => {
+    const calibrationOrder: WorkOrder = {
+      ...base,
+      id: "wo-cal",
+      workOrderType: "CALIBRATION",
+      workOrderStatus: "IN_PROGRESS",
+      isEmergency: false,
+      description: "Calibration due 2026-10-20",
+      reportedBy: null,
+      asset: { ...base.asset, equipmentName: "BP monitor", assetStatus: "ACTIVE" },
+    };
+
+    it("records the certificate, asking for what a NABL lab must state", async () => {
+      const user = userEvent.setup();
+      items = [calibrationOrder];
+      render(<WorkQueue />);
+      await user.click(screen.getByRole("button", { name: "Complete…" }));
+      expect(screen.getByRole("heading", { name: "Record calibration" })).toBeInTheDocument();
+
+      await user.type(screen.getByLabelText(/what was done/i), "Calibrated by the lab on site");
+      await user.type(screen.getByLabelText(/^Laboratory/), "Precise Calibration Labs");
+      await user.click(screen.getByRole("button", { name: "Complete" }));
+      expect(mutateAsync).not.toHaveBeenCalled();
+      expect(screen.getByText("Enter the laboratory's NABL accreditation number")).toBeInTheDocument();
+      expect(screen.getByText("Enter the measurement uncertainty stated on the certificate")).toBeInTheDocument();
+
+      await user.type(screen.getByLabelText(/NABL accreditation/), "CC-2345");
+      await user.type(screen.getByLabelText(/Certificate no/), "PCL/2026/0412");
+      await user.type(screen.getByLabelText(/Measurement uncertainty/), "±0.5 mmHg (k=2)");
+      await user.click(screen.getByRole("button", { name: "Complete" }));
+      expect(mutateAsync).toHaveBeenCalledWith({
+        id: "wo-cal",
+        body: {
+          expectedStatus: "IN_PROGRESS",
+          status: "COMPLETED",
+          workPerformed: "Calibrated by the lab on site",
+          calibration: expect.objectContaining({
+            provider: "EXTERNAL_LAB",
+            providerName: "Precise Calibration Labs",
+            labAccreditationNumber: "CC-2345",
+            certificateNumber: "PCL/2026/0412",
+            measurementUncertainty: "±0.5 mmHg (k=2)",
+            result: "PASS",
+            calibratedAt: expect.any(String),
+          }),
+        },
+      });
+    });
+
+    it("never offers to release a device that failed, and warns it goes out of use", async () => {
+      const user = userEvent.setup();
+      items = [{ ...calibrationOrder, asset: { ...calibrationOrder.asset, assetStatus: "QUARANTINED" } }];
+      render(<WorkQueue />);
+      await user.click(screen.getByRole("button", { name: "Complete…" }));
+      expect(screen.getByRole("checkbox", { name: /put the device back into use/i })).toBeInTheDocument();
+
+      await user.selectOptions(screen.getByLabelText(/^Result/), "FAIL");
+      expect(screen.queryByRole("checkbox", { name: /put the device back into use/i })).not.toBeInTheDocument();
+      expect(screen.getByRole("status")).toHaveTextContent(/taken out of use/);
+      expect(screen.getByLabelText(/What was out of tolerance/)).toBeInTheDocument();
+    });
+  });
 });

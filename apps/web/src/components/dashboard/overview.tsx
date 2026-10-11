@@ -4,7 +4,7 @@ import { useState } from "react";
 import type { Route } from "next";
 import Link from "next/link";
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { AlertOctagon, CalendarClock, CheckCircle2, Clock, ShieldCheck, Wrench, type LucideIcon } from "lucide-react";
+import { AlertOctagon, CalendarClock, CheckCircle2, Clock, Gauge, ShieldCheck, Wrench, type LucideIcon } from "lucide-react";
 
 import { Header } from "@/components/layout";
 import { FacilityPicker } from "@/components/layout/facility-picker";
@@ -80,10 +80,11 @@ function Tile({
 }
 
 function Tiles({ data }: { data: DashboardSummary }) {
-  const { devices, pm, workOrders, repairs } = data;
+  const { devices, pm, calibration, workOrders, repairs } = data;
   const compliance = pm.compliancePercent;
+  const calCompliance = calibration.compliancePercent;
   return (
-    <ul aria-label="Key figures" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+    <ul aria-label="Key figures" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
       <Tile
         title="In use"
         value={formatNumber(devices.inUse)}
@@ -118,6 +119,32 @@ function Tiles({ data }: { data: DashboardSummary }) {
         href="/maintenance/schedule"
         icon={ShieldCheck}
         tone={compliance === null ? "neutral" : compliance >= 95 ? "good" : compliance >= 80 ? "warning" : "critical"}
+      />
+      <Tile
+        title="Calibration"
+        value={calCompliance === null ? "–" : `${calCompliance}%`}
+        detail={
+          calibration.failed > 0
+            ? `${plural(calibration.failed, "device")} failed, out of use · ${formatNumber(calibration.overdue)} overdue`
+            : calibration.overdue > 0
+              ? `${formatNumber(calibration.overdue)} overdue · ${formatNumber(calibration.dueSoon)} due in the next ${calibration.dueSoonDays} days`
+              : calibration.scheduled === 0
+                ? "No devices in the calibration programme"
+                : "In date"
+        }
+        href="/maintenance"
+        icon={Gauge}
+        tone={
+          calibration.failed > 0
+            ? "critical"
+            : calCompliance === null
+              ? "neutral"
+              : calCompliance >= 95
+                ? "good"
+                : calCompliance >= 80
+                  ? "warning"
+                  : "critical"
+        }
       />
       <Tile
         title="Open work orders"

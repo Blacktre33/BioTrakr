@@ -52,6 +52,7 @@ const asset: AssetLookup = {
   location: { facility: "City General", room: "ICU Bay 3 (ICU-3)" },
   department: "ICU",
   pm: { lastPmDate: "2026-07-01T00:00:00Z", nextPmDueDate: "2099-01-01T00:00:00Z", overdue: false },
+  calibration: null,
   recentMaintenance: [],
   recentScans: [],
   recentStatusChanges: [],
@@ -104,6 +105,44 @@ describe("AssetBedsideCard", () => {
     );
     expect(screen.getByRole("status")).toHaveTextContent("OK to use, but note");
     expect(screen.getByRole("status")).toHaveTextContent(/overdue/);
+  });
+
+  it("shows calibration only for devices in the programme, and a failure plainly", () => {
+    const { rerender } = render(wrap(<AssetBedsideCard asset={asset} scannedCode="VENT-7" role="clinical_staff" />));
+    expect(screen.queryByText("Calibration")).not.toBeInTheDocument();
+
+    rerender(
+      wrap(
+        <AssetBedsideCard
+          asset={{
+            ...asset,
+            calibration: {
+              lastCalibrationDate: "2025-10-01T00:00:00Z",
+              nextCalibrationDue: "2099-10-01T00:00:00Z",
+              lastResult: "PASS",
+              overdue: false,
+            },
+          }}
+          scannedCode="VENT-7"
+          role="clinical_staff"
+        />,
+      ),
+    );
+    expect(screen.getByText("Calibration").nextSibling).toHaveTextContent(/^Due /);
+
+    rerender(
+      wrap(
+        <AssetBedsideCard
+          asset={{
+            ...asset,
+            calibration: { lastCalibrationDate: null, nextCalibrationDue: null, lastResult: "FAIL", overdue: false },
+          }}
+          scannedCode="VENT-7"
+          role="clinical_staff"
+        />,
+      ),
+    );
+    expect(screen.getByText("Failed, out of use")).toBeInTheDocument();
   });
 
   it("lets ward staff log a sighting in one tap, with the room pre-filled", async () => {

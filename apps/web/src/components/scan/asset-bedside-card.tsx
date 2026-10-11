@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { AlertOctagon, AlertTriangle, CheckCircle2, Flag, MapPin, Wrench } from "lucide-react";
+import { AlertOctagon, AlertTriangle, CheckCircle2, Flag, Gauge, MapPin, Wrench } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button, Input, Label } from "@/components/ui";
@@ -149,6 +149,27 @@ export function AssetBedsideCard({ asset, scannedCode, role }: AssetBedsideCardP
             </dd>
           </div>
         </div>
+        {asset.calibration && (
+          <div className="flex gap-2">
+            <Gauge className="mt-1 h-4 w-4 text-gray-500" aria-hidden="true" />
+            <div>
+              <dt className="text-xs uppercase tracking-wide text-gray-500">Calibration</dt>
+              <dd
+                className={cn(
+                  asset.calibration.lastResult === "FAIL" || asset.calibration.overdue
+                    ? "font-semibold text-critical-500"
+                    : "text-gray-100",
+                )}
+              >
+                {asset.calibration.lastResult === "FAIL"
+                  ? "Failed, out of use"
+                  : asset.calibration.nextCalibrationDue
+                    ? `${asset.calibration.overdue ? "Overdue since" : "Due"} ${formatDate(asset.calibration.nextCalibrationDue)}`
+                    : "Not scheduled"}
+              </dd>
+            </div>
+          </div>
+        )}
       </dl>
 
       {canLog && (

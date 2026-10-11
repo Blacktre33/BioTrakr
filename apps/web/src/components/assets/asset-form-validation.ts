@@ -20,6 +20,10 @@ export interface AssetFormValues {
   usefulLifeYears: string;
   pmFrequencyDays: string;
   lastPmDate: string;
+  /** "yes" when the device needs periodic calibration. */
+  requiresCalibration: string;
+  calibrationFrequencyDays: string;
+  nextCalibrationDue: string;
   amcContractNumber: string;
   amcStartDate: string;
   amcEndDate: string;
@@ -58,6 +62,9 @@ export const EMPTY_ASSET_FORM: AssetFormValues = {
   usefulLifeYears: "10",
   pmFrequencyDays: "",
   lastPmDate: "",
+  requiresCalibration: "",
+  calibrationFrequencyDays: "365",
+  nextCalibrationDue: "",
   amcContractNumber: "",
   amcStartDate: "",
   amcEndDate: "",
@@ -176,6 +183,16 @@ export function validateAssetForm(
     else if (isFutureDate(values.lastPmDate, today)) errors.lastPmDate = "Cannot be in the future";
   }
 
+  if (values.requiresCalibration === "yes") {
+    const calDays = parseNumber(values.calibrationFrequencyDays);
+    if (calDays !== null && (Number.isNaN(calDays) || !Number.isInteger(calDays) || calDays < 1 || calDays > 3650)) {
+      errors.calibrationFrequencyDays = "Whole number of days, 1 to 3650";
+    }
+    if (values.nextCalibrationDue && !isValidDate(values.nextCalibrationDue)) {
+      errors.nextCalibrationDue = "Enter a valid date";
+    }
+  }
+
   for (const field of ["amcYearsPaid", "cmcYearsPaid"] as const) {
     const n = parseNumber(values[field]);
     if (n !== null && (Number.isNaN(n) || !Number.isInteger(n) || n < 0)) {
@@ -244,6 +261,13 @@ export function toCreateAssetPayload(values: AssetFormValues): CreateAssetPayloa
     usefulLifeYears: num(values.usefulLifeYears) ?? 0,
     pmFrequencyDays: num(values.pmFrequencyDays),
     lastPmDate: text(values.lastPmDate),
+    ...(values.requiresCalibration === "yes"
+      ? {
+          requiresCalibration: true,
+          calibrationFrequencyDays: num(values.calibrationFrequencyDays),
+          nextCalibrationDue: text(values.nextCalibrationDue),
+        }
+      : {}),
     currentFacilityId: values.currentFacilityId,
     custodianDepartmentId: values.custodianDepartmentId,
     primaryCustodianId: values.primaryCustodianId,
