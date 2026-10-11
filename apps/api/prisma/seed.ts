@@ -15,8 +15,8 @@ async function main() {
       name: 'Demo Hospital System',
       type: 'hospital_network',
       settings: {
-        timezone: 'America/New_York',
-        currency: 'USD',
+        timezone: 'Asia/Kolkata',
+        currency: 'INR',
       },
     },
   });

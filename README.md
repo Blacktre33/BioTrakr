@@ -1,5 +1,5 @@
-# BioTrakr - Medical Device Asset Management Platform
-> Next-generation healthcare asset management with real-time tracking, predictive maintenance, and compliance automation.
+# BioTrakr - Medical Equipment Management for Hospitals
+> A device register, bedside "safe to use?" checks by QR scan, problem reports from the wards, biomed work orders and preventive maintenance, installed on the hospital's own server.
 
 ## 🏗️ Project Structure
 
@@ -8,17 +8,15 @@ biotrakr/
 ├── apps/
 │   ├── api/              # NestJS backend API
 │   ├── web/              # Next.js web application
-│   ├── mobile/           # React Native mobile app
-│   └── ml-service/       # Python FastAPI ML service
+│   └── ml-service/       # Python FastAPI ML service (experimental, see below)
 ├── packages/
 │   ├── ui/               # Shared UI components
 │   ├── types/            # Shared TypeScript types
 │   ├── config/           # Shared configuration
 │   └── utils/            # Shared utilities
+├── deploy/               # Hospital server install (Docker Compose, HTTPS, backups)
 ├── infrastructure/
-│   ├── docker/           # Docker configurations
-│   ├── kubernetes/       # K8s manifests
-│   └── terraform/        # Infrastructure as Code
+│   └── docker/           # Docker configurations for development
 └── docs/                 # Documentation
 ```
 
@@ -29,15 +27,21 @@ biotrakr/
 - `@biotrakr/utils` – security helpers for hashing, token creation, and guards.
 - `@biotrakr/ui` – design tokens to be leveraged by every surface.
 
-### Dashboard Enhancements (Step 9)
+### What works today
 
-- Live telemetry map renders shared RTLS mock data with breadcrumb trails so UI integration can progress ahead of device feeds.
-- Maintenance planner surfaces seeded work orders with filtering and priority/status badges, ready for API wiring in later steps.
+- **Devices**: register, edit, search and filter devices; Excel import and export; QR label sheets.
+- **On the ward**: scan a device to see whether it is safe to use; report a problem and take it out of use in one step.
+- **Biomed**: a work queue (assign, start, waiting for parts, complete, release as safe), with every status change recorded.
+- **Preventive maintenance**: work orders opened automatically ahead of each due date, and a month calendar.
+- **Dashboard**: devices out of use, PM overdue and compliance, open work orders, time to repair.
+- **Notifications**: in-app and browser notices, escalation of urgent reports, and a signed webhook for an SMS/WhatsApp gateway.
+- **Settings**: people (roles, one-time passwords, mobile numbers) and locations.
 
-### Data Pipeline (Step 10)
+### Not built yet
 
-- `docs/data-pipeline.md` outlines the ingestion contracts, Timescale-friendly storage schema, and configuration required to replace synthetic telemetry with live device feeds.
-- Asset QR scans are logged via the `/assets/:id/scans` API and surfaced in the dashboard for rapid reconciliation and audit trails. See [`docs/qr-scanning.md`](./docs/qr-scanning.md) for implementation notes.
+- **Tracking** (live device locations), **Utilization** (usage figures) and **Compliance** (calibration, electrical-safety and contract records) show a "not available yet" notice and are not in the sidebar.
+- **Device feeds**: the API accepts telemetry, RTLS, maintenance and error events ([docs/data-pipeline.md](./docs/data-pipeline.md)), but no screen shows them yet.
+- **`apps/ml-service`** is experimental: its failure model is trained on generated data and nothing in the app calls it.
 
 ## 🏥 Installing at a hospital
 
@@ -61,7 +65,7 @@ pnpm install
 # Copy environment defaults
 cp .env.example apps/api/.env
 
-# Start infrastructure (PostgreSQL/TimescaleDB, Redis, etc.)
+# Start PostgreSQL/TimescaleDB (the file also starts optional development tools)
 docker-compose up -d
 
 # Apply database migrations and load demo data
@@ -84,11 +88,12 @@ Data is always scoped to the caller's organization.
 
 | Role | Can |
 |---|---|
-| `admin` | Everything, including ingestion |
-| `engineer` | Read; create/edit assets; Excel import |
-| `technician`, `clinical_staff` | Read; record QR scans |
+| `admin` | Everything, including People and Locations settings, deleting devices and ingestion |
+| `engineer` | Add and edit devices, Excel import, plus everything a technician can do |
+| `technician` | Work orders, PM and device status (biomed); scan devices |
+| `clinical_staff` | Scan devices, record sightings and report problems |
 | `viewer` | Read only |
-| `integration` | Ingestion endpoints only (RTLS/telemetry gateways) |
+| `integration` | Ingestion endpoints only (device and gateway feeds) |
 
 `JWT_SECRET` must be at least 32 characters; the API refuses to start without it.
 
@@ -130,7 +135,7 @@ must already exist. Limits: 5 MB, 2,000 rows per file.
 
 Biomed sees notices in the app's bell: problem reports on their facility's devices, device faults that took a device out of use, work assigned to them. Reporters hear when their report is fixed or closed. An urgent report (a critical device, or a high-risk device taken out of use) that nobody takes on is escalated to engineers and administrators after 15 and again after 60 minutes.
 
-Urgent notices can also go to your own gateway (SMS, WhatsApp, pager) as a signed webhook:
+Urgent notices can also go to your own gateway (SMS, WhatsApp, pager) as a signed webhook. Set each person's mobile number in Settings → People; it is stored and sent as `+` and digits (for example `+919876543210`).
 
 | Variable | Meaning |
 |---|---|
@@ -186,17 +191,17 @@ pnpm --filter @biotrakr/web dev
 - **Web App**: http://localhost:3000
 - **API**: http://localhost:3001
 - **API Docs**: http://localhost:3001/api/docs
-- **ML Service**: http://localhost:8000
-- **ML Docs**: http://localhost:8000/docs
-- **MLflow UI**: http://localhost:5001
+- **ML Service** (experimental, if you start it yourself): http://localhost:8000
 
 ## 📚 Documentation
 
-- [Architecture](./docs/ARCHITECTURE.md)
-- [Setup Guide](./docs/SETUP.md)
-- [API Documentation](./docs/API.md)
+- [Installing at a hospital](./docs/DEPLOY-ONPREM.md)
+- [Database migrations and the drift check](./apps/api/prisma/README.md)
 - [QR Scanning Workflow](./docs/qr-scanning.md)
-- [Contributing Guidelines](./docs/CONTRIBUTING.md)
+- [Device data pipeline](./docs/data-pipeline.md)
+- API reference: http://localhost:3001/api/docs while the API runs in development
+
+Files in `docs/` dated November 2025 (status and progress reports) are historical snapshots, not the current state.
 
 ## 🧪 Testing
 
@@ -208,8 +213,8 @@ pnpm test
 pnpm --filter @biotrakr/api test
 pnpm --filter @biotrakr/web test
 
-# Run E2E tests (Playwright)
-pnpm test:e2e
+# Run the API end-to-end tests
+pnpm --filter @biotrakr/api test:e2e
 ```
 
 ## 📦 Building
@@ -224,7 +229,7 @@ pnpm --filter @biotrakr/web build
 
 ## 🤝 Contributing
 
-Please read [CONTRIBUTING.md](./docs/CONTRIBUTING.md) for details on our code of conduct and development process.
+Open a pull request against `main`. CI runs typecheck and tests for each app, the migration drift check and a smoke test of the hospital install.
 
 ## 📄 License
 

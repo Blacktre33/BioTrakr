@@ -48,6 +48,8 @@ export interface StaffAccount {
   lastName: string;
   role: string;
   jobTitle: string | null;
+  /** + and digits, as SMS/WhatsApp gateways receive it. */
+  phone: string | null;
   facilityId: string | null;
   departmentId: string | null;
   isActive: boolean;
@@ -90,6 +92,7 @@ export interface NewStaff {
   lastName: string;
   role: string;
   jobTitle?: string;
+  phone?: string;
   facilityId?: string;
   departmentId?: string;
 }

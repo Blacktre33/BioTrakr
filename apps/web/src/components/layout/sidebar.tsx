@@ -9,8 +9,6 @@ import {
   LayoutDashboard,
   Box,
   Wrench,
-  MapPin,
-  Shield,
   Settings,
   ChevronLeft,
   ChevronRight,
@@ -19,7 +17,6 @@ import {
   LogOut,
   HelpCircle,
   Activity,
-  TrendingUp,
   ScanLine,
   type LucideIcon,
 } from 'lucide-react';
@@ -62,24 +59,6 @@ const navigationItems: NavItem[] = [
     href: '/maintenance',
     icon: Wrench,
     description: 'Problem reports and scheduled work',
-  },
-  {
-    name: 'Tracking',
-    href: '/tracking',
-    icon: MapPin,
-    description: 'Real-time location',
-  },
-  {
-    name: 'Utilization',
-    href: '/utilization',
-    icon: TrendingUp,
-    description: 'Usage analytics',
-  },
-  {
-    name: 'Compliance',
-    href: '/compliance',
-    icon: Shield,
-    description: 'Regulatory status',
   },
 ];
 

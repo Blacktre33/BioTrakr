@@ -41,6 +41,27 @@ class IsTimeZone implements ValidatorConstraintInterface {
   }
 }
 
+/**
+ * Phones are stored as an optional + and digits, the form SMS and WhatsApp
+ * gateways expect: "+91 98765 43210" is kept as "+919876543210".
+ */
+export const normalizePhone = (value: string): string =>
+  value.replace(/[\s().-]/g, '');
+
+@ValidatorConstraint({ name: 'phone' })
+class IsPhone implements ValidatorConstraintInterface {
+  validate(value: unknown): boolean {
+    // Blank clears the number.
+    return (
+      typeof value === 'string' &&
+      (value.trim() === '' || /^\+?\d{8,15}$/.test(normalizePhone(value)))
+    );
+  }
+  defaultMessage(): string {
+    return 'Enter a phone number such as +91 98765 43210';
+  }
+}
+
 // ---------------------------------------------------------------- facilities
 
 export class CreateFacilityDto {
@@ -262,6 +283,15 @@ export class CreateUserDto {
   @IsOptional()
   jobTitle?: string;
 
+  @ApiPropertyOptional({
+    example: '+91 98765 43210',
+    description: 'For SMS/WhatsApp alerts; stored as + and digits',
+  })
+  @MaxLength(30)
+  @Validate(IsPhone)
+  @IsOptional()
+  phone?: string;
+
   @IsUUID()
   @IsOptional()
   facilityId?: string;
@@ -293,6 +323,15 @@ export class UpdateUserDto {
   @MaxLength(100)
   @IsOptional()
   jobTitle?: string;
+
+  @ApiPropertyOptional({
+    example: '+91 98765 43210',
+    description: 'For SMS/WhatsApp alerts; blank clears it',
+  })
+  @MaxLength(30)
+  @Validate(IsPhone)
+  @IsOptional()
+  phone?: string;
 
   @ApiPropertyOptional({
     description: 'null clears it (and the department)',

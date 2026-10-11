@@ -363,6 +363,35 @@ describe('Organization setup (e2e)', () => {
     }).expect(400);
   });
 
+  it('keeps phone numbers in the form SMS gateways expect', async () => {
+    const res = await post('users', {
+      email: 'pam@a.test',
+      firstName: 'Pam',
+      lastName: 'Phone',
+      role: 'technician',
+      phone: '+91 98765-43210',
+    }).expect(201);
+    expect(res.body.user.phone).toBe('+919876543210');
+    const id = res.body.user.id as string;
+
+    const changed = await patch(`users/${id}`, {
+      phone: '(080) 2222 3333',
+    }).expect(200);
+    expect(changed.body.phone).toBe('08022223333');
+    const cleared = await patch(`users/${id}`, { phone: '  ' }).expect(200);
+    expect(cleared.body.phone).toBeNull();
+
+    for (const phone of [
+      '12345',
+      'call me',
+      '+91 98765 43210 ext 5',
+      '++919876543210',
+    ]) {
+      const bad = await patch(`users/${id}`, { phone }).expect(400);
+      expect(JSON.stringify(bad.body.message)).toMatch(/phone number/);
+    }
+  });
+
   it('signs a person out everywhere when deactivated, and keeps at least one admin', async () => {
     prisma.sessions.push({ id: 's1', userId: NURSE_ID, revokedAt: null });
     await patch(`users/${NURSE_ID}`, { isActive: false }).expect(200);

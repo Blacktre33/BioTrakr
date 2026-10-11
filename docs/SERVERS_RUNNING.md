@@ -1,3 +1,5 @@
+> **Historical snapshot (November 2025).** This file is no longer kept up to date. See the [README](../README.md) for the current state.
+
 # BioTrakr Servers Status
 
 **Last Updated:** November 18, 2025, 9:50 PM IST

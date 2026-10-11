@@ -27,6 +27,7 @@ import type {
   UpdateRoomDto,
   UpdateUserDto,
 } from './admin.dto';
+import { normalizePhone } from './admin.dto';
 
 /** No look-alike characters (0/O, 1/l/I), so it can be read out or copied by hand. */
 const PASSWORD_ALPHABET =
@@ -60,6 +61,7 @@ const USER_SELECT = {
   lastName: true,
   role: true,
   jobTitle: true,
+  phone: true,
   facilityId: true,
   departmentId: true,
   isActive: true,
@@ -375,6 +377,7 @@ export class AdminService {
           lastName: dto.lastName.trim(),
           role: dto.role,
           jobTitle: dto.jobTitle?.trim() || null,
+          phone: dto.phone ? normalizePhone(dto.phone) || null : null,
           facilityId,
           departmentId: dto.departmentId ?? null,
           passwordHash: await hashPassword(password),
@@ -419,6 +422,9 @@ export class AdminService {
       ...(dto.lastName !== undefined ? { lastName: dto.lastName.trim() } : {}),
       ...(dto.jobTitle !== undefined
         ? { jobTitle: dto.jobTitle.trim() || null }
+        : {}),
+      ...(dto.phone !== undefined
+        ? { phone: normalizePhone(dto.phone) || null }
         : {}),
       ...(dto.role !== undefined ? { role: dto.role } : {}),
       ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),

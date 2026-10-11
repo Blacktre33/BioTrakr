@@ -34,6 +34,10 @@ const ROLE_CHOICES = [
 ];
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** Must match the API (admin.dto.ts): it stores + and digits only. */
+const PHONE = /^\+?\d{8,15}$/;
+const PHONE_SEPARATORS = /[\s().-]/g;
+const PHONE_HINT = "Enter a phone number such as +91 98765 43210";
 
 const fullName = (u: Pick<StaffAccount, "firstName" | "lastName">) => `${u.firstName} ${u.lastName}`.trim();
 
@@ -94,6 +98,7 @@ interface PersonForm {
   email: string;
   role: string;
   jobTitle: string;
+  phone: string;
   facilityId: string;
   departmentId: string;
 }
@@ -104,6 +109,7 @@ const EMPTY: PersonForm = {
   email: "",
   role: "clinical_staff",
   jobTitle: "",
+  phone: "",
   facilityId: "",
   departmentId: "",
 };
@@ -138,6 +144,7 @@ function PersonDialog({
             email: editing.email,
             role: editing.role,
             jobTitle: editing.jobTitle ?? "",
+            phone: editing.phone ?? "",
             facilityId: editing.facilityId ?? "",
             departmentId: editing.departmentId ?? "",
           }
@@ -152,6 +159,7 @@ function PersonDialog({
     firstName: form.firstName.trim() ? undefined : "Enter their first name",
     lastName: form.lastName.trim() ? undefined : "Enter their last name",
     email: editing || EMAIL.test(form.email.trim()) ? undefined : "Enter their work email",
+    phone: !form.phone.trim() || PHONE.test(form.phone.replace(PHONE_SEPARATORS, "")) ? undefined : PHONE_HINT,
   };
   const show = (k: keyof PersonForm) => (submitted ? errors[k] : undefined);
   const set = (k: keyof PersonForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
@@ -171,6 +179,7 @@ function PersonDialog({
           lastName: editing.lastName,
           role: editing.role,
           jobTitle: editing.jobTitle ?? "",
+          phone: editing.phone ?? "",
           facilityId: editing.facilityId ?? "",
           departmentId: editing.departmentId ?? "",
         };
@@ -195,6 +204,7 @@ function PersonDialog({
           email: form.email.trim(),
           role: form.role,
           jobTitle: optional(form.jobTitle),
+          phone: optional(form.phone),
           facilityId: optional(form.facilityId),
           departmentId: optional(form.departmentId),
         });
@@ -270,6 +280,19 @@ function PersonDialog({
               onChange={set("jobTitle")}
               maxLength={100}
               placeholder="Staff nurse, ICU"
+            />
+          </Field>
+          <Field field="p-phone" label="Mobile number" error={show("phone")} hint="For SMS and WhatsApp alerts">
+            <Input
+              {...describedBy("p-phone", show("phone"), "For SMS and WhatsApp alerts")}
+              type="tel"
+              inputMode="tel"
+              autoComplete="off"
+              value={form.phone}
+              onChange={set("phone")}
+              maxLength={30}
+              placeholder="+91 98765 43210"
+              className={cn(show("phone") && ERROR_BORDER)}
             />
           </Field>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -490,6 +513,7 @@ export function PeopleAdmin() {
                   <p className="truncate text-sm text-gray-400">
                     {u.email}
                     {u.jobTitle ? ` · ${u.jobTitle}` : ""}
+                    {u.phone ? ` · ${u.phone}` : ""}
                     {placeOf(u) ? ` · ${placeOf(u)}` : ""}
                   </p>
                   <p className="text-xs text-gray-500">{formatWhen(u.lastLoginAt)}</p>
