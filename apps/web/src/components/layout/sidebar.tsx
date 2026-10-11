@@ -19,6 +19,7 @@ import {
   Activity,
   ScanLine,
   FileText,
+  ClipboardList,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -70,6 +71,14 @@ const navigationItems: NavItem[] = [
     description: 'AMC, CMC and vendors',
     // Must match the API's BIOMED_ROLES.
     roles: ['admin', 'engineer', 'technician'],
+  },
+  {
+    name: 'Registers',
+    href: '/registers',
+    icon: ClipboardList,
+    description: 'Print for NABH and NHSRC',
+    // Must match the API's DOCUMENT_READ_ROLES (auditors use viewer accounts).
+    roles: ['admin', 'engineer', 'technician', 'viewer'],
   },
 ];
 

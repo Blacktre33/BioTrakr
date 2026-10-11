@@ -231,7 +231,8 @@ export function buildStore() {
             row.currentFacilityId === FAC_2 ? 'North Clinic' : 'City General',
         };
       if (key === 'currentRoom') return null;
-      if (key === 'custodianDepartment') return { departmentName: 'ICU' };
+      if (key === 'custodianDepartment')
+        return { departmentName: row.departmentName ?? 'ICU' };
       if (key === 'maintenanceHistory')
         return sortBy(
           orders.filter((o) => o.assetId === row.id && matches(o, args.where)),
@@ -329,6 +330,12 @@ export function buildStore() {
         );
     }
     if (of === 'record') {
+      if (key === 'asset')
+        return project(
+          assets.find((a) => a.id === row.assetId)!,
+          args.select,
+          'asset',
+        );
       if (key === 'recordedBy') {
         const u = users.find((x) => x.id === row.recordedById);
         return u ? project(u, args.select, 'user') : null;
@@ -505,6 +512,21 @@ export function buildStore() {
     vendors,
     contracts,
     contractAssets,
+    organization: {
+      findFirst: jest.fn(async () => ({ name: 'City General Hospital' })),
+    },
+    // Both facilities belong to ORG_A.
+    facility: {
+      findFirst: jest.fn(async ({ where }: Rec) =>
+        (where.id === FAC_1 || where.id === FAC_2) &&
+        where.organizationId === ORG_A
+          ? {
+              facilityName:
+                where.id === FAC_2 ? 'North Clinic' : 'City General',
+            }
+          : null,
+      ),
+    },
     vendor: {
       ...finder(vendors, 'vendor'),
       // Unique (organizationId, vendorName).
