@@ -89,6 +89,9 @@ export function assetAlerts(
     requiresCalibration?: boolean;
     nextCalibrationDue?: Date | null;
     lastCalibrationResult?: CalibrationResult | null;
+    requiresSafetyTest?: boolean;
+    nextSafetyInspectionDue?: Date | null;
+    lastSafetyTestPassed?: boolean | null;
   },
   now: Date = new Date(),
 ): AssetAlert[] {
@@ -121,6 +124,24 @@ export function assetAlerts(
       level: 'caution',
       message:
         'Calibration is overdue. Readings may be off; let biomedical engineering know.',
+    });
+  }
+
+  if (asset.lastSafetyTestPassed === false) {
+    alerts.push({
+      level: 'stop',
+      message:
+        'Failed its last electrical safety test. Do not use until biomedical engineering retests it.',
+    });
+  } else if (
+    asset.requiresSafetyTest &&
+    asset.nextSafetyInspectionDue &&
+    asset.nextSafetyInspectionDue < now
+  ) {
+    alerts.push({
+      level: 'caution',
+      message:
+        'Electrical safety test is overdue. Let biomedical engineering know.',
     });
   }
 
@@ -174,6 +195,12 @@ export class AssetLookupService {
         lastCalibrationDate: true,
         nextCalibrationDue: true,
         lastCalibrationResult: true,
+        requiresSafetyTest: true,
+        electricalClass: true,
+        appliedPartType: true,
+        lastSafetyInspectionDate: true,
+        nextSafetyInspectionDue: true,
+        lastSafetyTestPassed: true,
         lastSeenTimestamp: true,
         _count: {
           select: {
@@ -268,6 +295,10 @@ export class AssetLookupService {
       lastCalibrationDate,
       nextCalibrationDue,
       lastCalibrationResult,
+      requiresSafetyTest,
+      lastSafetyInspectionDate,
+      nextSafetyInspectionDue,
+      lastSafetyTestPassed,
       ...device
     } = asset;
 
@@ -294,6 +325,16 @@ export class AssetLookupService {
             lastResult: lastCalibrationResult,
             overdue: Boolean(
               nextCalibrationDue && nextCalibrationDue < new Date(),
+            ),
+          }
+        : null,
+      safetyTest: requiresSafetyTest
+        ? {
+            lastTestDate: lastSafetyInspectionDate,
+            nextTestDue: nextSafetyInspectionDue,
+            lastPassed: lastSafetyTestPassed,
+            overdue: Boolean(
+              nextSafetyInspectionDue && nextSafetyInspectionDue < new Date(),
             ),
           }
         : null,

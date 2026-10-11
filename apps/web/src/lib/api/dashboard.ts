@@ -56,6 +56,8 @@ export interface DashboardSummary {
     failed: number;
     compliancePercent: number | null;
   };
+  /** Electrical safety tests (IS/IEC 62353), counted the same way. */
+  safetyTests: DashboardSummary["calibration"];
   workOrders: {
     open: number;
     urgent: number;

@@ -1,5 +1,7 @@
+import type { AppliedPartType, ElectricalClass } from "../iec62353";
 import type { CalibrationInput } from "./calibration";
 import { api } from "./client";
+import type { SafetyTestInput } from "./safety-tests";
 
 export type WorkOrderStatus =
   | "PENDING"
@@ -30,6 +32,8 @@ export interface WorkOrder {
     equipmentName: string;
     assetStatus: string;
     criticalityLevel: string;
+    electricalClass?: ElectricalClass | null;
+    appliedPartType?: AppliedPartType | null;
     location: string;
   };
   reportedBy: string | null;
@@ -46,6 +50,8 @@ export interface WorkOrderUpdate {
   confirmSafe?: boolean;
   /** Required to complete a calibration work order. */
   calibration?: CalibrationInput;
+  /** Required to complete an electrical safety test work order. */
+  safetyTest?: SafetyTestInput;
 }
 
 export async function reportProblem(body: {

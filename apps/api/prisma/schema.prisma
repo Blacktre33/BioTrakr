@@ -84,6 +84,36 @@ enum ServiceProvider {
   VENDOR
 }
 
+/// IEC 60601-1 protection class: earthed (I), double insulated (II), or
+/// battery only (internally powered).
+enum ElectricalClass {
+  CLASS_I
+  CLASS_II
+  INTERNALLY_POWERED
+}
+
+/// The highest applied part type on the device (CF: may touch the heart).
+enum AppliedPartType {
+  NONE
+  B
+  BF
+  CF
+}
+
+/// IEC 62353 leakage measurement method; the limits differ.
+enum LeakageMethod {
+  DIRECT
+  DIFFERENTIAL
+  ALTERNATIVE
+}
+
+/// Why the electrical safety test was done (IEC 62353 covers both).
+enum SafetyTestReason {
+  ROUTINE
+  AFTER_REPAIR
+  ACCEPTANCE
+}
+
 enum PMComplianceStatus {
   COMPLIANT
   GRACE_PERIOD
@@ -161,6 +191,7 @@ enum WorkOrderType {
   EMERGENCY_REPAIR
   INSTALLATION
   DECOMMISSIONING
+  ELECTRICAL_SAFETY_TEST
 }
 
 enum VendorType {
@@ -388,6 +419,7 @@ model User {
   assetScans                AssetScanLog[] @relation("AssetScanLogUser")
   assetStatusChanges        AssetStatusChange[] @relation("AssetStatusChangedBy")
   calibrationRecords        CalibrationRecord[] @relation("CalibrationRecordedBy")
+  safetyTestRecords         SafetyTestRecord[]  @relation("SafetyTestRecordedBy")
   authSessions              AuthSession[]
   notifications             Notification[]
 
@@ -503,6 +535,13 @@ model Asset {
   recallNoticeId                  String?
   lastSafetyInspectionDate        DateTime?
   nextSafetyInspectionDue         DateTime?
+  /// In the electrical safety test (IS/IEC 62353) programme.
+  requiresSafetyTest              Boolean             @default(false)
+  safetyTestFrequencyDays         Int?
+  electricalClass                 ElectricalClass?
+  appliedPartType                 AppliedPartType?
+  /// From the latest safety test; false keeps the device out of use.
+  lastSafetyTestPassed            Boolean?
   biomedicalWasteHandling         WasteHandling?
   requiresOperatorCertification   Boolean             @default(false)
   decontaminationProtocol         String?
@@ -664,6 +703,7 @@ model Asset {
   scanLogs                        AssetScanLog[]
   statusChanges                   AssetStatusChange[]
   calibrationRecords              CalibrationRecord[]
+  safetyTestRecords               SafetyTestRecord[]
   telemetry                       AssetTelemetry[]
   maintenanceEvents               MaintenanceEvent[]
   errorEvents                     ErrorEvent[]
@@ -968,8 +1008,8 @@ model MaintenanceHistory {
   updatedAt               DateTime        @updatedAt
   /// Minutes-level of the last "nobody has taken this on" escalation (15, 60…).
   escalatedAfterMinutes   Int?
-  /// The due date the schedule opened this work order for (PM or
-  /// calibration); one work order per asset, type and due date.
+  /// The due date the schedule opened this work order for (PM,
+  /// calibration or safety test); one per asset, type and due date.
   dueDate                 DateTime?
 
   asset                   Asset           @relation(fields: [assetId], references: [id], onDelete: Restrict) // history outlives the asset; assets are soft-deleted
@@ -981,6 +1021,7 @@ model MaintenanceHistory {
   @@index([workOrderStatus])
   @@index([assignedTechnicianId])
   calibrationRecords      CalibrationRecord[]
+  safetyTestRecords       SafetyTestRecord[]
 
   @@unique([assetId, workOrderType, dueDate])
   @@map("maintenance_history")
@@ -1025,6 +1066,53 @@ model CalibrationRecord {
   @@index([assetId, calibratedAt(sort: Desc)])
   @@index([workOrderId])
   @@map("calibration_records")
+}
+
+/// An electrical safety test (IS/IEC 62353) as measured: never edited or
+/// deleted (a database trigger refuses); a correction is a new record that
+/// names the one it replaces. Pass or fail is worked out by the API from
+/// the standard's limits, never typed in.
+model SafetyTestRecord {
+  id                     String              @id @default(uuid())
+  assetId                String
+  workOrderId            String?
+  testedAt               DateTime
+  reason                 SafetyTestReason
+  provider               ServiceProvider
+  providerName           String?             @db.VarChar(200)
+  /// The safety analyser used (make, model, serial) and its calibration.
+  analyzer               String              @db.VarChar(300)
+  electricalClass        ElectricalClass
+  appliedPartType        AppliedPartType
+  leakageMethod          LeakageMethod
+  medicalSystem          Boolean             @default(false)
+  mobileXray             Boolean             @default(false)
+  defibrillationPaddles  Boolean             @default(false)
+  visualInspectionPassed Boolean
+  functionalTestPassed   Boolean
+  earthResistanceOhm     Float?
+  insulationMainsMOhm    Float?
+  insulationAppliedMOhm  Float?
+  equipmentLeakageUa     Float?
+  appliedPartLeakageUa   Float?
+  passed                 Boolean
+  /// Each check as evaluated, with the limit the reading was held to.
+  checks                 Json
+  notes                  String?             @db.VarChar(2000)
+  recordedById           String
+  recordedAt             DateTime            @default(now())
+  supersedesId           String?             @unique
+  correctionReason       String?             @db.VarChar(1000)
+
+  asset                  Asset               @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  workOrder              MaintenanceHistory? @relation(fields: [workOrderId], references: [id], onDelete: Restrict)
+  recordedBy             User                @relation("SafetyTestRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+  supersedes             SafetyTestRecord?   @relation("SafetyTestCorrection", fields: [supersedesId], references: [id], onDelete: Restrict)
+  supersededBy           SafetyTestRecord?   @relation("SafetyTestCorrection")
+
+  @@index([assetId, testedAt(sort: Desc)])
+  @@index([workOrderId])
+  @@map("safety_test_records")
 }
 
 model SparePart {

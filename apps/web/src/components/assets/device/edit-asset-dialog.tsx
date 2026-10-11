@@ -17,6 +17,7 @@ import {
 } from "@/components/ui";
 import type { Asset, UpdateAssetPayload } from "@/lib/api/assets";
 import type { AssetFormReference, FormOption } from "@/lib/api/reference";
+import { APPLIED_PART_LABEL, CLASS_LABEL } from "@/lib/api/safety-tests";
 import { useUpdateAssetMutation } from "@/lib/hooks/use-assets";
 import { cn } from "@/lib/utils";
 
@@ -37,6 +38,12 @@ interface EditValues {
   requiresCalibration: string;
   calibrationFrequencyDays: string;
   nextCalibrationDue: string;
+  /** "yes" when the device is in the electrical safety test programme. */
+  requiresSafetyTest: string;
+  safetyTestFrequencyDays: string;
+  nextSafetyInspectionDue: string;
+  electricalClass: string;
+  appliedPartType: string;
   usefulLifeYears: string;
   warrantyEndDate: string;
   udiDeviceIdentifier: string;
@@ -74,6 +81,11 @@ export function valuesFromAsset(asset: Asset): EditValues {
     requiresCalibration: asset.requiresCalibration ? "yes" : "",
     calibrationFrequencyDays: str(asset.calibrationFrequencyDays),
     nextCalibrationDue: asset.nextCalibrationDue ? asset.nextCalibrationDue.slice(0, 10) : "",
+    requiresSafetyTest: asset.requiresSafetyTest ? "yes" : "",
+    safetyTestFrequencyDays: str(asset.safetyTestFrequencyDays),
+    nextSafetyInspectionDue: asset.nextSafetyInspectionDue ? asset.nextSafetyInspectionDue.slice(0, 10) : "",
+    electricalClass: str(asset.electricalClass),
+    appliedPartType: str(asset.appliedPartType),
     usefulLifeYears: str(asset.usefulLifeYears),
     warrantyEndDate: asset.warrantyEndDate ? asset.warrantyEndDate.slice(0, 10) : "",
     udiDeviceIdentifier: str(asset.udiDeviceIdentifier),
@@ -94,6 +106,9 @@ export function validateEdit(values: EditValues, departments: AssetFormReference
   if (values.requiresCalibration === "yes" && values.calibrationFrequencyDays && !whole(values.calibrationFrequencyDays, 1, 3650)) {
     errors.calibrationFrequencyDays = "Whole number of days, 1 to 3650";
   }
+  if (values.requiresSafetyTest === "yes" && values.safetyTestFrequencyDays && !whole(values.safetyTestFrequencyDays, 1, 3650)) {
+    errors.safetyTestFrequencyDays = "Whole number of days, 1 to 3650";
+  }
   if (!errors.usefulLifeYears && !whole(values.usefulLifeYears, 1, 50)) {
     errors.usefulLifeYears = "Whole number of years, 1 to 50";
   }
@@ -110,9 +125,14 @@ export function changedPayload(before: EditValues, after: EditValues): UpdateAss
   for (const key of Object.keys(after) as EditField[]) {
     if (after[key].trim() === before[key].trim()) continue;
     const v = after[key].trim();
-    if (key === "requiresCalibration") {
+    if (key === "requiresCalibration" || key === "requiresSafetyTest") {
       out[key] = v === "yes";
-    } else if (key === "pmFrequencyDays" || key === "usefulLifeYears" || key === "calibrationFrequencyDays") {
+    } else if (
+      key === "pmFrequencyDays" ||
+      key === "usefulLifeYears" ||
+      key === "calibrationFrequencyDays" ||
+      key === "safetyTestFrequencyDays"
+    ) {
       if (v !== "") out[key] = Number(v);
     } else if (v !== "" || key === "notes" || key === "serialNumber" || key === "udiDeviceIdentifier") {
       out[key] = v;
@@ -299,6 +319,56 @@ export function EditAssetDialog({ open, onOpenChange, asset, reference }: EditAs
                   "Used when a certificate gives no due date. Blank uses 365 days.",
                 )}
                 {text("nextCalibrationDue", "Calibration due", { type: "date" }, "Usually set by recording a calibration")}
+              </>
+            )}
+            <Field field="electricalClass" label="Protection class" error={errorFor("electricalClass")}>
+              <select {...control("electricalClass")} className={SELECT_CLASS}>
+                <option value="" disabled={Boolean(initial.electricalClass)}>
+                  Not known yet
+                </option>
+                {Object.entries(CLASS_LABEL).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field field="appliedPartType" label="Applied parts" error={errorFor("appliedPartType")}>
+              <select {...control("appliedPartType")} className={SELECT_CLASS}>
+                <option value="" disabled={Boolean(initial.appliedPartType)}>
+                  Not known yet
+                </option>
+                {Object.entries(APPLIED_PART_LABEL).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <label className="flex items-start gap-3 text-sm text-gray-100 sm:col-span-2">
+              <input
+                type="checkbox"
+                id="requiresSafetyTest"
+                checked={values.requiresSafetyTest === "yes"}
+                onChange={(e) => set("requiresSafetyTest", e.target.checked ? "yes" : "")}
+                className="mt-1"
+              />
+              <span>
+                Needs periodic electrical safety tests (IS/IEC 62353)
+                <span className="block text-xs text-gray-400">
+                  Test work orders open before it falls due. Turning this on with no due date makes a test due now.
+                </span>
+              </span>
+            </label>
+            {values.requiresSafetyTest === "yes" && (
+              <>
+                {text(
+                  "safetyTestFrequencyDays",
+                  "Test every (days)",
+                  { type: "number", min: 1, max: 3650, step: 1, inputMode: "numeric" },
+                  "Blank uses 365 days.",
+                )}
+                {text("nextSafetyInspectionDue", "Next test due", { type: "date" }, "Usually set by recording a test")}
               </>
             )}
           </div>

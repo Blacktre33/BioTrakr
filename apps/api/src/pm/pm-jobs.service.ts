@@ -53,6 +53,20 @@ export const CALIBRATION_SCHEDULED: Prisma.AssetWhereInput = {
   nextCalibrationDue: { not: null },
 };
 
+/** An open electrical safety test work order. */
+export const OPEN_SAFETY_TEST: Prisma.MaintenanceHistoryWhereInput = {
+  workOrderType: 'ELECTRICAL_SAFETY_TEST',
+  workOrderStatus: { in: OPEN_STATUSES },
+};
+
+/** Devices in the electrical safety test programme, with a due date. */
+export const SAFETY_TEST_SCHEDULED: Prisma.AssetWhereInput = {
+  deletedAt: null,
+  assetStatus: { notIn: RETIRED_STATUSES },
+  requiresSafetyTest: true,
+  nextSafetyInspectionDue: { not: null },
+};
+
 /** 2026-10-14, in the server's time zone (TZ: the hospital's). */
 export const formatDay = (d: Date) =>
   new Intl.DateTimeFormat('en-CA', {
@@ -64,8 +78,8 @@ export const formatDay = (d: Date) =>
 /** Work the schedule opens ahead of time, one kind per entry. */
 interface Schedule {
   name: string;
-  type: 'PREVENTIVE_MAINTENANCE' | 'CALIBRATION';
-  dueField: 'nextPmDueDate' | 'nextCalibrationDue';
+  type: 'PREVENTIVE_MAINTENANCE' | 'CALIBRATION' | 'ELECTRICAL_SAFETY_TEST';
+  dueField: 'nextPmDueDate' | 'nextCalibrationDue' | 'nextSafetyInspectionDue';
   devices: Prisma.AssetWhereInput;
   open: Prisma.MaintenanceHistoryWhereInput;
   describe(
@@ -73,7 +87,7 @@ interface Schedule {
     dueDate: Date,
   ): string;
   notice: {
-    kind: 'pm_due' | 'calibration_due';
+    kind: 'pm_due' | 'calibration_due' | 'safety_test_due';
     one: string;
     many: string;
     link: string;
@@ -120,11 +134,28 @@ const SCHEDULES: Schedule[] = [
       dedupePrefix: 'calibration-opened',
     },
   },
+  {
+    name: 'electrical safety test',
+    type: 'ELECTRICAL_SAFETY_TEST',
+    dueField: 'nextSafetyInspectionDue',
+    devices: SAFETY_TEST_SCHEDULED,
+    open: OPEN_SAFETY_TEST,
+    describe: (_asset, dueDate) =>
+      `Electrical safety test (IS/IEC 62353) due ${formatDay(dueDate)}`,
+    notice: {
+      kind: 'safety_test_due',
+      one: 'Electrical safety test due',
+      many: 'electrical safety tests opened',
+      link: '/maintenance',
+      dedupePrefix: 'safety-test-opened',
+    },
+  },
 ];
 
 /**
- * Opens preventive maintenance and calibration work orders ahead of their
- * due date, so the work shows up in biomed's queue in time. Runs hourly in
+ * Opens preventive maintenance, calibration and electrical safety test work
+ * orders ahead of their due date, so the work shows up in biomed's queue in
+ * time. Runs hourly in
  * each API instance; the database allows one work order per device, kind
  * and due date, so several instances never open the same one twice.
  */
@@ -212,6 +243,7 @@ export class PmJobsService implements OnApplicationBootstrap, OnModuleDestroy {
           equipmentName: true,
           nextPmDueDate: true,
           nextCalibrationDue: true,
+          nextSafetyInspectionDue: true,
           pmProcedureDocument: true,
         },
         orderBy: { id: 'asc' },

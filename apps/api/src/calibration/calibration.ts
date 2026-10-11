@@ -5,17 +5,7 @@ import type {
   ServiceProvider,
 } from '@prisma/client';
 
-import {
-  changeAssetStatus,
-  isStopStatus,
-} from '../assets/asset-status.service';
-import { BIOMED_ROLES } from '../auth/roles';
-import {
-  bestEffort,
-  deviceForNotice,
-  deviceLabel,
-  notify,
-} from '../notifications/notify';
+import { takeOutOfUseAfterFailedCheck } from '../assets/failed-check';
 import type { CalibrationInputDto } from './calibration.dto';
 
 type Tx = Prisma.TransactionClient;
@@ -156,7 +146,13 @@ export async function recordCalibration(
 
   const latest = await refreshCalibrationState(tx, e.assetId, e.organizationId);
   if (latest?.id === record.id && record.result === 'FAIL') {
-    await takeOutOfUse(tx, e, record.notes);
+    await takeOutOfUseAfterFailedCheck(tx, {
+      ...e,
+      what: 'Failed calibration',
+      details: record.notes,
+      until: 'a passing calibration is recorded',
+      kind: 'calibration_failed',
+    });
   }
   return record;
 }
@@ -194,49 +190,4 @@ export async function refreshCalibrationState(
     },
   });
   return latest;
-}
-
-async function takeOutOfUse(
-  tx: Tx,
-  e: {
-    assetId: string;
-    organizationId: string;
-    recordedById: string;
-    workOrderId?: string | null;
-  },
-  notes: string | null,
-) {
-  const device = await tx.asset.findFirst({
-    where: { id: e.assetId, organizationId: e.organizationId },
-    select: { assetStatus: true },
-  });
-  if (device && !isStopStatus(device.assetStatus)) {
-    await changeAssetStatus(tx, {
-      assetId: e.assetId,
-      organizationId: e.organizationId,
-      toStatus: 'QUARANTINED',
-      reason: `Failed calibration: ${notes ?? ''}`.slice(0, 1000),
-      source: e.workOrderId ? 'WORK_ORDER' : 'MANUAL',
-      changedById: e.recordedById,
-      workOrderId: e.workOrderId ?? null,
-    });
-  }
-  await bestEffort(tx, 'calibration notice', async () => {
-    const d = await deviceForNotice(tx, e.assetId, e.organizationId);
-    if (!d) return;
-    await notify(tx, {
-      organizationId: e.organizationId,
-      kind: 'calibration_failed',
-      severity: 'warning',
-      title: `Failed calibration: ${deviceLabel(d)}`,
-      body: [notes, 'It is out of use until a passing calibration is recorded.']
-        .filter(Boolean)
-        .join('\n'),
-      link: `/assets/${d.id}`,
-      assetId: d.id,
-      workOrderId: e.workOrderId ?? undefined,
-      to: { roles: BIOMED_ROLES, facilityId: d.currentFacilityId },
-      excludeUserId: e.recordedById,
-    });
-  });
 }

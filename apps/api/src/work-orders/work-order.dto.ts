@@ -17,6 +17,7 @@ import {
 import { Type } from 'class-transformer';
 
 import { CalibrationInputDto } from '../calibration/calibration.dto';
+import { SafetyTestInputDto } from '../safety-tests/safety-test.dto';
 
 export class ReportProblemDto {
   @ApiProperty()
@@ -132,4 +133,13 @@ export class UpdateWorkOrderDto {
   @Type(() => CalibrationInputDto)
   @IsOptional()
   calibration?: CalibrationInputDto;
+
+  @ApiPropertyOptional({
+    type: SafetyTestInputDto,
+    description: 'Required to complete an electrical safety test work order',
+  })
+  @ValidateNested()
+  @Type(() => SafetyTestInputDto)
+  @IsOptional()
+  safetyTest?: SafetyTestInputDto;
 }

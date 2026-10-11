@@ -55,6 +55,63 @@ export class DashboardService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
+   * A recurring check (calibration, electrical safety test): how many
+   * devices are in it, overdue, due soon, unscheduled and failed.
+   * Compliance counts a failed device as non-compliant even before its new
+   * due date passes.
+   */
+  private async programme(
+    inService: Prisma.AssetWhereInput,
+    now: Date,
+    p: {
+      member: Prisma.AssetWhereInput;
+      dueField: 'nextCalibrationDue' | 'nextSafetyInspectionDue';
+      failed: Prisma.AssetWhereInput;
+    },
+  ) {
+    const members = { ...inService, ...p.member };
+    const scheduled = { ...members, [p.dueField]: { not: null } };
+    const [count, overdue, dueSoon, notScheduled, failed, nonCompliant] =
+      await Promise.all([
+        this.prisma.asset.count({ where: scheduled }),
+        this.prisma.asset.count({
+          where: { ...scheduled, [p.dueField]: { lt: now } },
+        }),
+        this.prisma.asset.count({
+          where: {
+            ...scheduled,
+            [p.dueField]: {
+              gte: now,
+              lt: new Date(now.getTime() + DUE_SOON_DAYS * DAY),
+            },
+          },
+        }),
+        this.prisma.asset.count({ where: { ...members, [p.dueField]: null } }),
+        this.prisma.asset.count({ where: { ...inService, ...p.failed } }),
+        this.prisma.asset.count({
+          where: {
+            ...scheduled,
+            OR: [{ [p.dueField]: { lt: now } }, p.failed],
+          },
+        }),
+      ]);
+    return {
+      scheduled: count,
+      overdue,
+      dueSoon,
+      dueSoonDays: DUE_SOON_DAYS,
+      /** In the programme but with no due date set. */
+      notScheduled,
+      /** Failed their latest check (kept out of use). */
+      failed,
+      /** Share of scheduled devices neither overdue nor failed; null when none are scheduled. */
+      compliancePercent: count
+        ? round1(((count - nonCompliant) / count) * 100)
+        : null,
+    };
+  }
+
+  /**
    * What biomed needs at a glance: which devices are out of use, which are
    * overdue for preventive maintenance, the work waiting, and how long
    * repairs take. Everything is counted live from the database.
@@ -77,18 +134,6 @@ export class DashboardService {
     const pmScheduled: Prisma.AssetWhereInput = {
       ...inService,
       nextPmDueDate: { not: null },
-    };
-    const inCalibration: Prisma.AssetWhereInput = {
-      ...inService,
-      requiresCalibration: true,
-    };
-    const calibrationScheduled: Prisma.AssetWhereInput = {
-      ...inCalibration,
-      nextCalibrationDue: { not: null },
-    };
-    const soon = {
-      gte: now,
-      lt: new Date(now.getTime() + DUE_SOON_DAYS * DAY),
     };
     const workOrders: Prisma.MaintenanceHistoryWhereInput = {
       asset: { organizationId: user.organizationId, ...atFacility },
@@ -116,12 +161,8 @@ export class DashboardService {
       opened,
       completed,
       repairs,
-      calScheduled,
-      calOverdue,
-      calDueSoon,
-      calNotScheduled,
-      calFailed,
-      calNonCompliant,
+      calibration,
+      safetyTests,
     ] = await Promise.all([
       this.prisma.asset.groupBy({
         by: ['assetStatus'],
@@ -218,28 +259,15 @@ export class DashboardService {
         select: { createdAt: true, completedAt: true },
         take: MAX_ROWS,
       }),
-      this.prisma.asset.count({ where: calibrationScheduled }),
-      this.prisma.asset.count({
-        where: { ...calibrationScheduled, nextCalibrationDue: { lt: now } },
+      this.programme(inService, now, {
+        member: { requiresCalibration: true },
+        dueField: 'nextCalibrationDue',
+        failed: { lastCalibrationResult: 'FAIL' },
       }),
-      this.prisma.asset.count({
-        where: { ...calibrationScheduled, nextCalibrationDue: soon },
-      }),
-      this.prisma.asset.count({
-        where: { ...inCalibration, nextCalibrationDue: null },
-      }),
-      this.prisma.asset.count({
-        where: { ...inService, lastCalibrationResult: 'FAIL' },
-      }),
-      // A failed device is not compliant even before its new due date passes.
-      this.prisma.asset.count({
-        where: {
-          ...calibrationScheduled,
-          OR: [
-            { nextCalibrationDue: { lt: now } },
-            { lastCalibrationResult: 'FAIL' },
-          ],
-        },
+      this.programme(inService, now, {
+        member: { requiresSafetyTest: true },
+        dueField: 'nextSafetyInspectionDue',
+        failed: { lastSafetyTestPassed: false },
       }),
     ]);
 
@@ -345,20 +373,9 @@ export class DashboardService {
           }),
         ),
       },
-      calibration: {
-        scheduled: calScheduled,
-        overdue: calOverdue,
-        dueSoon: calDueSoon,
-        dueSoonDays: DUE_SOON_DAYS,
-        /** In the calibration programme but with no due date set. */
-        notScheduled: calNotScheduled,
-        /** Failed their latest calibration (kept out of use). */
-        failed: calFailed,
-        /** Share of scheduled devices neither overdue nor failed; null when none are scheduled. */
-        compliancePercent: calScheduled
-          ? round1(((calScheduled - calNonCompliant) / calScheduled) * 100)
-          : null,
-      },
+      calibration,
+      /** Electrical safety tests (IS/IEC 62353). */
+      safetyTests,
       workOrders: {
         open: openCount,
         urgent,

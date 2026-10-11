@@ -137,6 +137,12 @@ export class AssetsService {
         : baseDto.requiresCalibration
           ? new Date()
           : undefined,
+      // Likewise a device that needs safety testing: untested is unsafe.
+      nextSafetyInspectionDue: baseDto.nextSafetyInspectionDue
+        ? new Date(baseDto.nextSafetyInspectionDue)
+        : baseDto.requiresSafetyTest
+          ? new Date()
+          : undefined,
       notes: finalNotes || undefined,
       // Ownership and audit fields always come from the caller's token.
       organizationId: user.organizationId,
@@ -281,20 +287,37 @@ export class AssetsService {
       };
     }
 
-    // Joining the calibration programme with no due date: due now.
+    // Joining the calibration or safety test programme with no due date:
+    // due now.
     let calibrationSchedule: { nextCalibrationDue: Date } | undefined;
+    let safetyTestSchedule: { nextSafetyInspectionDue: Date } | undefined;
     if (updateAssetDto.nextCalibrationDue) {
       calibrationSchedule = {
         nextCalibrationDue: new Date(updateAssetDto.nextCalibrationDue),
       };
-    } else if (updateAssetDto.requiresCalibration === true) {
+    }
+    if (updateAssetDto.nextSafetyInspectionDue) {
+      safetyTestSchedule = {
+        nextSafetyInspectionDue: new Date(
+          updateAssetDto.nextSafetyInspectionDue,
+        ),
+      };
+    }
+    const joinsCalibration =
+      !calibrationSchedule && updateAssetDto.requiresCalibration === true;
+    const joinsSafetyTests =
+      !safetyTestSchedule && updateAssetDto.requiresSafetyTest === true;
+    if (joinsCalibration || joinsSafetyTests) {
       const current = await this.prisma.asset.findFirst({
         where: { id, organizationId: user.organizationId, deletedAt: null },
-        select: { nextCalibrationDue: true },
+        select: { nextCalibrationDue: true, nextSafetyInspectionDue: true },
       });
       if (!current) throw new NotFoundException(`Asset ${id} not found`);
-      if (!current.nextCalibrationDue) {
+      if (joinsCalibration && !current.nextCalibrationDue) {
         calibrationSchedule = { nextCalibrationDue: new Date() };
+      }
+      if (joinsSafetyTests && !current.nextSafetyInspectionDue) {
+        safetyTestSchedule = { nextSafetyInspectionDue: new Date() };
       }
     }
 
@@ -306,6 +329,7 @@ export class AssetsService {
         ...updateAssetDto,
         ...pmSchedule,
         ...calibrationSchedule,
+        ...safetyTestSchedule,
         updatedById: user.userId,
       },
     });
