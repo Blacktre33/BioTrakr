@@ -66,6 +66,24 @@ enum RecallStatus {
   CLASS_III
 }
 
+/// The outcome of a calibration, as found by whoever calibrated the device.
+enum CalibrationResult {
+  /// Within tolerance as found.
+  PASS
+  /// Out of tolerance as found, adjusted, and within tolerance as left.
+  ADJUSTED
+  /// Out of tolerance and could not be brought within it: do not use.
+  FAIL
+}
+
+/// Who did the work: the hospital's own biomed team, an outside calibration
+/// laboratory, or the manufacturer / service contractor.
+enum ServiceProvider {
+  IN_HOUSE
+  EXTERNAL_LAB
+  VENDOR
+}
+
 enum PMComplianceStatus {
   COMPLIANT
   GRACE_PERIOD
@@ -369,6 +387,7 @@ model User {
   mediaUploaded             MediaAttachment[]
   assetScans                AssetScanLog[] @relation("AssetScanLogUser")
   assetStatusChanges        AssetStatusChange[] @relation("AssetStatusChangedBy")
+  calibrationRecords        CalibrationRecord[] @relation("CalibrationRecordedBy")
   authSessions              AuthSession[]
   notifications             Notification[]
 
@@ -470,6 +489,8 @@ model Asset {
   calibrationFrequencyDays        Int?
   lastCalibrationDate             DateTime?
   nextCalibrationDue              DateTime?
+  /// From the latest calibration record; FAIL keeps the device out of use.
+  lastCalibrationResult           CalibrationResult?
   environmentalRequirements       String?
   
   // === REGULATORY & COMPLIANCE ===
@@ -642,6 +663,7 @@ model Asset {
   telemetryIngestEvents           TelemetryIngestEvent[]
   scanLogs                        AssetScanLog[]
   statusChanges                   AssetStatusChange[]
+  calibrationRecords              CalibrationRecord[]
   telemetry                       AssetTelemetry[]
   maintenanceEvents               MaintenanceEvent[]
   errorEvents                     ErrorEvent[]
@@ -946,8 +968,9 @@ model MaintenanceHistory {
   updatedAt               DateTime        @updatedAt
   /// Minutes-level of the last "nobody has taken this on" escalation (15, 60…).
   escalatedAfterMinutes   Int?
-  /// The PM due date the schedule opened this work order for; one per asset and date.
-  pmDueDate               DateTime?
+  /// The due date the schedule opened this work order for (PM or
+  /// calibration); one work order per asset, type and due date.
+  dueDate                 DateTime?
 
   asset                   Asset           @relation(fields: [assetId], references: [id], onDelete: Restrict) // history outlives the asset; assets are soft-deleted
   assignedTechnician      User?           @relation("MaintenanceAssignedTechnician", fields: [assignedTechnicianId], references: [id])
@@ -957,8 +980,51 @@ model MaintenanceHistory {
   @@index([assetId, scheduledDate(sort: Desc)])
   @@index([workOrderStatus])
   @@index([assignedTechnicianId])
-  @@unique([assetId, pmDueDate])
+  calibrationRecords      CalibrationRecord[]
+
+  @@unique([assetId, workOrderType, dueDate])
   @@map("maintenance_history")
+}
+
+/// A calibration as certified: never edited or deleted (a database trigger
+/// refuses). A mistake is fixed by a correction, a new record that names
+/// the one it replaces and says why.
+model CalibrationRecord {
+  id                     String              @id @default(uuid())
+  assetId                String
+  /// The calibration work order this completed; null when entered on its own
+  /// (for example an existing certificate when a device is registered).
+  workOrderId            String?
+  calibratedAt           DateTime
+  provider               ServiceProvider
+  /// The laboratory or vendor, when not done in-house.
+  providerName           String?             @db.VarChar(200)
+  /// The laboratory's NABL (ISO/IEC 17025) accreditation certificate number.
+  labAccreditationNumber String?             @db.VarChar(100)
+  certificateNumber      String?             @db.VarChar(100)
+  /// When the certificate says the next calibration is due.
+  validUntil             DateTime?
+  /// As stated on the certificate, e.g. "±0.5 mmHg (k=2)".
+  measurementUncertainty String?             @db.VarChar(500)
+  /// Reference equipment used, with its own calibration (traceability).
+  referenceStandards     String?             @db.VarChar(1000)
+  result                 CalibrationResult
+  notes                  String?             @db.VarChar(2000)
+  recordedById           String
+  recordedAt             DateTime            @default(now())
+  /// Set on a correction: the record it replaces (each can be replaced once).
+  supersedesId           String?             @unique
+  correctionReason       String?             @db.VarChar(1000)
+
+  asset                  Asset               @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  workOrder              MaintenanceHistory? @relation(fields: [workOrderId], references: [id], onDelete: Restrict)
+  recordedBy             User                @relation("CalibrationRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+  supersedes             CalibrationRecord?  @relation("CalibrationCorrection", fields: [supersedesId], references: [id], onDelete: Restrict)
+  supersededBy           CalibrationRecord?  @relation("CalibrationCorrection")
+
+  @@index([assetId, calibratedAt(sort: Desc)])
+  @@index([workOrderId])
+  @@map("calibration_records")
 }
 
 model SparePart {

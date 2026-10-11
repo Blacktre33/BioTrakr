@@ -39,6 +39,20 @@ export const PM_SCHEDULED: Prisma.AssetWhereInput = {
   nextPmDueDate: { not: null },
 };
 
+/** An open calibration work order. */
+export const OPEN_CALIBRATION: Prisma.MaintenanceHistoryWhereInput = {
+  workOrderType: 'CALIBRATION',
+  workOrderStatus: { in: OPEN_STATUSES },
+};
+
+/** Devices in the calibration programme: in service, with a due date. */
+export const CALIBRATION_SCHEDULED: Prisma.AssetWhereInput = {
+  deletedAt: null,
+  assetStatus: { notIn: RETIRED_STATUSES },
+  requiresCalibration: true,
+  nextCalibrationDue: { not: null },
+};
+
 /** 2026-10-14, in the server's time zone (TZ: the hospital's). */
 export const formatDay = (d: Date) =>
   new Intl.DateTimeFormat('en-CA', {
@@ -47,11 +61,72 @@ export const formatDay = (d: Date) =>
     day: '2-digit',
   }).format(d);
 
+/** Work the schedule opens ahead of time, one kind per entry. */
+interface Schedule {
+  name: string;
+  type: 'PREVENTIVE_MAINTENANCE' | 'CALIBRATION';
+  dueField: 'nextPmDueDate' | 'nextCalibrationDue';
+  devices: Prisma.AssetWhereInput;
+  open: Prisma.MaintenanceHistoryWhereInput;
+  describe(
+    asset: { pmProcedureDocument: string | null },
+    dueDate: Date,
+  ): string;
+  notice: {
+    kind: 'pm_due' | 'calibration_due';
+    one: string;
+    many: string;
+    link: string;
+    dedupePrefix: string;
+  };
+}
+
+const SCHEDULES: Schedule[] = [
+  {
+    name: 'PM',
+    type: 'PREVENTIVE_MAINTENANCE',
+    dueField: 'nextPmDueDate',
+    devices: PM_SCHEDULED,
+    open: OPEN_PM,
+    describe: (asset, dueDate) =>
+      [
+        `Preventive maintenance due ${formatDay(dueDate)}`,
+        asset.pmProcedureDocument
+          ? `Procedure: ${asset.pmProcedureDocument}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    notice: {
+      kind: 'pm_due',
+      one: 'PM due',
+      many: 'preventive maintenance jobs opened',
+      link: '/maintenance/schedule',
+      dedupePrefix: 'pm-opened',
+    },
+  },
+  {
+    name: 'calibration',
+    type: 'CALIBRATION',
+    dueField: 'nextCalibrationDue',
+    devices: CALIBRATION_SCHEDULED,
+    open: OPEN_CALIBRATION,
+    describe: (_asset, dueDate) => `Calibration due ${formatDay(dueDate)}`,
+    notice: {
+      kind: 'calibration_due',
+      one: 'Calibration due',
+      many: 'calibration jobs opened',
+      link: '/maintenance',
+      dedupePrefix: 'calibration-opened',
+    },
+  },
+];
+
 /**
- * Opens preventive maintenance work orders ahead of their due date, so the
- * work shows up in biomed's queue in time. Runs hourly in each API instance;
- * the database allows one work order per device and due date, so several
- * instances never open the same one twice.
+ * Opens preventive maintenance and calibration work orders ahead of their
+ * due date, so the work shows up in biomed's queue in time. Runs hourly in
+ * each API instance; the database allows one work order per device, kind
+ * and due date, so several instances never open the same one twice.
  */
 @Injectable()
 export class PmJobsService implements OnApplicationBootstrap, OnModuleDestroy {
@@ -92,10 +167,10 @@ export class PmJobsService implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   /**
-   * Opens a work order for each device whose PM falls due within the lead
-   * time and has no PM work order open. A device whose PM work order for
-   * this due date was cancelled is left alone: someone decided against it,
-   * and it stays on the overdue list until a PM is recorded.
+   * Opens a work order for each device whose PM or calibration falls due
+   * within the lead time and has no work order of that kind open. A device
+   * whose work order for this due date was cancelled is left alone: someone
+   * decided against it, and it stays overdue until the work is recorded.
    */
   async openDue(
     now = new Date(),
@@ -104,16 +179,29 @@ export class PmJobsService implements OnApplicationBootstrap, OnModuleDestroy {
     const { leadDays } = pmConfig();
     const horizon = new Date(now.getTime() + leadDays * DAY);
     let opened = 0;
-    let after: string | undefined;
+    for (const schedule of SCHEDULES) {
+      const n = await this.openScheduled(schedule, horizon, organizationId);
+      if (n) this.logger.log(`Opened ${n} ${schedule.name} work order(s)`);
+      opened += n;
+    }
+    return { opened };
+  }
 
+  private async openScheduled(
+    schedule: Schedule,
+    horizon: Date,
+    organizationId?: string,
+  ): Promise<number> {
+    let opened = 0;
+    let after: string | undefined;
     for (;;) {
       const due = await this.prisma.asset.findMany({
         where: {
-          ...PM_SCHEDULED,
+          ...schedule.devices,
           ...(organizationId ? { organizationId } : {}),
           autoGenerateWorkOrders: true,
-          nextPmDueDate: { lte: horizon },
-          maintenanceHistory: { none: OPEN_PM },
+          [schedule.dueField]: { lte: horizon },
+          maintenanceHistory: { none: schedule.open },
           ...(after ? { id: { gt: after } } : {}),
         },
         select: {
@@ -123,6 +211,7 @@ export class PmJobsService implements OnApplicationBootstrap, OnModuleDestroy {
           assetTagNumber: true,
           equipmentName: true,
           nextPmDueDate: true,
+          nextCalibrationDue: true,
           pmProcedureDocument: true,
         },
         orderBy: { id: 'asc' },
@@ -133,42 +222,38 @@ export class PmJobsService implements OnApplicationBootstrap, OnModuleDestroy {
 
       opened += await this.prisma.$transaction(async (tx) => {
         const created = await tx.maintenanceHistory.createManyAndReturn({
-          data: due.map((asset) => ({
-            assetId: asset.id,
-            workOrderType: 'PREVENTIVE_MAINTENANCE' as const,
-            workOrderStatus: 'PENDING' as const,
-            scheduledDate: asset.nextPmDueDate!,
-            pmDueDate: asset.nextPmDueDate!,
-            description: [
-              `Preventive maintenance due ${formatDay(asset.nextPmDueDate!)}`,
-              asset.pmProcedureDocument
-                ? `Procedure: ${asset.pmProcedureDocument}`
-                : null,
-            ]
-              .filter(Boolean)
-              .join('\n'),
-            createdByUserId: null,
-          })),
+          data: due.map((asset) => {
+            const dueDate = asset[schedule.dueField]!;
+            return {
+              assetId: asset.id,
+              workOrderType: schedule.type,
+              workOrderStatus: 'PENDING' as const,
+              scheduledDate: dueDate,
+              dueDate,
+              description: schedule.describe(asset, dueDate),
+              createdByUserId: null,
+            };
+          }),
           // Already opened (by another instance, or cancelled): skipped.
           skipDuplicates: true,
           select: { id: true, assetId: true },
         });
         if (created.length) {
-          await bestEffort(tx, 'PM notices', () =>
-            this.notice(tx, due, created),
+          await bestEffort(tx, `${schedule.name} notices`, () =>
+            this.notice(tx, schedule, due, created),
           );
         }
         return created.length;
       });
       if (due.length < BATCH) break;
     }
-    if (opened) this.logger.log(`Opened ${opened} PM work order(s)`);
-    return { opened };
+    return opened;
   }
 
   /** One notice per facility for each batch, not one per device. */
   private async notice(
     tx: Prisma.TransactionClient,
+    schedule: Schedule,
     due: Array<{
       id: string;
       organizationId: string;
@@ -199,20 +284,20 @@ export class PmJobsService implements OnApplicationBootstrap, OnModuleDestroy {
       const more = group.length - names.length;
       await notify(tx, {
         organizationId: first.asset.organizationId,
-        kind: 'pm_due',
+        kind: schedule.notice.kind,
         severity: 'info',
         title:
           group.length === 1
-            ? `PM due: ${deviceLabel(first.asset)}`
-            : `${group.length} preventive maintenance jobs opened`,
+            ? `${schedule.notice.one}: ${deviceLabel(first.asset)}`
+            : `${group.length} ${schedule.notice.many}`,
         body: [...names, more > 0 ? `and ${more} more` : null]
           .filter(Boolean)
           .join('\n'),
-        link: '/maintenance/schedule',
+        link: schedule.notice.link,
         assetId: group.length === 1 ? first.asset.id : undefined,
         workOrderId: group.length === 1 ? first.workOrderId : undefined,
         to: { roles: BIOMED_ROLES, facilityId: first.asset.currentFacilityId },
-        dedupeKey: `pm-opened:${first.workOrderId}`,
+        dedupeKey: `${schedule.notice.dedupePrefix}:${first.workOrderId}`,
       });
     }
   }

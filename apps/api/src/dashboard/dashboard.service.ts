@@ -78,6 +78,18 @@ export class DashboardService {
       ...inService,
       nextPmDueDate: { not: null },
     };
+    const inCalibration: Prisma.AssetWhereInput = {
+      ...inService,
+      requiresCalibration: true,
+    };
+    const calibrationScheduled: Prisma.AssetWhereInput = {
+      ...inCalibration,
+      nextCalibrationDue: { not: null },
+    };
+    const soon = {
+      gte: now,
+      lt: new Date(now.getTime() + DUE_SOON_DAYS * DAY),
+    };
     const workOrders: Prisma.MaintenanceHistoryWhereInput = {
       asset: { organizationId: user.organizationId, ...atFacility },
     };
@@ -104,6 +116,12 @@ export class DashboardService {
       opened,
       completed,
       repairs,
+      calScheduled,
+      calOverdue,
+      calDueSoon,
+      calNotScheduled,
+      calFailed,
+      calNonCompliant,
     ] = await Promise.all([
       this.prisma.asset.groupBy({
         by: ['assetStatus'],
@@ -199,6 +217,29 @@ export class DashboardService {
         },
         select: { createdAt: true, completedAt: true },
         take: MAX_ROWS,
+      }),
+      this.prisma.asset.count({ where: calibrationScheduled }),
+      this.prisma.asset.count({
+        where: { ...calibrationScheduled, nextCalibrationDue: { lt: now } },
+      }),
+      this.prisma.asset.count({
+        where: { ...calibrationScheduled, nextCalibrationDue: soon },
+      }),
+      this.prisma.asset.count({
+        where: { ...inCalibration, nextCalibrationDue: null },
+      }),
+      this.prisma.asset.count({
+        where: { ...inService, lastCalibrationResult: 'FAIL' },
+      }),
+      // A failed device is not compliant even before its new due date passes.
+      this.prisma.asset.count({
+        where: {
+          ...calibrationScheduled,
+          OR: [
+            { nextCalibrationDue: { lt: now } },
+            { lastCalibrationResult: 'FAIL' },
+          ],
+        },
       }),
     ]);
 
@@ -303,6 +344,20 @@ export class DashboardService {
             openWorkOrder: maintenanceHistory[0] ?? null,
           }),
         ),
+      },
+      calibration: {
+        scheduled: calScheduled,
+        overdue: calOverdue,
+        dueSoon: calDueSoon,
+        dueSoonDays: DUE_SOON_DAYS,
+        /** In the calibration programme but with no due date set. */
+        notScheduled: calNotScheduled,
+        /** Failed their latest calibration (kept out of use). */
+        failed: calFailed,
+        /** Share of scheduled devices neither overdue nor failed; null when none are scheduled. */
+        compliancePercent: calScheduled
+          ? round1(((calScheduled - calNonCompliant) / calScheduled) * 100)
+          : null,
       },
       workOrders: {
         open: openCount,

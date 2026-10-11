@@ -14,7 +14,9 @@ export type NotificationKind =
   | 'assigned'
   | 'resolved'
   | 'cancelled'
-  | 'pm_due';
+  | 'pm_due'
+  | 'calibration_due'
+  | 'calibration_failed';
 
 /** Settings, read when used so tests and restarts pick up changes. */
 export function notificationConfig() {

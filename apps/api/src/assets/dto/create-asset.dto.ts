@@ -256,6 +256,33 @@ export class CreateAssetDto {
   @IsDateString()
   @IsOptional()
   lastPmDate?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'The device needs periodic calibration; the schedule opens calibration work orders',
+  })
+  @IsBoolean()
+  @IsOptional()
+  requiresCalibration?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Days between calibrations when a certificate gives no due date (default 365)',
+    example: 365,
+  })
+  @IsInt()
+  @Min(1)
+  @Max(3650)
+  @IsOptional()
+  calibrationFrequencyDays?: number;
+
+  @ApiPropertyOptional({
+    description:
+      'When the current calibration expires (certificate or sticker). Without it, a device that needs calibration is due now.',
+  })
+  @IsDateString()
+  @IsOptional()
+  nextCalibrationDue?: string;
 }
 
 /**
@@ -334,6 +361,32 @@ export class UpdateAssetDto {
   @Max(3650)
   @IsOptional()
   pmFrequencyDays?: number;
+
+  @ApiPropertyOptional({
+    description:
+      'The device needs periodic calibration. Turning it on with no due date makes calibration due now.',
+  })
+  @IsBoolean()
+  @IsOptional()
+  requiresCalibration?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Days between calibrations when a certificate gives no due date; applies from the next calibration',
+    example: 365,
+  })
+  @IsInt()
+  @Min(1)
+  @Max(3650)
+  @IsOptional()
+  calibrationFrequencyDays?: number;
+
+  @ApiPropertyOptional({
+    description: 'When calibration is next due (e.g. from the certificate)',
+  })
+  @IsDateString()
+  @IsOptional()
+  nextCalibrationDue?: string;
 
   @ApiPropertyOptional({ description: 'Useful Life in Years', example: 10 })
   @IsInt()

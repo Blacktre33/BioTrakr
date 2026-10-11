@@ -32,6 +32,9 @@ function useInvalidateDeviceViews() {
     void queryClient.invalidateQueries({ queryKey: ["asset-lookup"] });
     void queryClient.invalidateQueries({ queryKey: ["asset-status-history"] });
     void queryClient.invalidateQueries({ queryKey: ["assets"] });
+    // Completing a calibration work order adds a record and moves the dates.
+    void queryClient.invalidateQueries({ queryKey: ["calibrations"] });
+    void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
   };
 }
 

@@ -1,3 +1,4 @@
+import type { CalibrationInput } from "./calibration";
 import { api } from "./client";
 
 export type WorkOrderStatus =
@@ -43,6 +44,8 @@ export interface WorkOrderUpdate {
   failureCategory?: string;
   releaseDevice?: boolean;
   confirmSafe?: boolean;
+  /** Required to complete a calibration work order. */
+  calibration?: CalibrationInput;
 }
 
 export async function reportProblem(body: {

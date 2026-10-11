@@ -94,6 +94,15 @@ const summary: DashboardSummary = {
       },
     ],
   },
+  calibration: {
+    scheduled: 40,
+    overdue: 3,
+    dueSoon: 5,
+    dueSoonDays: 30,
+    notScheduled: 2,
+    failed: 1,
+    compliancePercent: 92.5,
+  },
   workOrders: {
     open: 9,
     urgent: 2,
@@ -122,6 +131,7 @@ describe("DashboardOverview", () => {
     expect(tile(/Out of use 3/)).toHaveAttribute("href", "/assets?status=QUARANTINED,IN_MAINTENANCE");
     expect(tile(/PM overdue 7 12 more due in the next 30 days/)).toHaveAttribute("href", "/maintenance/schedule");
     expect(tile(/PM compliance 93% 20 devices without a PM schedule/)).toBeInTheDocument();
+    expect(tile(/Calibration 92.5% 1 device failed, out of use · 3 overdue/)).toHaveAttribute("href", "/maintenance");
     expect(tile(/Open work orders 9 2 urgent · 4 not assigned · 1 waiting for parts/)).toHaveAttribute(
       "href",
       "/maintenance",

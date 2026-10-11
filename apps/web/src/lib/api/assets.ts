@@ -1,3 +1,4 @@
+import type { CalibrationResult } from "./calibration";
 import { api } from "./client";
 
 // Define interfaces locally to avoid dependency issues if @biotrakr/types is not fully linked
@@ -159,6 +160,11 @@ export interface Asset {
   nextPmDueDate?: string | null;
   warrantyEndDate?: string | null;
   pmFrequencyDays?: number | null;
+  requiresCalibration?: boolean;
+  calibrationFrequencyDays?: number | null;
+  lastCalibrationDate?: string | null;
+  nextCalibrationDue?: string | null;
+  lastCalibrationResult?: CalibrationResult | null;
   udiDeviceIdentifier?: string | null;
   notes?: string | null;
   currentFacility?: {
@@ -192,6 +198,10 @@ export interface CreateAssetPayload {
   pmFrequencyDays?: number;
   /** YYYY-MM-DD */
   lastPmDate?: string;
+  requiresCalibration?: boolean;
+  calibrationFrequencyDays?: number;
+  /** YYYY-MM-DD; without it, a device that needs calibration is due now. */
+  nextCalibrationDue?: string;
   // organizationId comes from the signed-in user's token; never sent by the client.
   currentFacilityId: string;
   primaryCustodianId: string;
@@ -230,6 +240,10 @@ export interface UpdateAssetPayload {
   custodianDepartmentId?: string;
   primaryCustodianId?: string;
   pmFrequencyDays?: number;
+  requiresCalibration?: boolean;
+  calibrationFrequencyDays?: number;
+  /** YYYY-MM-DD */
+  nextCalibrationDue?: string;
   usefulLifeYears?: number;
   warrantyEndDate?: string;
   udiDeviceIdentifier?: string;
@@ -352,6 +366,13 @@ export interface AssetLookup {
   location: { facility: string | null; room: string | null };
   department: string | null;
   pm: { lastPmDate: string | null; nextPmDueDate: string | null; overdue: boolean };
+  /** Null when the device is not in the calibration programme. */
+  calibration: {
+    lastCalibrationDate: string | null;
+    nextCalibrationDue: string | null;
+    lastResult: CalibrationResult | null;
+    overdue: boolean;
+  } | null;
   recentMaintenance: Array<{
     id: string;
     workOrderType: string;

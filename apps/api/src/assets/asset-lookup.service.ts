@@ -4,7 +4,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { AssetStatus, RecallStatus } from '@prisma/client';
+import type {
+  AssetStatus,
+  CalibrationResult,
+  RecallStatus,
+} from '@prisma/client';
 
 import type { AuthUser } from '../auth/auth-user';
 import { PrismaService } from '../database/prisma.service';
@@ -82,6 +86,9 @@ export function assetAlerts(
     assetStatus: AssetStatus;
     recallStatus: RecallStatus;
     nextPmDueDate: Date | null;
+    requiresCalibration?: boolean;
+    nextCalibrationDue?: Date | null;
+    lastCalibrationResult?: CalibrationResult | null;
   },
   now: Date = new Date(),
 ): AssetAlert[] {
@@ -94,6 +101,26 @@ export function assetAlerts(
       // A Class I recall means a reasonable chance of serious harm.
       level: asset.recallStatus === 'CLASS_I' ? 'stop' : 'caution',
       message: `Under a ${RECALL_LABEL[asset.recallStatus]} recall. Check with biomedical engineering.`,
+    });
+  }
+
+  // A failed calibration stops use whatever the status says, until a
+  // passing calibration is recorded.
+  if (asset.lastCalibrationResult === 'FAIL') {
+    alerts.push({
+      level: 'stop',
+      message:
+        'Failed its last calibration. Do not use until biomedical engineering recalibrates it.',
+    });
+  } else if (
+    asset.requiresCalibration &&
+    asset.nextCalibrationDue &&
+    asset.nextCalibrationDue < now
+  ) {
+    alerts.push({
+      level: 'caution',
+      message:
+        'Calibration is overdue. Readings may be off; let biomedical engineering know.',
     });
   }
 
@@ -143,6 +170,10 @@ export class AssetLookupService {
         lastPmDate: true,
         nextPmDueDate: true,
         pmFrequencyDays: true,
+        requiresCalibration: true,
+        lastCalibrationDate: true,
+        nextCalibrationDue: true,
+        lastCalibrationResult: true,
         lastSeenTimestamp: true,
         _count: {
           select: {
@@ -233,6 +264,10 @@ export class AssetLookupService {
       _count,
       lastPmDate,
       nextPmDueDate,
+      requiresCalibration,
+      lastCalibrationDate,
+      nextCalibrationDue,
+      lastCalibrationResult,
       ...device
     } = asset;
 
@@ -252,6 +287,16 @@ export class AssetLookupService {
         nextPmDueDate,
         overdue: Boolean(nextPmDueDate && nextPmDueDate < new Date()),
       },
+      calibration: requiresCalibration
+        ? {
+            lastCalibrationDate,
+            nextCalibrationDue,
+            lastResult: lastCalibrationResult,
+            overdue: Boolean(
+              nextCalibrationDue && nextCalibrationDue < new Date(),
+            ),
+          }
+        : null,
       recentMaintenance: maintenanceHistory,
       /** Problems already reported and not yet fixed, so staff don't report twice. */
       openWorkOrders: _count?.maintenanceHistory ?? 0,

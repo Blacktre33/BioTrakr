@@ -33,6 +33,10 @@ interface EditValues {
   custodianDepartmentId: string;
   primaryCustodianId: string;
   pmFrequencyDays: string;
+  /** "yes" when the device is in the calibration programme. */
+  requiresCalibration: string;
+  calibrationFrequencyDays: string;
+  nextCalibrationDue: string;
   usefulLifeYears: string;
   warrantyEndDate: string;
   udiDeviceIdentifier: string;
@@ -67,6 +71,9 @@ export function valuesFromAsset(asset: Asset): EditValues {
     custodianDepartmentId: str(asset.custodianDepartmentId),
     primaryCustodianId: str(asset.primaryCustodianId),
     pmFrequencyDays: str(asset.pmFrequencyDays),
+    requiresCalibration: asset.requiresCalibration ? "yes" : "",
+    calibrationFrequencyDays: str(asset.calibrationFrequencyDays),
+    nextCalibrationDue: asset.nextCalibrationDue ? asset.nextCalibrationDue.slice(0, 10) : "",
     usefulLifeYears: str(asset.usefulLifeYears),
     warrantyEndDate: asset.warrantyEndDate ? asset.warrantyEndDate.slice(0, 10) : "",
     udiDeviceIdentifier: str(asset.udiDeviceIdentifier),
@@ -84,6 +91,9 @@ export function validateEdit(values: EditValues, departments: AssetFormReference
   if (values.pmFrequencyDays && !whole(values.pmFrequencyDays, 1, 3650)) {
     errors.pmFrequencyDays = "Whole number of days, 1 to 3650";
   }
+  if (values.requiresCalibration === "yes" && values.calibrationFrequencyDays && !whole(values.calibrationFrequencyDays, 1, 3650)) {
+    errors.calibrationFrequencyDays = "Whole number of days, 1 to 3650";
+  }
   if (!errors.usefulLifeYears && !whole(values.usefulLifeYears, 1, 50)) {
     errors.usefulLifeYears = "Whole number of years, 1 to 50";
   }
@@ -100,7 +110,9 @@ export function changedPayload(before: EditValues, after: EditValues): UpdateAss
   for (const key of Object.keys(after) as EditField[]) {
     if (after[key].trim() === before[key].trim()) continue;
     const v = after[key].trim();
-    if (key === "pmFrequencyDays" || key === "usefulLifeYears") {
+    if (key === "requiresCalibration") {
+      out[key] = v === "yes";
+    } else if (key === "pmFrequencyDays" || key === "usefulLifeYears" || key === "calibrationFrequencyDays") {
       if (v !== "") out[key] = Number(v);
     } else if (v !== "" || key === "notes" || key === "serialNumber" || key === "udiDeviceIdentifier") {
       out[key] = v;
@@ -263,6 +275,32 @@ export function EditAssetDialog({ open, onOpenChange, asset, reference }: EditAs
             {text("usefulLifeYears", "Useful life (years)", { type: "number", min: 1, max: 50, step: 1, inputMode: "numeric" })}
             {text("warrantyEndDate", "Warranty ends", { type: "date" })}
             {text("udiDeviceIdentifier", "UDI")}
+            <label className="flex items-start gap-3 text-sm text-gray-100 sm:col-span-2">
+              <input
+                type="checkbox"
+                id="requiresCalibration"
+                checked={values.requiresCalibration === "yes"}
+                onChange={(e) => set("requiresCalibration", e.target.checked ? "yes" : "")}
+                className="mt-1"
+              />
+              <span>
+                Needs periodic calibration
+                <span className="block text-xs text-gray-400">
+                  Calibration work orders open before it falls due. Turning this on with no due date makes it due now.
+                </span>
+              </span>
+            </label>
+            {values.requiresCalibration === "yes" && (
+              <>
+                {text(
+                  "calibrationFrequencyDays",
+                  "Calibrate every (days)",
+                  { type: "number", min: 1, max: 3650, step: 1, inputMode: "numeric" },
+                  "Used when a certificate gives no due date. Blank uses 365 days.",
+                )}
+                {text("nextCalibrationDue", "Calibration due", { type: "date" }, "Usually set by recording a calibration")}
+              </>
+            )}
           </div>
           <Field field="notes" label="Notes" error={errorFor("notes")}>
             <Textarea {...control("notes")} rows={3} maxLength={5000} />

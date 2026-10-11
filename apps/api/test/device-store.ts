@@ -1,7 +1,8 @@
 /**
- * In-memory Prisma for the dashboard and PM schedule specs: assets, work
- * orders, users, notices and status history, with the query features those
- * services use (relation filters, nested selects, groupBy, ordering).
+ * In-memory Prisma for the dashboard, PM schedule and calibration specs:
+ * assets, work orders, users, notices, status history and calibration
+ * records, with the query features those services use (relation filters,
+ * nested selects, groupBy, ordering, conditional updates).
  */
 import { ORG_A, ORG_B } from './helpers';
 
@@ -107,6 +108,7 @@ export function buildStore() {
   const orders: Rec[] = [];
   const statusChanges: Rec[] = [];
   const notifications: Rec[] = [];
+  const calibrations: Rec[] = [];
   const users: Rec[] = [
     {
       id: 'user-admin',
@@ -169,6 +171,11 @@ export function buildStore() {
   function matches(row: Rec, where: Rec = {}): boolean {
     return Object.entries(where).every(([k, v]) => {
       if (v === undefined) return true;
+      // Calibration records: "supersededBy: null" means not corrected.
+      if (k === 'supersededBy') {
+        const corrected = calibrations.some((c) => c.supersedesId === row.id);
+        return v === null ? !corrected : corrected;
+      }
       if (k === 'AND') return (v as Rec[]).every((w) => matches(row, w));
       if (k === 'OR') return (v as Rec[]).some((w) => matches(row, w));
       if (relations[k] && isCond(v)) return relations[k](row, v);
@@ -182,7 +189,7 @@ export function buildStore() {
     row: Rec,
     key: string,
     args: Rec,
-    of: 'asset' | 'order',
+    of: 'asset' | 'order' | 'calibration',
   ): unknown {
     if (of === 'asset') {
       if (key === 'currentFacility')
@@ -225,6 +232,16 @@ export function buildStore() {
         return u ? project(u, args.select, 'user') : null;
       }
     }
+    if (of === 'calibration') {
+      if (key === 'recordedBy') {
+        const u = users.find((x) => x.id === row.recordedById);
+        return u ? project(u, args.select, 'user') : null;
+      }
+      if (key === 'supersededBy') {
+        const c = calibrations.find((x) => x.supersedesId === row.id);
+        return c ? { id: c.id } : null;
+      }
+    }
     return undefined;
   }
 
@@ -236,15 +253,20 @@ export function buildStore() {
       if (!want) continue;
       out[key] =
         want === true && !(key in row) && of !== 'change' && of !== 'user'
-          ? related(row, key, {}, of as 'asset' | 'order')
+          ? related(row, key, {}, of as 'asset' | 'order' | 'calibration')
           : want === true
             ? row[key]
-            : related(row, key, want as Rec, of as 'asset' | 'order');
+            : related(
+                row,
+                key,
+                want as Rec,
+                of as 'asset' | 'order' | 'calibration',
+              );
     }
     return out;
   }
 
-  function finder(rows: Rec[], of: 'asset' | 'order') {
+  function finder(rows: Rec[], of: 'asset' | 'order' | 'calibration') {
     const findMany = async ({ where, select, orderBy, take }: Rec = {}) =>
       sortBy(
         rows.filter((r) => matches(r, where)),
@@ -262,6 +284,11 @@ export function buildStore() {
         async ({ where }: Rec = {}) =>
           rows.filter((r) => matches(r, where)).length,
       ),
+      updateMany: jest.fn(async ({ where, data }: Rec) => {
+        const hit = rows.filter((r) => matches(r, where));
+        for (const row of hit) Object.assign(row, data);
+        return { count: hit.length };
+      }),
     };
   }
 
@@ -271,7 +298,7 @@ export function buildStore() {
     completedAt: null,
     assignedTechnicianId: null,
     isEmergency: false,
-    pmDueDate: null,
+    dueDate: null,
     createdAt: new Date(),
     ...data,
   });
@@ -282,6 +309,7 @@ export function buildStore() {
     statusChanges,
     notifications,
     users,
+    calibrations,
     asset: {
       ...finder(assets, 'asset'),
       groupBy: jest.fn(async ({ by, where }: Rec) => {
@@ -302,14 +330,17 @@ export function buildStore() {
         orders.push(row);
         return row;
       }),
-      // The unique (assetId, pmDueDate) index; nulls never collide.
+      // The unique (assetId, workOrderType, dueDate) index; nulls never collide.
       createManyAndReturn: jest.fn(async ({ data, skipDuplicates }: Rec) => {
         const created: Rec[] = [];
         for (const d of data as Rec[]) {
           const dup =
-            d.pmDueDate != null &&
+            d.dueDate != null &&
             orders.some(
-              (o) => o.assetId === d.assetId && same(o.pmDueDate, d.pmDueDate),
+              (o) =>
+                o.assetId === d.assetId &&
+                o.workOrderType === d.workOrderType &&
+                same(o.dueDate, d.dueDate),
             );
           if (dup && !skipDuplicates) throw new Error('P2002');
           if (dup) continue;
@@ -324,6 +355,45 @@ export function buildStore() {
       findMany: jest.fn(async ({ where }: Rec) =>
         users.filter((u) => matches(u, where)),
       ),
+      findUnique: jest.fn(
+        async ({ where }: Rec) => users.find((u) => u.id === where.id) ?? null,
+      ),
+    },
+    assetStatusChange: {
+      create: jest.fn(async ({ data }: Rec) => {
+        const row = {
+          id: `change-${statusChanges.length + 1}`,
+          changedAt: new Date(),
+          ...data,
+        };
+        statusChanges.push(row);
+        return row;
+      }),
+    },
+    calibrationRecord: {
+      ...finder(calibrations, 'calibration'),
+      // Records are never changed (a database trigger refuses).
+      updateMany: jest.fn(async () => {
+        throw new Error('calibration_records cannot be changed');
+      }),
+      // The unique supersedesId: a record is corrected at most once.
+      create: jest.fn(async ({ data }: Rec) => {
+        if (
+          data.supersedesId &&
+          calibrations.some((c) => c.supersedesId === data.supersedesId)
+        ) {
+          throw Object.assign(new Error('Unique constraint failed'), {
+            code: 'P2002',
+          });
+        }
+        const row = {
+          id: `cc000000-0000-4000-8000-${String(calibrations.length + 1).padStart(12, '0')}`,
+          recordedAt: new Date(),
+          ...data,
+        };
+        calibrations.push(row);
+        return row;
+      }),
     },
     notification: {
       createMany: jest.fn(async ({ data }: Rec) => {

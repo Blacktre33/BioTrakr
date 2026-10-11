@@ -45,6 +45,17 @@ export interface DashboardSummary {
       openWorkOrder: { id: string; workOrderStatus: string } | null;
     }>;
   };
+  calibration: {
+    scheduled: number;
+    overdue: number;
+    dueSoon: number;
+    dueSoonDays: number;
+    /** In the calibration programme but with no due date. */
+    notScheduled: number;
+    /** Failed their latest calibration (kept out of use). */
+    failed: number;
+    compliancePercent: number | null;
+  };
   workOrders: {
     open: number;
     urgent: number;
