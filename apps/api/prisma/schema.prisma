@@ -439,7 +439,7 @@ model Asset {
   purchaseDate                    DateTime
   installationDate                DateTime?
   purchaseCost                    Decimal             @db.Decimal(12, 2)
-  currencyCode                    String              @default("USD")
+  currencyCode                    String              @default("INR")
   fundingSource                   String?
   grantNumber                     String?
   estimatedReplacementCost        Decimal?            @db.Decimal(12, 2)

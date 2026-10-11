@@ -53,6 +53,7 @@ const person = (over: Partial<StaffAccount>): StaffAccount => ({
   lastName: "Nurse",
   role: "clinical_staff",
   jobTitle: null,
+  phone: null,
   facilityId: "f1",
   departmentId: "d1",
   isActive: true,
@@ -172,6 +173,32 @@ describe("PeopleAdmin", () => {
     await user.selectOptions(screen.getByLabelText(/Facility/), "");
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(updateStaff).toHaveBeenCalledWith({ id: "u1", body: { facilityId: null } });
+  });
+
+  it("checks a mobile number before sending it, and blank clears it", async () => {
+    const user = userEvent.setup();
+    staff[1] = person({ phone: "+919876543210" });
+    updateStaff.mockResolvedValue({});
+    render(<PeopleAdmin />);
+    expect(screen.getByText(/\+919876543210/)).toBeInTheDocument();
+
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[1]);
+    const phone = screen.getByLabelText(/Mobile number/);
+    await user.clear(phone);
+    await user.type(phone, "call me");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(screen.getByText("Enter a phone number such as +91 98765 43210")).toBeInTheDocument();
+    expect(updateStaff).not.toHaveBeenCalled();
+
+    await user.clear(phone);
+    await user.type(phone, "+91 99000 11122");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(updateStaff).toHaveBeenLastCalledWith({ id: "u1", body: { phone: "+91 99000 11122" } });
+
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[1]);
+    await user.clear(screen.getByLabelText(/Mobile number/));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(updateStaff).toHaveBeenLastCalledWith({ id: "u1", body: { phone: "" } });
   });
 
   it("resets a password only after confirming", async () => {

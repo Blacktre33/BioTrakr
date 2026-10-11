@@ -170,7 +170,7 @@ Restore first, then the old version: the old version must not start on a databas
 
 The containers restart on their own after a crash or a server reboot. Logs are rotated automatically (50 MB per service).
 
-**Optional SMS/WhatsApp alerts**: urgent problem reports can be sent to a gateway the hospital runs. Set `NOTIFY_WEBHOOK_URL` and `NOTIFY_WEBHOOK_SECRET` in `.env`, then `docker compose up -d`. The README (Notifications) explains the message format and how the gateway checks it is genuine.
+**Optional SMS/WhatsApp alerts**: urgent problem reports can be sent to a gateway the hospital runs. Set `NOTIFY_WEBHOOK_URL` and `NOTIFY_WEBHOOK_SECRET` in `.env`, then `docker compose up -d`. Enter each person's mobile number in Settings → People so the gateway can reach them. The README (Notifications) explains the message format and how the gateway checks it is genuine.
 
 **Preventive maintenance**: the API opens PM work orders 14 days before they fall due. To change that, set `PM_LEAD_DAYS` in `.env`, then run `docker compose up -d`. Set `TZ` to the hospital's time zone so the due dates written in work orders are local.
 

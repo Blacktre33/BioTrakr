@@ -1,3 +1,5 @@
+> **Historical snapshot (November 2025).** This file is no longer kept up to date. Some features it marks as done (for example real-time tracking, compliance management and financial analytics) are not in the current code. See the [README](../README.md) for what works today.
+
 # BioTrakr PRD Progress Report
 
 _Last updated: November 7, 2025_

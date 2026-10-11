@@ -44,8 +44,9 @@ export function formatPercent(value: number, decimals: number = 1): string {
 /**
  * Format currency
  */
-export function formatCurrency(amount: number, currency: string = 'USD'): string {
-  return new Intl.NumberFormat('en-US', {
+export function formatCurrency(amount: number, currency: string = 'INR'): string {
+  // en-IN groups in lakhs and crores: ₹1,25,000.
+  return new Intl.NumberFormat('en-IN', {
     style: 'currency',
     currency,
     minimumFractionDigits: 0,

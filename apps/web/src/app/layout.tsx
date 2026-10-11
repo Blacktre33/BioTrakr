@@ -30,12 +30,12 @@ const mono = localFont({
 
 export const metadata: Metadata = {
   title: 'BioTrakr | Healthcare Asset Management',
-  description: 'Next-generation healthcare asset management with real-time tracking, predictive maintenance, and compliance automation.',
-  keywords: ['healthcare', 'asset management', 'medical devices', 'RTLS', 'predictive maintenance', 'compliance'],
+  description: 'Medical equipment management for hospitals: device register, bedside safety checks by QR scan, problem reports, work orders and preventive maintenance.',
+  keywords: ['healthcare', 'medical equipment', 'biomedical engineering', 'preventive maintenance', 'work orders'],
   authors: [{ name: 'BioTrakr Team' }],
   openGraph: {
     title: 'BioTrakr | Healthcare Asset Management',
-    description: 'Next-generation healthcare asset management with real-time tracking, predictive maintenance, and compliance automation.',
+    description: 'Medical equipment management for hospitals: device register, bedside safety checks by QR scan, problem reports, work orders and preventive maintenance.',
     type: 'website',
   },
 };
