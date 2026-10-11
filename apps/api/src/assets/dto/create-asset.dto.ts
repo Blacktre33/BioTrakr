@@ -108,133 +108,18 @@ export class CreateAssetDto {
   @IsOptional()
   udiDeviceIdentifier?: string;
 
-  @ApiPropertyOptional({ description: 'AMC Contract Number' })
-  @IsString()
-  @IsOptional()
-  amcContractNumber?: string;
+  // AMC and CMC contracts are recorded separately (POST /contracts): one
+  // contract can cover several devices and keeps its renewal history.
 
-  @ApiPropertyOptional({
-    description: 'AMC Start Date',
-    example: '2024-01-15T00:00:00Z',
-  })
+  @ApiPropertyOptional({ description: 'Warranty start date' })
   @IsDateString()
   @IsOptional()
-  amcStartDate?: string;
+  warrantyStartDate?: string;
 
-  @ApiPropertyOptional({
-    description: 'AMC End Date',
-    example: '2025-01-15T00:00:00Z',
-  })
+  @ApiPropertyOptional({ description: 'Last day of the warranty' })
   @IsDateString()
   @IsOptional()
-  amcEndDate?: string;
-
-  @ApiPropertyOptional({
-    description: 'Current Annual AMC Cost',
-    example: 50000.0,
-  })
-  @IsNumber()
-  @IsOptional()
-  @Min(0)
-  amcCostAnnual?: number;
-
-  @ApiPropertyOptional({
-    description: 'Initial AMC Cost (First Year)',
-    example: 45000.0,
-  })
-  @IsNumber()
-  @IsOptional()
-  @Min(0)
-  amcInitialCost?: number;
-
-  @ApiPropertyOptional({
-    description: 'Number of Years AMC Has Been Paid',
-    example: 3,
-  })
-  @IsNumber()
-  @IsOptional()
-  @Min(0)
-  amcYearsPaid?: number;
-
-  @ApiPropertyOptional({
-    description: 'AMC Cost Increase Amount',
-    example: 5000.0,
-  })
-  @IsNumber()
-  @IsOptional()
-  amcIncreaseAmount?: number;
-
-  @ApiPropertyOptional({
-    description: 'AMC Cost Increase Percentage',
-    example: 11.11,
-  })
-  @IsNumber()
-  @IsOptional()
-  amcIncreasePercentage?: number;
-
-  @ApiPropertyOptional({ description: 'CMC Contract Number' })
-  @IsString()
-  @IsOptional()
-  cmcContractNumber?: string;
-
-  @ApiPropertyOptional({
-    description: 'CMC Start Date',
-    example: '2024-01-15T00:00:00Z',
-  })
-  @IsDateString()
-  @IsOptional()
-  cmcStartDate?: string;
-
-  @ApiPropertyOptional({
-    description: 'CMC End Date',
-    example: '2025-01-15T00:00:00Z',
-  })
-  @IsDateString()
-  @IsOptional()
-  cmcEndDate?: string;
-
-  @ApiPropertyOptional({
-    description: 'Current Annual CMC Cost',
-    example: 75000.0,
-  })
-  @IsNumber()
-  @IsOptional()
-  @Min(0)
-  cmcCostAnnual?: number;
-
-  @ApiPropertyOptional({
-    description: 'Initial CMC Cost (First Year)',
-    example: 70000.0,
-  })
-  @IsNumber()
-  @IsOptional()
-  @Min(0)
-  cmcInitialCost?: number;
-
-  @ApiPropertyOptional({
-    description: 'Number of Years CMC Has Been Paid',
-    example: 2,
-  })
-  @IsNumber()
-  @IsOptional()
-  @Min(0)
-  cmcYearsPaid?: number;
-
-  @ApiPropertyOptional({
-    description: 'CMC Cost Increase Amount',
-    example: 5000.0,
-  })
-  @IsNumber()
-  @IsOptional()
-  cmcIncreaseAmount?: number;
-
-  @ApiPropertyOptional({
-    description: 'CMC Cost Increase Percentage',
-    example: 7.14,
-  })
-  @IsNumber()
-  @IsOptional()
-  cmcIncreasePercentage?: number;
+  warrantyEndDate?: string;
 
   @ApiPropertyOptional({ description: 'Notes' })
   @IsString()

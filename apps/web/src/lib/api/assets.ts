@@ -221,22 +221,10 @@ export interface CreateAssetPayload {
   primaryCustodianId: string;
   custodianDepartmentId: string;
   udiDeviceIdentifier?: string;
-  amcContractNumber?: string;
-  amcStartDate?: string;
-  amcEndDate?: string;
-  amcCostAnnual?: number;
-  amcInitialCost?: number;
-  amcYearsPaid?: number;
-  amcIncreaseAmount?: number;
-  amcIncreasePercentage?: number;
-  cmcContractNumber?: string;
-  cmcStartDate?: string;
-  cmcEndDate?: string;
-  cmcCostAnnual?: number;
-  cmcInitialCost?: number;
-  cmcYearsPaid?: number;
-  cmcIncreaseAmount?: number;
-  cmcIncreasePercentage?: number;
+  /** YYYY-MM-DD */
+  warrantyStartDate?: string;
+  /** YYYY-MM-DD, the last day of the warranty. */
+  warrantyEndDate?: string;
   notes?: string;
 }
 

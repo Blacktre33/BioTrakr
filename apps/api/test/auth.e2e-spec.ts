@@ -383,6 +383,33 @@ describe('Authentication and authorization (e2e)', () => {
       expect(data.organizationId).toBe(ORG_A);
       expect(data.createdById).toBe('user-engineer');
 
+      // A date input sends just the day; the database needs a timestamp.
+      await request(app.getHttpServer())
+        .post('/api/assets')
+        .set(bearer('engineer'))
+        .send({
+          ...body,
+          assetTagNumber: 'NEW-3',
+          purchaseDate: '2025-04-01',
+          warrantyStartDate: '2025-04-01',
+          warrantyEndDate: '2027-03-31',
+        })
+        .expect(201);
+      const dated = prisma.asset.create.mock.calls[1][0].data;
+      expect(dated.purchaseDate).toEqual(new Date('2025-04-01'));
+      expect(dated.warrantyStartDate).toEqual(new Date('2025-04-01'));
+      expect(dated.warrantyEndDate).toEqual(new Date('2027-03-31'));
+      await request(app.getHttpServer())
+        .post('/api/assets')
+        .set(bearer('engineer'))
+        .send({
+          ...body,
+          assetTagNumber: 'NEW-4',
+          warrantyStartDate: '2025-04-01',
+          warrantyEndDate: '2025-03-31',
+        })
+        .expect(400);
+
       // A client-supplied organizationId is rejected outright.
       await request(app.getHttpServer())
         .post('/api/assets')

@@ -32,18 +32,8 @@ export interface AssetFormValues {
   /** "" when not known yet. */
   electricalClass: string;
   appliedPartType: string;
-  amcContractNumber: string;
-  amcStartDate: string;
-  amcEndDate: string;
-  amcInitialCost: string;
-  amcCostAnnual: string;
-  amcYearsPaid: string;
-  cmcContractNumber: string;
-  cmcStartDate: string;
-  cmcEndDate: string;
-  cmcInitialCost: string;
-  cmcCostAnnual: string;
-  cmcYearsPaid: string;
+  warrantyStartDate: string;
+  warrantyEndDate: string;
   notes: string;
 }
 
@@ -78,18 +68,8 @@ export const EMPTY_ASSET_FORM: AssetFormValues = {
   nextSafetyInspectionDue: "",
   electricalClass: "",
   appliedPartType: "",
-  amcContractNumber: "",
-  amcStartDate: "",
-  amcEndDate: "",
-  amcInitialCost: "",
-  amcCostAnnual: "",
-  amcYearsPaid: "",
-  cmcContractNumber: "",
-  cmcStartDate: "",
-  cmcEndDate: "",
-  cmcInitialCost: "",
-  cmcCostAnnual: "",
-  cmcYearsPaid: "",
+  warrantyStartDate: "",
+  warrantyEndDate: "",
   notes: "",
 };
 
@@ -172,11 +152,9 @@ export function validateAssetForm(
     }
   }
 
-  const amountFields: AssetField[] = ["purchaseCost", "amcInitialCost", "amcCostAnnual", "cmcInitialCost", "cmcCostAnnual"];
-  for (const field of amountFields) {
-    if (errors[field]) continue;
-    const n = parseNumber(values[field]);
-    if (n !== null && (Number.isNaN(n) || n < 0)) errors[field] = "Enter an amount of 0 or more";
+  if (!errors.purchaseCost) {
+    const n = parseNumber(values.purchaseCost);
+    if (n !== null && (Number.isNaN(n) || n < 0)) errors.purchaseCost = "Enter an amount of 0 or more";
   }
 
   if (!errors.usefulLifeYears) {
@@ -216,21 +194,11 @@ export function validateAssetForm(
     }
   }
 
-  for (const field of ["amcYearsPaid", "cmcYearsPaid"] as const) {
-    const n = parseNumber(values[field]);
-    if (n !== null && (Number.isNaN(n) || !Number.isInteger(n) || n < 0)) {
-      errors[field] = "Whole number, 0 or more";
-    }
-  }
-
-  for (const prefix of ["amc", "cmc"] as const) {
-    const start = values[`${prefix}StartDate`];
-    const end = values[`${prefix}EndDate`];
-    if (start && !isValidDate(start)) errors[`${prefix}StartDate`] = "Enter a valid date";
-    if (end && !isValidDate(end)) errors[`${prefix}EndDate`] = "Enter a valid date";
-    if (start && end && isValidDate(start) && isValidDate(end) && end < start) {
-      errors[`${prefix}EndDate`] = "Must be on or after the start date";
-    }
+  const { warrantyStartDate: wStart, warrantyEndDate: wEnd } = values;
+  if (wStart && !isValidDate(wStart)) errors.warrantyStartDate = "Enter a valid date";
+  if (wEnd && !isValidDate(wEnd)) errors.warrantyEndDate = "Enter a valid date";
+  if (wStart && wEnd && isValidDate(wStart) && isValidDate(wEnd) && wEnd < wStart) {
+    errors.warrantyEndDate = "Must be on or after the start date";
   }
 
   // The department list is filtered by facility, but a facility change can
@@ -245,19 +213,6 @@ export function validateAssetForm(
   return errors;
 }
 
-/** Cost increase from the first contract year to the current one, if it went up. */
-export function contractIncrease(
-  initialRaw: string,
-  currentRaw: string,
-): { amount: number; percentage: number } | null {
-  const initial = parseNumber(initialRaw);
-  const current = parseNumber(currentRaw);
-  if (initial === null || current === null || Number.isNaN(initial) || Number.isNaN(current)) return null;
-  if (initial <= 0 || current <= initial) return null;
-  const amount = Math.round((current - initial) * 100) / 100;
-  return { amount, percentage: Math.round((amount / initial) * 10000) / 100 };
-}
-
 const text = (raw: string) => (raw.trim() === "" ? undefined : raw.trim());
 const num = (raw: string) => {
   const n = parseNumber(raw);
@@ -266,9 +221,6 @@ const num = (raw: string) => {
 
 /** Converts valid form values into the API payload. 0 stays 0. */
 export function toCreateAssetPayload(values: AssetFormValues): CreateAssetPayload {
-  const amc = contractIncrease(values.amcInitialCost, values.amcCostAnnual);
-  const cmc = contractIncrease(values.cmcInitialCost, values.cmcCostAnnual);
-
   return {
     assetTagNumber: values.assetTagNumber.trim(),
     equipmentName: values.equipmentName.trim(),
@@ -303,22 +255,8 @@ export function toCreateAssetPayload(values: AssetFormValues): CreateAssetPayloa
     currentFacilityId: values.currentFacilityId,
     custodianDepartmentId: values.custodianDepartmentId,
     primaryCustodianId: values.primaryCustodianId,
-    amcContractNumber: text(values.amcContractNumber),
-    amcStartDate: text(values.amcStartDate),
-    amcEndDate: text(values.amcEndDate),
-    amcInitialCost: num(values.amcInitialCost),
-    amcCostAnnual: num(values.amcCostAnnual),
-    amcYearsPaid: num(values.amcYearsPaid),
-    amcIncreaseAmount: amc?.amount,
-    amcIncreasePercentage: amc?.percentage,
-    cmcContractNumber: text(values.cmcContractNumber),
-    cmcStartDate: text(values.cmcStartDate),
-    cmcEndDate: text(values.cmcEndDate),
-    cmcInitialCost: num(values.cmcInitialCost),
-    cmcCostAnnual: num(values.cmcCostAnnual),
-    cmcYearsPaid: num(values.cmcYearsPaid),
-    cmcIncreaseAmount: cmc?.amount,
-    cmcIncreasePercentage: cmc?.percentage,
+    warrantyStartDate: text(values.warrantyStartDate),
+    warrantyEndDate: text(values.warrantyEndDate),
     notes: text(values.notes),
   };
 }

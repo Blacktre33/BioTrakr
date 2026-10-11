@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, History, Pencil, QrCode, ShieldCheck } from "lucide-react";
 
 import { CalibrationSection } from "@/components/calibration/calibration-section";
+import { ServiceCoverSection } from "@/components/contracts/service-cover-section";
 import { SafetyTestSection } from "@/components/safety-tests/safety-test-section";
 import { AssetBedsideCard } from "@/components/scan/asset-bedside-card";
 import { Button, Skeleton } from "@/components/ui";
@@ -34,7 +35,8 @@ const SOURCE_LABEL: Record<string, string> = {
 /**
  * One device: the same safety answer staff get when they scan it, plus
  * biomed actions (change status with a reason, edit details), calibration
- * and electrical safety test records, and the full status history.
+ * and electrical safety test records, warranty and contracts, and the full
+ * status history.
  */
 export function DevicePage({ assetId }: { assetId: string }) {
   const router = useRouter();
@@ -125,6 +127,8 @@ export function DevicePage({ assetId }: { assetId: string }) {
           />
 
           <SafetyTestSection assetId={assetId} device={device} canRecord={canChangeStatus} />
+
+          {canChangeStatus && <ServiceCoverSection device={device} canEdit={canEdit} />}
 
           <section aria-labelledby="status-history-heading" className="rounded-2xl border border-white/10 p-4">
             <h2 id="status-history-heading" className="flex items-center gap-2 font-medium text-gray-200">

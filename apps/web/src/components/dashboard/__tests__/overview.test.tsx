@@ -112,6 +112,17 @@ const summary: DashboardSummary = {
     failed: 0,
     compliancePercent: null,
   },
+  cover: {
+    devices: 112,
+    covered: 84,
+    coveredPercent: 75,
+    underWarranty: 30,
+    underContract: 60,
+    endingSoonDays: 90,
+    contractsEnding: 2,
+    warrantiesEnding: 1,
+    annualValue: 1250000,
+  },
   workOrders: {
     open: 9,
     urgent: 2,
@@ -142,6 +153,10 @@ describe("DashboardOverview", () => {
     expect(tile(/PM compliance 93% 20 devices without a PM schedule/)).toBeInTheDocument();
     expect(tile(/Calibration 92.5% 1 device failed, out of use · 3 overdue/)).toHaveAttribute("href", "/maintenance");
     expect(tile(/Electrical safety – No devices in the electrical safety test programme/)).toBeInTheDocument();
+    expect(tile(/Under warranty or contract 75% 2 contracts ending · 1 warranty ending in 90 days/)).toHaveAttribute(
+      "href",
+      "/contracts",
+    );
     expect(tile(/Open work orders 9 2 urgent · 4 not assigned · 1 waiting for parts/)).toHaveAttribute(
       "href",
       "/maintenance",

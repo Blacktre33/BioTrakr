@@ -12,6 +12,7 @@ describe("HelpGuide", () => {
     expect(href(/^work queue/i)).toBe("/maintenance");
     expect(href(/^pm schedule/i)).toBe("/maintenance/schedule");
     expect(href(/^calibration and safety tests/i)).toBe("/maintenance");
+    expect(href(/^amc and cmc contracts/i)).toBe("/contracts");
   });
 
   it("says who to contact and links IT to the install guide", () => {

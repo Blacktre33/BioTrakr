@@ -1,6 +1,5 @@
 import {
   EMPTY_ASSET_FORM,
-  contractIncrease,
   fieldErrorsFromApi,
   toCreateAssetPayload,
   validateAssetForm,
@@ -68,23 +67,22 @@ describe("validateAssetForm", () => {
     expect(validateAssetForm({ ...valid, purchaseDate: "2026-10-08" }, reference, TODAY).purchaseDate).toBeUndefined();
   });
 
-  it("checks amounts, useful life and years paid", () => {
+  it("checks the cost and useful life", () => {
+    const errors = validateAssetForm({ ...valid, purchaseCost: "-1", usefulLifeYears: "2.5" }, reference, TODAY);
+    expect(errors.purchaseCost).toBe("Enter an amount of 0 or more");
+    expect(errors.usefulLifeYears).toBe("Whole number of years, 1 to 50");
+  });
+
+  it("requires the warranty to end on or after it starts", () => {
     const errors = validateAssetForm(
-      { ...valid, purchaseCost: "-1", usefulLifeYears: "2.5", amcYearsPaid: "-2", cmcCostAnnual: "abc" },
+      { ...valid, warrantyStartDate: "2025-01-01", warrantyEndDate: "2024-12-31" },
       reference,
       TODAY,
     );
-    expect(errors.purchaseCost).toBe("Enter an amount of 0 or more");
-    expect(errors.usefulLifeYears).toBe("Whole number of years, 1 to 50");
-    expect(errors.amcYearsPaid).toBe("Whole number, 0 or more");
-    expect(errors.cmcCostAnnual).toBe("Enter an amount of 0 or more");
-  });
-
-  it("requires contract end dates on or after the start date", () => {
-    const errors = validateAssetForm({ ...valid, amcStartDate: "2025-01-01", amcEndDate: "2024-12-31" }, reference, TODAY);
-    expect(errors.amcEndDate).toBe("Must be on or after the start date");
+    expect(errors.warrantyEndDate).toBe("Must be on or after the start date");
     expect(
-      validateAssetForm({ ...valid, amcStartDate: "2025-01-01", amcEndDate: "2025-01-01" }, reference, TODAY).amcEndDate,
+      validateAssetForm({ ...valid, warrantyStartDate: "2025-01-01", warrantyEndDate: "2025-01-01" }, reference, TODAY)
+        .warrantyEndDate,
     ).toBeUndefined();
   });
 
@@ -95,27 +93,15 @@ describe("validateAssetForm", () => {
   });
 });
 
-describe("contractIncrease", () => {
-  it("reports a rise from the first year", () => {
-    expect(contractIncrease("45000", "50000")).toEqual({ amount: 5000, percentage: 11.11 });
-  });
-  it("reports nothing when the cost fell, stayed level, or is missing", () => {
-    expect(contractIncrease("50000", "45000")).toBeNull();
-    expect(contractIncrease("50000", "50000")).toBeNull();
-    expect(contractIncrease("", "50000")).toBeNull();
-    expect(contractIncrease("0", "50000")).toBeNull();
-  });
-});
-
 describe("toCreateAssetPayload", () => {
   it("trims text, keeps 0 as 0 and leaves blank optional fields out", () => {
-    const payload = toCreateAssetPayload({ ...valid, amcYearsPaid: "0", notes: "  " });
+    const payload = toCreateAssetPayload({ ...valid, purchaseCost: "0", warrantyEndDate: "2028-03-31", notes: "  " });
     expect(payload.assetTagNumber).toBe("BME-001");
     expect(payload.purchaseCost).toBe(0);
-    expect(payload.amcYearsPaid).toBe(0);
     expect(payload.usefulLifeYears).toBe(10);
+    expect(payload.warrantyEndDate).toBe("2028-03-31");
     expect(payload.notes).toBeUndefined();
-    expect(payload.amcContractNumber).toBeUndefined();
+    expect(payload.warrantyStartDate).toBeUndefined();
     expect(payload).not.toHaveProperty("organizationId");
   });
 });

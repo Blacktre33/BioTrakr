@@ -7,6 +7,7 @@ import {
   ArrowRight,
   CalendarClock,
   ExternalLink,
+  FileText,
   Gauge,
   LifeBuoy,
   ScanLine,
@@ -58,6 +59,12 @@ const tasks: Task[] = [
     href: '/maintenance',
     icon: Gauge,
     body: 'For biomed: the schedule opens calibration and electrical safety (IS/IEC 62353) work orders before they fall due. Completing one records the certificate or readings, and a failure takes the device out of use. Earlier records are on each device page.',
+  },
+  {
+    title: 'AMC and CMC contracts',
+    href: '/contracts',
+    icon: FileText,
+    body: 'For biomed: each contract, the devices it covers and the vendor to call. Reminders go out 90, 60, 30 and 7 days before a contract ends, and before a warranty ends. Renewing keeps what each year cost.',
   },
 ];
 

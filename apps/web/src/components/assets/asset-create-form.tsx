@@ -28,7 +28,6 @@ import {
   EMPTY_ASSET_FORM,
   FIELD_ORDER,
   REQUIRED_FIELDS,
-  contractIncrease,
   fieldErrorsFromApi,
   toCreateAssetPayload,
   validateAssetForm,
@@ -206,8 +205,6 @@ export function AssetCreateForm({ open, onOpenChange, onAssetCreated }: AssetCre
     }
   };
 
-  const amcIncrease = contractIncrease(values.amcInitialCost, values.amcCostAnnual);
-  const cmcIncrease = contractIncrease(values.cmcInitialCost, values.cmcCostAnnual);
   const errorCount = Object.keys(touched).length > 0 ? Object.keys(clientErrors).filter((f) => touched[f as AssetField]).length : 0;
 
   const textInput = (field: AssetField, placeholder: string, extra: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
@@ -219,44 +216,13 @@ export function AssetCreateForm({ open, onOpenChange, onAssetCreated }: AssetCre
     />
   );
 
-  const contractSection = (prefix: "amc" | "cmc", title: string, increase: ReturnType<typeof contractIncrease>) => (
-    <div className="space-y-4 p-4 bg-surface-200/20 rounded-xl">
-      <h4 className="font-medium text-white">{title}</h4>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Field field={`${prefix}ContractNumber`} label="Contract number" error={errorFor(`${prefix}ContractNumber`)}>
-          {textInput(`${prefix}ContractNumber`, `e.g. ${prefix.toUpperCase()}-2024-001`)}
-        </Field>
-        <Field field={`${prefix}YearsPaid`} label="Years paid" error={errorFor(`${prefix}YearsPaid`)}>
-          {textInput(`${prefix}YearsPaid`, "0", { type: "number", min: 0, step: 1, inputMode: "numeric" })}
-        </Field>
-        <Field field={`${prefix}InitialCost`} label="First-year cost (₹)" error={errorFor(`${prefix}InitialCost`)}>
-          {textInput(`${prefix}InitialCost`, "0.00", { type: "number", min: 0, step: "0.01", inputMode: "decimal" })}
-        </Field>
-        <Field field={`${prefix}CostAnnual`} label="Current annual cost (₹)" error={errorFor(`${prefix}CostAnnual`)}>
-          {textInput(`${prefix}CostAnnual`, "0.00", { type: "number", min: 0, step: "0.01", inputMode: "decimal" })}
-        </Field>
-        <Field field={`${prefix}StartDate`} label="Start date" error={errorFor(`${prefix}StartDate`)}>
-          {textInput(`${prefix}StartDate`, "", { type: "date" })}
-        </Field>
-        <Field field={`${prefix}EndDate`} label="End date" error={errorFor(`${prefix}EndDate`)}>
-          {textInput(`${prefix}EndDate`, "", { type: "date", min: values[`${prefix}StartDate`] || undefined })}
-        </Field>
-      </div>
-      {increase && (
-        <p className="text-sm text-gray-300 p-3 bg-primary-500/10 rounded-lg border border-primary-500/20">
-          Cost has gone up ₹{increase.amount.toLocaleString("en-IN")} ({increase.percentage}%) since the first year.
-        </p>
-      )}
-    </div>
-  );
-
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Add a device</DialogTitle>
           <DialogDescription>
-            Fields marked <span className="text-critical-500">*</span> are required. Service contracts are optional.
+            Fields marked <span className="text-critical-500">*</span> are required.
           </DialogDescription>
         </DialogHeader>
 
@@ -512,15 +478,28 @@ export function AssetCreateForm({ open, onOpenChange, onAssetCreated }: AssetCre
             )}
           </section>
 
-          <details className="border-t border-white/10 pt-4 group">
-            <summary className="cursor-pointer text-sm font-semibold uppercase tracking-wide text-gray-400">
-              Service contracts (AMC / CMC) — optional
-            </summary>
-            <div className="space-y-4 pt-4">
-              {contractSection("amc", "Annual Maintenance Contract (AMC)", amcIncrease)}
-              {contractSection("cmc", "Comprehensive Maintenance Contract (CMC)", cmcIncrease)}
+          <section className="space-y-4" aria-labelledby="asset-warranty-heading">
+            <h3 id="asset-warranty-heading" className="text-sm font-semibold uppercase tracking-wide text-gray-400">
+              Warranty
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Field field="warrantyStartDate" label="Warranty starts" error={errorFor("warrantyStartDate")}>
+                {textInput("warrantyStartDate", "", { type: "date" })}
+              </Field>
+              <Field
+                field="warrantyEndDate"
+                label="Warranty ends"
+                error={errorFor("warrantyEndDate")}
+                hint="Last day of cover. Reminders go out 90 and 30 days before."
+              >
+                {textInput("warrantyEndDate", "", { type: "date", min: values.warrantyStartDate || undefined })}
+              </Field>
             </div>
-          </details>
+            <p className="text-xs text-gray-400">
+              AMC and CMC contracts are added under Contracts once the device is saved; one contract can cover several
+              devices.
+            </p>
+          </section>
 
           <Field field="notes" label="Notes" error={errorFor("notes")}>
             <Textarea {...control("notes")} placeholder="Anything the next person should know" rows={3} />

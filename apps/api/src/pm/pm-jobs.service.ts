@@ -8,6 +8,7 @@ import type { Prisma } from '@prisma/client';
 
 import { RETIRED_STATUSES } from '../assets/asset-status.service';
 import { BIOMED_ROLES } from '../auth/roles';
+import { ContractAlertsService } from '../contracts/contract-alerts.service';
 import { PrismaService } from '../database/prisma.service';
 import { bestEffort, deviceLabel, notify } from '../notifications/notify';
 import { OPEN_STATUSES } from '../work-orders/work-orders.service';
@@ -166,7 +167,10 @@ export class PmJobsService implements OnApplicationBootstrap, OnModuleDestroy {
   private startup: NodeJS.Timeout | null = null;
   private running = false;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly contractAlerts: ContractAlertsService,
+  ) {}
 
   onApplicationBootstrap(): void {
     if (process.env.PM_JOBS === 'off' || process.env.NODE_ENV === 'test') {
@@ -192,6 +196,13 @@ export class PmJobsService implements OnApplicationBootstrap, OnModuleDestroy {
       await this.openDue();
     } catch (error) {
       this.logger.error(`PM schedule failed: ${(error as Error).message}`);
+    }
+    try {
+      await this.contractAlerts.check();
+    } catch (error) {
+      this.logger.error(
+        `Contract and warranty notices failed: ${(error as Error).message}`,
+      );
     } finally {
       this.running = false;
     }

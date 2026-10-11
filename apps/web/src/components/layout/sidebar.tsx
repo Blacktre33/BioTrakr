@@ -18,6 +18,7 @@ import {
   HelpCircle,
   Activity,
   ScanLine,
+  FileText,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -33,6 +34,8 @@ interface NavItem {
   icon: LucideIcon;
   description: string;
   badge?: number;
+  /** Only these roles see it (all staff when absent). */
+  roles?: string[];
 }
 
 const navigationItems: NavItem[] = [
@@ -59,6 +62,14 @@ const navigationItems: NavItem[] = [
     href: '/maintenance',
     icon: Wrench,
     description: 'Problem reports and scheduled work',
+  },
+  {
+    name: 'Contracts',
+    href: '/contracts',
+    icon: FileText,
+    description: 'AMC, CMC and vendors',
+    // Must match the API's BIOMED_ROLES.
+    roles: ['admin', 'engineer', 'technician'],
   },
 ];
 
@@ -157,7 +168,9 @@ export function Sidebar() {
       {/* Main Navigation */}
       <nav className="flex-1 px-3 py-4 overflow-y-auto">
         <div className="space-y-1">
-          {navigationItems.map((item) => {
+          {navigationItems
+            .filter((item) => !item.roles || (me && item.roles.includes(me.role)))
+            .map((item) => {
             const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
             const Icon = item.icon;
 
