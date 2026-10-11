@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   ArrowRight,
   CalendarClock,
+  ClipboardList,
   ExternalLink,
   FileText,
   Gauge,
@@ -65,6 +66,12 @@ const tasks: Task[] = [
     href: '/contracts',
     icon: FileText,
     body: 'For biomed: each contract, the devices it covers and the vendor to call. Reminders go out 90, 60, 30 and 7 days before a contract ends, and before a warranty ends. Renewing keeps what each year cost.',
+  },
+  {
+    title: 'Registers for NABH',
+    href: '/registers',
+    icon: ClipboardList,
+    body: 'For biomed and auditors: the inventory master, annual survey and device logbook in the NHSRC formats, and the calibration, electrical safety, PM, breakdown and AMC/CMC registers. Print on A4 with a sign-off, or download for Excel.',
   },
 ];
 
