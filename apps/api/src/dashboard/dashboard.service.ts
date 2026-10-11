@@ -121,6 +121,7 @@ export class DashboardService {
       calDueSoon,
       calNotScheduled,
       calFailed,
+      calNonCompliant,
     ] = await Promise.all([
       this.prisma.asset.groupBy({
         by: ['assetStatus'],
@@ -229,6 +230,16 @@ export class DashboardService {
       }),
       this.prisma.asset.count({
         where: { ...inService, lastCalibrationResult: 'FAIL' },
+      }),
+      // A failed device is not compliant even before its new due date passes.
+      this.prisma.asset.count({
+        where: {
+          ...calibrationScheduled,
+          OR: [
+            { nextCalibrationDue: { lt: now } },
+            { lastCalibrationResult: 'FAIL' },
+          ],
+        },
       }),
     ]);
 
@@ -343,9 +354,9 @@ export class DashboardService {
         notScheduled: calNotScheduled,
         /** Failed their latest calibration (kept out of use). */
         failed: calFailed,
-        /** Share of scheduled devices that are not overdue; null when none are scheduled. */
+        /** Share of scheduled devices neither overdue nor failed; null when none are scheduled. */
         compliancePercent: calScheduled
-          ? round1(((calScheduled - calOverdue) / calScheduled) * 100)
+          ? round1(((calScheduled - calNonCompliant) / calScheduled) * 100)
           : null,
       },
       workOrders: {

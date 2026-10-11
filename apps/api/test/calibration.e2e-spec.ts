@@ -385,9 +385,10 @@ describe('Calibration (e2e)', () => {
   it('shows calibration compliance on the dashboard', async () => {
     store.assets.push(
       asset(6, { requiresCalibration: true, nextCalibrationDue: null }),
+      // Failed today: not yet overdue, but not compliant either.
       asset(7, {
         requiresCalibration: true,
-        nextCalibrationDue: ahead(-1),
+        nextCalibrationDue: ahead(0.5),
         lastCalibrationResult: 'FAIL',
         assetStatus: 'QUARANTINED',
       }),
@@ -396,11 +397,12 @@ describe('Calibration (e2e)', () => {
       .get('/api/dashboard')
       .set(bearer('engineer'))
       .expect(200);
-    // Scheduled: 1, 2, 4, 5, 7. Overdue: 5, 7. Due within 30 days: 1, 4.
+    // Scheduled: 1, 2, 4, 5, 7. Overdue: 5. Due within 30 days: 1, 4, 7.
+    // Not compliant: 5 (overdue) and 7 (failed).
     expect(res.body.calibration).toEqual({
       scheduled: 5,
-      overdue: 2,
-      dueSoon: 2,
+      overdue: 1,
+      dueSoon: 3,
       dueSoonDays: 30,
       notScheduled: 1,
       failed: 1,
