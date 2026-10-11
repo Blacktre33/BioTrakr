@@ -106,6 +106,8 @@ Locked out? Run the same command with `--email … --reset` for a new one-time p
 
 The `backup` container makes a compressed backup every night at 02:00 into `deploy/backups/` and keeps 14 days. The hour is in the `TZ` time zone in `.env` (Asia/Kolkata unless you change it); `BACKUP_HOUR` and `BACKUP_KEEP_DAYS` are there too. Each backup is checked to be complete and readable; only a test restore (below) proves the data itself. The files are readable by root only: they contain staff details and password hashes.
 
+Uploaded files (calibration certificates, safety test reports, service reports, contracts) are kept in the database, so every backup includes them and a restore brings back records and files together. Each file is at most 10 MB; plan the backup disk for the files you expect to upload (for example, 2,000 certificates of about 1 MB each add about 2 GB to each backup, times the days kept).
+
 **A backup on the same server is not enough.** If the disk fails, both are lost. Copy the folder to another machine every night, for example to a hospital NAS with a cron job on the server (as root, since the files are root-only):
 
 ```bash

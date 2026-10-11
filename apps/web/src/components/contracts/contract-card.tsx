@@ -4,6 +4,7 @@ import type { Route } from "next";
 import Link from "next/link";
 import { Mail, Phone } from "lucide-react";
 
+import { Attachments } from "@/components/documents/attachments";
 import { Badge, Button } from "@/components/ui";
 import {
   costChange,
@@ -42,10 +43,13 @@ export function ContractCard({
   contract: c,
   highlighted,
   actions,
+  canAttach = false,
 }: {
   contract: Contract;
   highlighted?: boolean;
   actions?: { onEdit: () => void; onRenew: () => void; onTerminate: () => void } | null;
+  /** Biomed may attach the signed copy. */
+  canAttach?: boolean;
 }) {
   const badge = statusBadge(c);
   const change = costChange(c);
@@ -124,6 +128,15 @@ export function ContractCard({
 
       {c.notes && <p className="mt-1 whitespace-pre-line text-sm text-gray-400">{c.notes}</p>}
       {c.terminationReason && <p className="mt-1 text-sm text-gray-400">Ended early: {c.terminationReason}</p>}
+
+      <Attachments
+        targetType="contract"
+        targetId={c.id}
+        count={c.documents}
+        canUpload={canAttach}
+        label={{ one: "Signed copy", none: "No signed copy on file" }}
+        defaultTitle={`${c.contractType} ${c.contractNumber}`}
+      />
 
       {actions && (
         <div className="mt-3 flex flex-wrap gap-2">

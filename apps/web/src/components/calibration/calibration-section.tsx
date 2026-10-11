@@ -23,6 +23,7 @@ import {
   type CalibrationResult,
 } from "@/lib/api/calibration";
 import type { AssetLookup } from "@/lib/api/assets";
+import { Attachments } from "@/components/documents/attachments";
 import { useCalibrations, useCorrectCalibration, useRecordCalibration } from "@/lib/hooks/use-calibration";
 import { cn, formatDate } from "@/lib/utils";
 
@@ -175,6 +176,14 @@ function RecordItem({ r, canCorrect, onCorrect }: { r: CalibrationRecord; canCor
         Recorded {formatDate(r.recordedAt, "MMM d, yyyy HH:mm")} by {r.recordedBy}
         {r.workOrderId ? " · from a work order" : ""}
       </p>
+      <Attachments
+        targetType="calibration"
+        targetId={r.id}
+        count={r.documents}
+        canUpload={canCorrect}
+        label={{ one: "Certificate", none: "No certificate on file" }}
+        defaultTitle={r.certificateNumber ? `Certificate ${r.certificateNumber}` : "Calibration certificate"}
+      />
     </li>
   );
 }

@@ -68,6 +68,8 @@ export interface Contract {
   /** Days to the last day of cover; negative once passed. */
   daysLeft: number;
   renewedById: string | null;
+  /** Files attached and not withdrawn (the signed contract). */
+  documents: number;
   previous: { id: string; contractNumber: string; annualValue: number | null } | null;
   /** Earlier years, newest first (detail only). */
   history?: Array<{ id: string; contractNumber: string; startDate: string; endDate: string; annualValue: number | null }>;

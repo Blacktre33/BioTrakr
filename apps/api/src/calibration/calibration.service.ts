@@ -7,6 +7,7 @@ import type { Prisma } from '@prisma/client';
 
 import type { AuthUser } from '../auth/auth-user';
 import { PrismaService } from '../database/prisma.service';
+import { documentCounts } from '../documents/documents.service';
 import { OPEN_STATUSES } from '../work-orders/work-orders.service';
 import { recordCalibration } from './calibration';
 import type {
@@ -37,11 +38,13 @@ const RECORD_SELECT = {
 
 type Row = Prisma.CalibrationRecordGetPayload<{ select: typeof RECORD_SELECT }>;
 
-const present = ({ recordedBy, supersededBy, ...row }: Row) => ({
+const present = ({ recordedBy, supersededBy, ...row }: Row, documents = 0) => ({
   ...row,
   recordedBy: `${recordedBy.firstName} ${recordedBy.lastName}`.trim(),
   /** The correction that replaced this record, if any. */
   correctedBy: supersededBy?.id ?? null,
+  /** Files attached (not withdrawn), e.g. the certificate. */
+  documents,
 });
 
 @Injectable()
@@ -57,7 +60,12 @@ export class CalibrationService {
       take: 200,
       select: RECORD_SELECT,
     });
-    return rows.map(present);
+    const files = await documentCounts(
+      this.prisma,
+      'calibrationRecordId',
+      rows.map((r) => r.id),
+    );
+    return rows.map((r) => present(r, files.get(r.id)));
   }
 
   /**

@@ -26,6 +26,7 @@ import {
   REASON_LABEL,
   type SafetyTestRecord,
 } from "@/lib/api/safety-tests";
+import { Attachments } from "@/components/documents/attachments";
 import { useCorrectSafetyTest, useRecordSafetyTest, useSafetyTests } from "@/lib/hooks/use-safety-tests";
 import { cn, formatDate } from "@/lib/utils";
 
@@ -204,6 +205,14 @@ function RecordItem({ r, canCorrect, onCorrect }: { r: SafetyTestRecord; canCorr
         Recorded {formatDate(r.recordedAt, "MMM d, yyyy HH:mm")} by {r.recordedBy}
         {r.workOrderId ? " · from a work order" : ""}
       </p>
+      <Attachments
+        targetType="safetyTest"
+        targetId={r.id}
+        count={r.documents}
+        canUpload={canCorrect}
+        label={{ one: "Analyser report", none: "No analyser report on file" }}
+        defaultTitle={`Safety test report ${formatDate(r.testedAt)}`}
+      />
     </li>
   );
 }

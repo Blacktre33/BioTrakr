@@ -176,6 +176,7 @@ function ContractList({ canEdit }: { canEdit: boolean }) {
               key={c.id}
               contract={c}
               highlighted={c.id === linkedId}
+              canAttach={canEdit}
               actions={
                 canEdit
                   ? {

@@ -8,6 +8,11 @@ import { WorkQueue } from "../work-queue";
 const mutateAsync = jest.fn();
 let items: WorkOrder[] = [];
 
+jest.mock("@/lib/hooks/use-documents", () => ({
+  useDocuments: () => ({ isPending: false, isError: false, data: [] }),
+  useUploadDocument: () => ({ mutateAsync: jest.fn(), isPending: false }),
+  useWithdrawDocument: () => ({ mutateAsync: jest.fn(), isPending: false }),
+}));
 jest.mock("sonner", () => ({ toast: { success: jest.fn(), error: jest.fn() } }));
 jest.mock("@/lib/auth/session", () => ({ getSession: () => ({ user: { id: "u-tech", role: "technician" } }) }));
 jest.mock("@/lib/hooks/use-work-orders", () => ({

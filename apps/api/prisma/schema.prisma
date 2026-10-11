@@ -86,6 +86,18 @@ enum ServiceProvider {
 
 /// IEC 60601-1 protection class: earthed (I), double insulated (II), or
 /// battery only (internally powered).
+/// What a stored file is.
+enum DocumentCategory {
+  CALIBRATION_CERTIFICATE
+  SAFETY_TEST_REPORT
+  SERVICE_REPORT
+  CONTRACT
+  INSTALLATION_REPORT
+  MANUAL
+  INVOICE
+  OTHER
+}
+
 /// AMC: annual maintenance (labour and PM visits; parts charged). CMC:
 /// comprehensive maintenance (parts included).
 enum ContractType {
@@ -235,6 +247,7 @@ model Organization {
   outboundMessages OutboundMessage[]
   vendors          Vendor[]
   serviceContracts ServiceContract[]
+  documents        Document[]
 
   @@map("organizations")
 }
@@ -431,6 +444,8 @@ model User {
   safetyTestRecords         SafetyTestRecord[]  @relation("SafetyTestRecordedBy")
   contractsCreated          ServiceContract[]   @relation("ContractCreatedBy")
   contractsUpdated          ServiceContract[]   @relation("ContractUpdatedBy")
+  documentsUploaded         Document[]          @relation("DocumentUploadedBy")
+  documentsWithdrawn        DocumentWithdrawal[] @relation("DocumentWithdrawnBy")
   authSessions              AuthSession[]
   notifications             Notification[]
 
@@ -723,6 +738,7 @@ model Asset {
   calibrationRecords              CalibrationRecord[]
   safetyTestRecords               SafetyTestRecord[]
   serviceContracts                ServiceContractAsset[]
+  documents                       Document[]
   telemetry                       AssetTelemetry[]
   maintenanceEvents               MaintenanceEvent[]
   errorEvents                     ErrorEvent[]
@@ -1042,6 +1058,7 @@ model MaintenanceHistory {
   @@index([assignedTechnicianId])
   calibrationRecords      CalibrationRecord[]
   safetyTestRecords       SafetyTestRecord[]
+  documents               Document[]
 
   @@unique([assetId, workOrderType, dueDate])
   @@map("maintenance_history")
@@ -1082,6 +1099,7 @@ model CalibrationRecord {
   recordedBy             User                @relation("CalibrationRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
   supersedes             CalibrationRecord?  @relation("CalibrationCorrection", fields: [supersedesId], references: [id], onDelete: Restrict)
   supersededBy           CalibrationRecord?  @relation("CalibrationCorrection")
+  documents              Document[]
 
   @@index([assetId, calibratedAt(sort: Desc)])
   @@index([workOrderId])
@@ -1129,6 +1147,7 @@ model SafetyTestRecord {
   recordedBy             User                @relation("SafetyTestRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
   supersedes             SafetyTestRecord?   @relation("SafetyTestCorrection", fields: [supersedesId], references: [id], onDelete: Restrict)
   supersededBy           SafetyTestRecord?   @relation("SafetyTestCorrection")
+  documents              Document[]
 
   @@index([assetId, testedAt(sort: Desc)])
   @@index([workOrderId])
@@ -1171,6 +1190,7 @@ model ServiceContract {
   createdBy              User             @relation("ContractCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   updatedBy              User             @relation("ContractUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
   devices                ServiceContractAsset[]
+  documents              Document[]
 
   @@index([organizationId, endDate])
   @@index([vendorId])
@@ -1188,6 +1208,65 @@ model ServiceContractAsset {
   @@id([contractId, assetId])
   @@index([assetId])
   @@map("service_contract_assets")
+}
+
+/// A file kept as evidence: a calibration certificate, an analyser report,
+/// a signed service report, a contract. Held in the database, so the nightly
+/// backup has it and a restore brings back records and files together.
+/// Never changed or deleted (a database trigger refuses); a wrong upload is
+/// withdrawn with a reason and stays on file.
+model Document {
+  id                  String              @id @default(uuid())
+  organizationId      String
+  /// The device it is about; null for a contract covering several.
+  assetId             String?
+  /// At most one record it belongs to; none for a device's own documents.
+  calibrationRecordId String?
+  safetyTestRecordId  String?
+  contractId          String?
+  workOrderId         String?
+  category            DocumentCategory
+  title               String              @db.VarChar(200)
+  fileName            String              @db.VarChar(255)
+  /// From the file's content, not what the browser said.
+  mimeType            String              @db.VarChar(100)
+  sizeBytes           Int
+  /// Hex SHA-256 of the content, to show it is the file that was uploaded.
+  sha256              String              @db.Char(64)
+  content             Bytes
+  uploadedById        String
+  uploadedAt          DateTime            @default(now())
+
+  organization        Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  asset               Asset?              @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  calibrationRecord   CalibrationRecord?  @relation(fields: [calibrationRecordId], references: [id], onDelete: Restrict)
+  safetyTestRecord    SafetyTestRecord?   @relation(fields: [safetyTestRecordId], references: [id], onDelete: Restrict)
+  contract            ServiceContract?    @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  workOrder           MaintenanceHistory? @relation(fields: [workOrderId], references: [id], onDelete: Restrict)
+  uploadedBy          User                @relation("DocumentUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
+  withdrawal          DocumentWithdrawal?
+
+  @@index([organizationId, uploadedAt])
+  @@index([assetId])
+  @@index([calibrationRecordId])
+  @@index([safetyTestRecordId])
+  @@index([contractId])
+  @@index([workOrderId])
+  @@map("documents")
+}
+
+/// A document taken back (the wrong file, the wrong record). The document
+/// stays on file, marked, with who withdrew it and why.
+model DocumentWithdrawal {
+  documentId          String              @id
+  reason              String              @db.VarChar(1000)
+  withdrawnById       String
+  withdrawnAt         DateTime            @default(now())
+
+  document            Document            @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  withdrawnBy         User                @relation("DocumentWithdrawnBy", fields: [withdrawnById], references: [id], onDelete: Restrict)
+
+  @@map("document_withdrawals")
 }
 
 model SparePart {

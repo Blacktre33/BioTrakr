@@ -13,6 +13,11 @@ const record = jest.fn();
 const correct = jest.fn();
 let records: SafetyTestRecord[] = [];
 
+jest.mock("@/lib/hooks/use-documents", () => ({
+  useDocuments: () => ({ isPending: false, isError: false, data: [] }),
+  useUploadDocument: () => ({ mutateAsync: jest.fn(), isPending: false }),
+  useWithdrawDocument: () => ({ mutateAsync: jest.fn(), isPending: false }),
+}));
 jest.mock("sonner", () => ({ toast: { success: jest.fn(), error: jest.fn() } }));
 jest.mock("@/lib/hooks/use-safety-tests", () => ({
   useSafetyTests: () => ({ isPending: false, data: records }),
@@ -133,6 +138,7 @@ const safetyRecord = (over: Partial<SafetyTestRecord> = {}): SafetyTestRecord =>
     supersedesId: null,
     correctionReason: null,
     correctedBy: null,
+    documents: 0,
     ...base,
     passed: evaluation.passed,
     checks: evaluation.checks,

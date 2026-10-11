@@ -8,6 +8,7 @@ import type { Prisma } from '@prisma/client';
 
 import type { AuthUser } from '../auth/auth-user';
 import { PrismaService } from '../database/prisma.service';
+import { documentCounts } from '../documents/documents.service';
 import {
   contractStatus,
   daysUntil,
@@ -66,9 +67,15 @@ type Row = Prisma.ServiceContractGetPayload<{ select: typeof CONTRACT_SELECT }>;
 const num = (v: Prisma.Decimal | number | null | undefined) =>
   v === null || v === undefined ? null : Number(v);
 
-function present({ renews, renewedBy, devices, ...row }: Row, now: Date) {
+function present(
+  { renews, renewedBy, devices, ...row }: Row,
+  now: Date,
+  documents = 0,
+) {
   return {
     ...row,
+    /** Files attached (not withdrawn), e.g. the signed contract. */
+    documents,
     annualValue: num(row.annualValue),
     uptimeGuaranteePercent: num(row.uptimeGuaranteePercent),
     devices: devices
@@ -125,8 +132,13 @@ export class ContractsService {
       select: CONTRACT_SELECT,
     });
     const now = new Date();
+    const files = await documentCounts(
+      this.prisma,
+      'contractId',
+      rows.map((r) => r.id),
+    );
     return rows
-      .map((r) => present(r, now))
+      .map((r) => present(r, now, files.get(r.id)))
       .filter((c) => matches(c, query.status ?? 'current'));
   }
 
@@ -163,7 +175,8 @@ export class ContractsService {
       history.push({ ...earlier, annualValue: num(earlier.annualValue) });
       previousId = renewsId;
     }
-    return { ...present(row, new Date()), history };
+    const files = await documentCounts(this.prisma, 'contractId', [row.id]);
+    return { ...present(row, new Date(), files.get(row.id)), history };
   }
 
   /** A device's warranty and every contract that has covered it, newest first. */
@@ -196,6 +209,11 @@ export class ContractsService {
       select: CONTRACT_SELECT,
     });
     const now = new Date();
+    const files = await documentCounts(
+      this.prisma,
+      'contractId',
+      rows.map((r) => r.id),
+    );
     const daysLeft = asset.warrantyEndDate
       ? daysUntil(asset.warrantyEndDate, now)
       : null;
@@ -207,7 +225,7 @@ export class ContractsService {
         daysLeft,
         active: daysLeft !== null && daysLeft >= 0,
       },
-      contracts: rows.map((r) => present(r, now)),
+      contracts: rows.map((r) => present(r, now, files.get(r.id))),
       /** AMC details typed on the device itself, from before contracts were records. */
       earlierAmc:
         asset.amcContractNumber || asset.amcEndDate
