@@ -15,6 +15,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { AdminModule } from './admin/admin.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { PmModule } from './pm/pm.module';
+import { CalibrationModule } from './calibration/calibration.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { requestIdMiddleware } from './common/request-id';
 import { AppController } from './app.controller';
@@ -34,6 +35,7 @@ import { AppService } from './app.service';
     NotificationsModule,
     DashboardModule,
     PmModule,
+    CalibrationModule,
   ],
   controllers: [AppController],
   providers: [

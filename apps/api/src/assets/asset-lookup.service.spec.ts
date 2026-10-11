@@ -66,4 +66,62 @@ describe('assetAlerts', () => {
     expect(alerts.map((a) => a.level)).toEqual(['stop', 'caution']);
     expect(alerts[1].message).toMatch(/overdue/);
   });
+
+  describe('calibration', () => {
+    const inProgramme = {
+      ...ok,
+      requiresCalibration: true,
+      nextCalibrationDue: new Date('2026-12-01'),
+      lastCalibrationResult: 'PASS' as const,
+    };
+
+    it('is quiet while calibration is in date', () => {
+      expect(assetAlerts(inProgramme, now)).toEqual([]);
+    });
+
+    it('cautions when calibration is overdue', () => {
+      const alerts = assetAlerts(
+        { ...inProgramme, nextCalibrationDue: new Date('2026-10-01') },
+        now,
+      );
+      expect(alerts).toEqual([
+        {
+          level: 'caution',
+          message:
+            'Calibration is overdue. Readings may be off; let biomedical engineering know.',
+        },
+      ]);
+    });
+
+    it('says nothing about devices outside the calibration programme', () => {
+      expect(
+        assetAlerts(
+          {
+            ...inProgramme,
+            requiresCalibration: false,
+            nextCalibrationDue: new Date('2026-10-01'),
+          },
+          now,
+        ),
+      ).toEqual([]);
+    });
+
+    it('stops use after a failed calibration, even if the status says active', () => {
+      const alerts = assetAlerts(
+        {
+          ...inProgramme,
+          lastCalibrationResult: 'FAIL',
+          nextCalibrationDue: new Date('2026-10-01'),
+        },
+        now,
+      );
+      expect(alerts).toEqual([
+        {
+          level: 'stop',
+          message:
+            'Failed its last calibration. Do not use until biomedical engineering recalibrates it.',
+        },
+      ]);
+    });
+  });
 });

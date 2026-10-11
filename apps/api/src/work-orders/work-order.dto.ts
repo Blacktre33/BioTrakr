@@ -12,8 +12,11 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+
+import { CalibrationInputDto } from '../calibration/calibration.dto';
 
 export class ReportProblemDto {
   @ApiProperty()
@@ -120,4 +123,13 @@ export class UpdateWorkOrderDto {
   @IsBoolean()
   @IsOptional()
   confirmSafe?: boolean;
+
+  @ApiPropertyOptional({
+    type: CalibrationInputDto,
+    description: 'Required to complete a calibration work order',
+  })
+  @ValidateNested()
+  @Type(() => CalibrationInputDto)
+  @IsOptional()
+  calibration?: CalibrationInputDto;
 }

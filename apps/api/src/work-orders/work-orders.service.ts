@@ -14,6 +14,10 @@ import { describeLocation, LOCATION_SELECT } from '../assets/location';
 import { recordPmCompleted } from '../assets/pm-dates';
 import type { AuthUser } from '../auth/auth-user';
 import { BIOMED_ROLES, normalizeRole } from '../auth/roles';
+import {
+  calibrationProblems,
+  recordCalibration,
+} from '../calibration/calibration';
 import { PrismaService } from '../database/prisma.service';
 import {
   deviceForNotice,
@@ -273,6 +277,27 @@ export class WorkOrdersService {
       }
       data.workOrderStatus = next;
 
+      const completing =
+        next === 'COMPLETED' && current.workOrderStatus !== 'COMPLETED';
+      const isCalibration = current.workOrderType === 'CALIBRATION';
+      if (dto.calibration && !(completing && isCalibration)) {
+        throw new BadRequestException(
+          'A calibration result can only be recorded when completing a calibration work order',
+        );
+      }
+      if (completing && isCalibration && !dto.calibration) {
+        throw new BadRequestException(
+          'Record the calibration result to complete a calibration work order',
+        );
+      }
+      // Checked before anything is written.
+      const calibrationIssues = dto.calibration
+        ? calibrationProblems(dto.calibration)
+        : [];
+      if (calibrationIssues.length) {
+        throw new BadRequestException(calibrationIssues);
+      }
+
       const note = dto.workPerformed?.trim();
       const now = new Date();
       if (next === 'IN_PROGRESS' && !current.startedAt) data.startedAt = now;
@@ -339,7 +364,17 @@ export class WorkOrdersService {
       }
 
       let released = false;
-      if (next === 'COMPLETED' && current.workOrderStatus !== 'COMPLETED') {
+      if (completing) {
+        // Before any release, so a failed calibration keeps the device out of use.
+        if (isCalibration) {
+          await recordCalibration(tx, {
+            assetId: current.assetId,
+            organizationId: user.organizationId,
+            input: dto.calibration!,
+            recordedById: user.userId,
+            workOrderId: id,
+          });
+        }
         if (current.workOrderType === 'PREVENTIVE_MAINTENANCE') {
           await recordPmCompleted(
             tx,

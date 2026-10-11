@@ -68,7 +68,7 @@ describe('PM schedule (e2e)', () => {
         workOrderType: 'PREVENTIVE_MAINTENANCE',
         workOrderStatus: 'PENDING',
         scheduledDate: ahead(5),
-        pmDueDate: ahead(5),
+        dueDate: ahead(5),
         createdByUserId: null,
         description: `Preventive maintenance due ${formatDay(ahead(5))}\nProcedure: SOP-12`,
       });
@@ -172,7 +172,7 @@ describe('PM schedule (e2e)', () => {
           assetId: assetId(3),
           workOrderType: 'PREVENTIVE_MAINTENANCE',
           scheduledDate: ahead(30),
-          pmDueDate: null,
+          dueDate: null,
           createdByUserId: 'user-technician',
         },
       );
