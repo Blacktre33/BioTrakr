@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { AlertOctagon, AlertTriangle, CheckCircle2, Flag, Gauge, MapPin, Wrench } from "lucide-react";
+import { AlertOctagon, AlertTriangle, CheckCircle2, Flag, Gauge, MapPin, Wrench, Zap } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button, Input, Label } from "@/components/ui";
@@ -165,6 +165,27 @@ export function AssetBedsideCard({ asset, scannedCode, role }: AssetBedsideCardP
                   ? "Failed, out of use"
                   : asset.calibration.nextCalibrationDue
                     ? `${asset.calibration.overdue ? "Overdue since" : "Due"} ${formatDate(asset.calibration.nextCalibrationDue)}`
+                    : "Not scheduled"}
+              </dd>
+            </div>
+          </div>
+        )}
+        {asset.safetyTest && (
+          <div className="flex gap-2">
+            <Zap className="mt-1 h-4 w-4 text-gray-500" aria-hidden="true" />
+            <div>
+              <dt className="text-xs uppercase tracking-wide text-gray-500">Electrical safety</dt>
+              <dd
+                className={cn(
+                  asset.safetyTest.lastPassed === false || asset.safetyTest.overdue
+                    ? "font-semibold text-critical-500"
+                    : "text-gray-100",
+                )}
+              >
+                {asset.safetyTest.lastPassed === false
+                  ? "Failed, out of use"
+                  : asset.safetyTest.nextTestDue
+                    ? `${asset.safetyTest.overdue ? "Overdue since" : "Due"} ${formatDate(asset.safetyTest.nextTestDue)}`
                     : "Not scheduled"}
               </dd>
             </div>

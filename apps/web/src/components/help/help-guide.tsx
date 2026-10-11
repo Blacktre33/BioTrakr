@@ -7,6 +7,7 @@ import {
   ArrowRight,
   CalendarClock,
   ExternalLink,
+  Gauge,
   LifeBuoy,
   ScanLine,
   Server,
@@ -51,6 +52,12 @@ const tasks: Task[] = [
     href: '/maintenance/schedule',
     icon: CalendarClock,
     body: 'For biomed: preventive maintenance that is due, done and overdue.',
+  },
+  {
+    title: 'Calibration and safety tests',
+    href: '/maintenance',
+    icon: Gauge,
+    body: 'For biomed: the schedule opens calibration and electrical safety (IS/IEC 62353) work orders before they fall due. Completing one records the certificate or readings, and a failure takes the device out of use. Earlier records are on each device page.',
   },
 ];
 

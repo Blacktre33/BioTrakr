@@ -14,6 +14,13 @@ import {
 } from "@/components/calibration/calibration-fields";
 import { ERROR_BORDER, Field, SELECT_CLASS, describedBy } from "@/components/forms/form-field";
 import {
+  SafetyTestFields,
+  emptySafetyTest,
+  expectedResult,
+  safetyTestErrors,
+  toSafetyTestInput,
+} from "@/components/safety-tests/safety-test-fields";
+import {
   Badge,
   Button,
   Dialog,
@@ -33,6 +40,8 @@ import { cn, formatDate, formatRelativeTime } from "@/lib/utils";
 const PAGE_SIZE = 25;
 const OUT_OF_USE = ["QUARANTINED", "IN_MAINTENANCE", "CONDEMNED", "RETIRED", "DISPOSED"];
 const RELEASABLE = ["QUARANTINED", "IN_MAINTENANCE"];
+/** Work the schedule opens by itself. */
+const SCHEDULED = ["PREVENTIVE_MAINTENANCE", "CALIBRATION", "ELECTRICAL_SAFETY_TEST"];
 const FAILURE_CATEGORIES = [
   "ELECTRICAL",
   "MECHANICAL",
@@ -90,7 +99,14 @@ function CloseDialog({
   const [calibration, setCalibration] = useState(emptyCalibration);
   const calibrationInvalid = calibrating && Object.keys(calibrationErrors(calibration)).length > 0;
   const failedCalibration = calibrating && calibration.result === "FAIL";
-  const canRelease = mode === "complete" && RELEASABLE.includes(order.asset.assetStatus) && !failedCalibration;
+  // Likewise an electrical safety test records the readings.
+  const testing = mode === "complete" && order.workOrderType === "ELECTRICAL_SAFETY_TEST";
+  const [safetyTest, setSafetyTest] = useState(() => emptySafetyTest(order.asset));
+  const safetyTestInvalid = testing && Object.keys(safetyTestErrors(safetyTest)).length > 0;
+  const failedSafetyTest = testing && expectedResult(safetyTest)?.passed === false;
+  const recording = calibrating || testing;
+  const canRelease =
+    mode === "complete" && RELEASABLE.includes(order.asset.assetStatus) && !failedCalibration && !failedSafetyTest;
 
   const noteError = submitted && note.trim().length < 5 ? (mode === "complete" ? "Say what was done" : "Say why") : undefined;
   const safeError = submitted && release && !confirmSafe ? "Confirm the device is safe before releasing it" : undefined;
@@ -99,7 +115,7 @@ function CloseDialog({
     e.preventDefault();
     setSubmitted(true);
     setServerError(undefined);
-    if (note.trim().length < 5 || (release && !confirmSafe) || calibrationInvalid) return;
+    if (note.trim().length < 5 || (release && !confirmSafe) || calibrationInvalid || safetyTestInvalid) return;
     try {
       const result = await mutation.mutateAsync({
         id: order.id,
@@ -110,6 +126,7 @@ function CloseDialog({
           ...(failureCategory ? { failureCategory } : {}),
           ...(release && canRelease ? { releaseDevice: true, confirmSafe: true } : {}),
           ...(calibrating ? { calibration: toCalibrationInput(calibration) } : {}),
+          ...(testing ? { safetyTest: toSafetyTestInput(safetyTest) } : {}),
         },
       });
       toast.success(
@@ -119,7 +136,9 @@ function CloseDialog({
             ? `Completed. ${order.asset.equipmentName} is back in use.`
             : failedCalibration
               ? `Calibration recorded as failed. ${order.asset.equipmentName} is out of use.`
-              : "Work order completed",
+              : failedSafetyTest
+                ? `Safety test recorded as failed. ${order.asset.equipmentName} is out of use.`
+                : "Work order completed",
       );
       onClose();
     } catch (err) {
@@ -129,10 +148,16 @@ function CloseDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className={cn("max-w-lg", calibrating && "max-h-[90vh] max-w-2xl overflow-y-auto")}>
+      <DialogContent className={cn("max-w-lg", recording && "max-h-[90vh] max-w-2xl overflow-y-auto")}>
         <DialogHeader>
           <DialogTitle>
-            {calibrating ? "Record calibration" : mode === "complete" ? "Complete work order" : "Cancel work order"}
+            {calibrating
+              ? "Record calibration"
+              : testing
+                ? "Record electrical safety test"
+                : mode === "complete"
+                  ? "Complete work order"
+                  : "Cancel work order"}
           </DialogTitle>
           <DialogDescription>
             {order.asset.equipmentName} ({order.asset.assetTagNumber})
@@ -151,7 +176,8 @@ function CloseDialog({
             />
           </Field>
           {calibrating && <CalibrationFields values={calibration} onChange={setCalibration} showErrors={submitted} idPrefix="wo-cal" />}
-          {mode === "complete" && !calibrating && (
+          {testing && <SafetyTestFields values={safetyTest} onChange={setSafetyTest} showErrors={submitted} idPrefix="wo-est" />}
+          {mode === "complete" && !recording && (
             <Field field="wo-failure" label="Cause (optional)">
               <select
                 {...describedBy("wo-failure")}
@@ -277,8 +303,8 @@ function WorkOrderCard({ order, technicians }: { order: WorkOrder; technicians: 
       <p className="mt-2 text-xs text-gray-500">
         {order.reportedBy
           ? `Reported by ${order.reportedBy}`
-          : order.workOrderType === "PREVENTIVE_MAINTENANCE"
-            ? "Opened by the PM schedule"
+          : SCHEDULED.includes(order.workOrderType)
+            ? "Opened by the maintenance schedule"
             : "Reporter unknown"}
         {order.assignedTo ? ` · Assigned to ${order.assignedTo.name}` : " · Not assigned"}
         {order.completedAt ? ` · Closed ${formatDate(order.completedAt, "MMM d, HH:mm")}` : ""}

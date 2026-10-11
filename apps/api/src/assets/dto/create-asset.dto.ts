@@ -14,9 +14,11 @@ import {
   Min,
 } from 'class-validator';
 import {
+  AppliedPartType,
   AssetStatus,
   DeviceCategory,
   CriticalityLevel,
+  ElectricalClass,
   RiskClassification,
 } from '@prisma/client';
 
@@ -283,6 +285,48 @@ export class CreateAssetDto {
   @IsDateString()
   @IsOptional()
   nextCalibrationDue?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'The device needs periodic electrical safety tests (IS/IEC 62353); the schedule opens test work orders',
+  })
+  @IsBoolean()
+  @IsOptional()
+  requiresSafetyTest?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Days between electrical safety tests (default 365)',
+    example: 365,
+  })
+  @IsInt()
+  @Min(1)
+  @Max(3650)
+  @IsOptional()
+  safetyTestFrequencyDays?: number;
+
+  @ApiPropertyOptional({
+    description:
+      'When the next electrical safety test is due (from the last test sticker). Without it, a device that needs testing is due now.',
+  })
+  @IsDateString()
+  @IsOptional()
+  nextSafetyInspectionDue?: string;
+
+  @ApiPropertyOptional({
+    enum: ElectricalClass,
+    description: 'Protection class, from the rating plate',
+  })
+  @IsEnum(ElectricalClass)
+  @IsOptional()
+  electricalClass?: ElectricalClass;
+
+  @ApiPropertyOptional({
+    enum: AppliedPartType,
+    description: 'Type of the parts that touch the patient (B, BF or CF)',
+  })
+  @IsEnum(AppliedPartType)
+  @IsOptional()
+  appliedPartType?: AppliedPartType;
 }
 
 /**
@@ -387,6 +431,42 @@ export class UpdateAssetDto {
   @IsDateString()
   @IsOptional()
   nextCalibrationDue?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'The device needs periodic electrical safety tests. Turning it on with no due date makes a test due now.',
+  })
+  @IsBoolean()
+  @IsOptional()
+  requiresSafetyTest?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Days between electrical safety tests; applies from the next test',
+    example: 365,
+  })
+  @IsInt()
+  @Min(1)
+  @Max(3650)
+  @IsOptional()
+  safetyTestFrequencyDays?: number;
+
+  @ApiPropertyOptional({
+    description: 'When the next electrical safety test is due',
+  })
+  @IsDateString()
+  @IsOptional()
+  nextSafetyInspectionDue?: string;
+
+  @ApiPropertyOptional({ enum: ElectricalClass })
+  @IsEnum(ElectricalClass)
+  @IsOptional()
+  electricalClass?: ElectricalClass;
+
+  @ApiPropertyOptional({ enum: AppliedPartType })
+  @IsEnum(AppliedPartType)
+  @IsOptional()
+  appliedPartType?: AppliedPartType;
 
   @ApiPropertyOptional({ description: 'Useful Life in Years', example: 10 })
   @IsInt()

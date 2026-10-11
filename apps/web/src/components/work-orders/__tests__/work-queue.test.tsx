@@ -154,4 +154,99 @@ describe("WorkQueue", () => {
       expect(screen.getByLabelText(/What was out of tolerance/)).toBeInTheDocument();
     });
   });
+
+  describe("an electrical safety test work order", () => {
+    const testOrder: WorkOrder = {
+      ...base,
+      id: "wo-est",
+      workOrderType: "ELECTRICAL_SAFETY_TEST",
+      workOrderStatus: "IN_PROGRESS",
+      isEmergency: false,
+      description: "Electrical safety test (IS/IEC 62353) due 2026-10-20",
+      reportedBy: null,
+      asset: {
+        ...base.asset,
+        equipmentName: "Patient monitor",
+        assetStatus: "QUARANTINED",
+        electricalClass: "CLASS_I",
+        appliedPartType: "CF",
+      },
+    };
+
+    it("says the schedule opened it", () => {
+      items = [testOrder];
+      render(<WorkQueue />);
+      expect(screen.getByText(/Opened by the maintenance schedule/)).toBeInTheDocument();
+    });
+
+    it("asks for the readings the device's class calls for, showing each limit", async () => {
+      const user = userEvent.setup();
+      items = [testOrder];
+      render(<WorkQueue />);
+      await user.click(screen.getByRole("button", { name: "Complete…" }));
+      expect(screen.getByRole("heading", { name: "Record electrical safety test" })).toBeInTheDocument();
+      // Prefilled from the device: CF parts, so the 50 µA patient limit.
+      expect(screen.getByRole("combobox", { name: /^Applied parts/ })).toHaveValue("CF");
+      expect(screen.getByText("At most 50 µA")).toBeInTheDocument();
+      expect(screen.getByText("At most 0.3 Ω")).toBeInTheDocument();
+
+      await user.type(screen.getByLabelText(/what was done/i), "Tested with the Rigel 288+");
+      await user.click(screen.getByRole("button", { name: "Complete" }));
+      expect(mutateAsync).not.toHaveBeenCalled();
+      expect(screen.getByText("Say which safety analyser was used")).toBeInTheDocument();
+      expect(screen.getByText("Say whether the visual inspection passed")).toBeInTheDocument();
+      expect(screen.getByText("Enter the protective earth resistance")).toBeInTheDocument();
+
+      await user.type(screen.getByLabelText(/Safety analyser used/), "Rigel 288+, SN 12345");
+      const [visual, functional] = screen.getAllByRole("group");
+      await user.click(within(visual).getByRole("radio", { name: "Passed" }));
+      await user.click(within(functional).getByRole("radio", { name: "Passed" }));
+      await user.type(screen.getByLabelText(/^Protective earth resistance/), "0.12");
+      await user.type(screen.getByLabelText(/^Equipment leakage/), "80");
+      await user.type(screen.getByLabelText(/^Applied part leakage/), "12");
+      expect(screen.getByText("Passes IS/IEC 62353.")).toBeInTheDocument();
+
+      await user.click(screen.getByRole("checkbox", { name: /put the device back into use/i }));
+      await user.click(screen.getByRole("checkbox", { name: /safe to use on patients/i }));
+      await user.click(screen.getByRole("button", { name: "Complete" }));
+      expect(mutateAsync).toHaveBeenCalledWith({
+        id: "wo-est",
+        body: {
+          expectedStatus: "IN_PROGRESS",
+          status: "COMPLETED",
+          workPerformed: "Tested with the Rigel 288+",
+          releaseDevice: true,
+          confirmSafe: true,
+          safetyTest: expect.objectContaining({
+            analyzer: "Rigel 288+, SN 12345",
+            electricalClass: "CLASS_I",
+            appliedPartType: "CF",
+            visualInspectionPassed: true,
+            functionalTestPassed: true,
+            earthResistanceOhm: 0.12,
+            equipmentLeakageUa: 80,
+            appliedPartLeakageUa: 12,
+          }),
+        },
+      });
+      // Pass or fail is the API's to decide.
+      expect(mutateAsync.mock.calls[0][0].body.safetyTest).not.toHaveProperty("passed");
+    });
+
+    it("shows a failing reading at once and does not offer release", async () => {
+      const user = userEvent.setup();
+      items = [testOrder];
+      render(<WorkQueue />);
+      await user.click(screen.getByRole("button", { name: "Complete…" }));
+      expect(screen.getByRole("checkbox", { name: /put the device back into use/i })).toBeInTheDocument();
+
+      await user.type(screen.getByLabelText(/^Applied part leakage/), "75");
+      expect(screen.getByText("Fail")).toBeInTheDocument();
+      expect(screen.queryByRole("checkbox", { name: /put the device back into use/i })).not.toBeInTheDocument();
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "Applied part leakage current 75 µA is above the 50 µA limit",
+      );
+      expect(screen.getByRole("status")).toHaveTextContent(/taken out of use/);
+    });
+  });
 });

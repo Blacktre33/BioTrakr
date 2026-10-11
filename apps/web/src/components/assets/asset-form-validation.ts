@@ -1,4 +1,5 @@
 import type { CreateAssetPayload } from "@/lib/api/assets";
+import type { AppliedPartType, ElectricalClass } from "@/lib/iec62353";
 import type { AssetFormReference } from "@/lib/api/reference";
 
 /** Everything the asset form holds, as the strings the inputs produce. */
@@ -24,6 +25,13 @@ export interface AssetFormValues {
   requiresCalibration: string;
   calibrationFrequencyDays: string;
   nextCalibrationDue: string;
+  /** "yes" when the device needs periodic electrical safety tests. */
+  requiresSafetyTest: string;
+  safetyTestFrequencyDays: string;
+  nextSafetyInspectionDue: string;
+  /** "" when not known yet. */
+  electricalClass: string;
+  appliedPartType: string;
   amcContractNumber: string;
   amcStartDate: string;
   amcEndDate: string;
@@ -65,6 +73,11 @@ export const EMPTY_ASSET_FORM: AssetFormValues = {
   requiresCalibration: "",
   calibrationFrequencyDays: "365",
   nextCalibrationDue: "",
+  requiresSafetyTest: "",
+  safetyTestFrequencyDays: "365",
+  nextSafetyInspectionDue: "",
+  electricalClass: "",
+  appliedPartType: "",
   amcContractNumber: "",
   amcStartDate: "",
   amcEndDate: "",
@@ -193,6 +206,16 @@ export function validateAssetForm(
     }
   }
 
+  if (values.requiresSafetyTest === "yes") {
+    const days = parseNumber(values.safetyTestFrequencyDays);
+    if (days !== null && (Number.isNaN(days) || !Number.isInteger(days) || days < 1 || days > 3650)) {
+      errors.safetyTestFrequencyDays = "Whole number of days, 1 to 3650";
+    }
+    if (values.nextSafetyInspectionDue && !isValidDate(values.nextSafetyInspectionDue)) {
+      errors.nextSafetyInspectionDue = "Enter a valid date";
+    }
+  }
+
   for (const field of ["amcYearsPaid", "cmcYearsPaid"] as const) {
     const n = parseNumber(values[field]);
     if (n !== null && (Number.isNaN(n) || !Number.isInteger(n) || n < 0)) {
@@ -268,6 +291,15 @@ export function toCreateAssetPayload(values: AssetFormValues): CreateAssetPayloa
           nextCalibrationDue: text(values.nextCalibrationDue),
         }
       : {}),
+    ...(values.requiresSafetyTest === "yes"
+      ? {
+          requiresSafetyTest: true,
+          safetyTestFrequencyDays: num(values.safetyTestFrequencyDays),
+          nextSafetyInspectionDue: text(values.nextSafetyInspectionDue),
+        }
+      : {}),
+    electricalClass: (values.electricalClass || undefined) as ElectricalClass | undefined,
+    appliedPartType: (values.appliedPartType || undefined) as AppliedPartType | undefined,
     currentFacilityId: values.currentFacilityId,
     custodianDepartmentId: values.custodianDepartmentId,
     primaryCustodianId: values.primaryCustodianId,

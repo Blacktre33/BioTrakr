@@ -53,6 +53,9 @@ const asset: AssetLookup = {
   department: "ICU",
   pm: { lastPmDate: "2026-07-01T00:00:00Z", nextPmDueDate: "2099-01-01T00:00:00Z", overdue: false },
   calibration: null,
+  safetyTest: null,
+  electricalClass: null,
+  appliedPartType: null,
   recentMaintenance: [],
   recentScans: [],
   recentStatusChanges: [],
@@ -136,6 +139,39 @@ describe("AssetBedsideCard", () => {
           asset={{
             ...asset,
             calibration: { lastCalibrationDate: null, nextCalibrationDue: null, lastResult: "FAIL", overdue: false },
+          }}
+          scannedCode="VENT-7"
+          role="clinical_staff"
+        />,
+      ),
+    );
+    expect(screen.getByText("Failed, out of use")).toBeInTheDocument();
+  });
+
+  it("shows the electrical safety test only for devices in the programme", () => {
+    const { rerender } = render(wrap(<AssetBedsideCard asset={asset} scannedCode="VENT-7" role="clinical_staff" />));
+    expect(screen.queryByText("Electrical safety")).not.toBeInTheDocument();
+
+    rerender(
+      wrap(
+        <AssetBedsideCard
+          asset={{
+            ...asset,
+            safetyTest: { lastTestDate: null, nextTestDue: "2026-01-01T00:00:00Z", lastPassed: true, overdue: true },
+          }}
+          scannedCode="VENT-7"
+          role="clinical_staff"
+        />,
+      ),
+    );
+    expect(screen.getByText("Electrical safety").nextSibling).toHaveTextContent(/^Overdue since /);
+
+    rerender(
+      wrap(
+        <AssetBedsideCard
+          asset={{
+            ...asset,
+            safetyTest: { lastTestDate: null, nextTestDue: null, lastPassed: false, overdue: false },
           }}
           scannedCode="VENT-7"
           role="clinical_staff"

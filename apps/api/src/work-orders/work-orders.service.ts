@@ -27,6 +27,10 @@ import {
   notify,
   type Severity,
 } from '../notifications/notify';
+import {
+  recordSafetyTest,
+  safetyTestProblems,
+} from '../safety-tests/safety-test';
 import type {
   ListWorkOrdersQuery,
   ReportProblemDto,
@@ -74,6 +78,9 @@ const LIST_SELECT = {
       equipmentName: true,
       assetStatus: true,
       criticalityLevel: true,
+      // To fill in a safety test form.
+      electricalClass: true,
+      appliedPartType: true,
       ...LOCATION_SELECT,
     },
   },
@@ -98,6 +105,8 @@ function present(row: Row) {
       equipmentName: asset.equipmentName,
       assetStatus: asset.assetStatus,
       criticalityLevel: asset.criticalityLevel,
+      electricalClass: asset.electricalClass,
+      appliedPartType: asset.appliedPartType,
       location: describeLocation(asset),
     },
     reportedBy: fullName(createdBy),
@@ -290,12 +299,24 @@ export class WorkOrdersService {
           'Record the calibration result to complete a calibration work order',
         );
       }
+      const isSafetyTest = current.workOrderType === 'ELECTRICAL_SAFETY_TEST';
+      if (dto.safetyTest && !(completing && isSafetyTest)) {
+        throw new BadRequestException(
+          'Safety test readings can only be recorded when completing an electrical safety test work order',
+        );
+      }
+      if (completing && isSafetyTest && !dto.safetyTest) {
+        throw new BadRequestException(
+          'Record the safety test readings to complete an electrical safety test work order',
+        );
+      }
       // Checked before anything is written.
-      const calibrationIssues = dto.calibration
-        ? calibrationProblems(dto.calibration)
-        : [];
-      if (calibrationIssues.length) {
-        throw new BadRequestException(calibrationIssues);
+      const recordIssues = [
+        ...(dto.calibration ? calibrationProblems(dto.calibration) : []),
+        ...(dto.safetyTest ? safetyTestProblems(dto.safetyTest).problems : []),
+      ];
+      if (recordIssues.length) {
+        throw new BadRequestException(recordIssues);
       }
 
       const note = dto.workPerformed?.trim();
@@ -365,12 +386,21 @@ export class WorkOrdersService {
 
       let released = false;
       if (completing) {
-        // Before any release, so a failed calibration keeps the device out of use.
+        // Before any release, so a failed check keeps the device out of use.
         if (isCalibration) {
           await recordCalibration(tx, {
             assetId: current.assetId,
             organizationId: user.organizationId,
             input: dto.calibration!,
+            recordedById: user.userId,
+            workOrderId: id,
+          });
+        }
+        if (isSafetyTest) {
+          await recordSafetyTest(tx, {
+            assetId: current.assetId,
+            organizationId: user.organizationId,
+            input: dto.safetyTest!,
             recordedById: user.userId,
             workOrderId: id,
           });

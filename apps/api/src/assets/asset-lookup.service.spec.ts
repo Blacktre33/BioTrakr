@@ -124,4 +124,70 @@ describe('assetAlerts', () => {
       ]);
     });
   });
+
+  describe('electrical safety tests', () => {
+    const inProgramme = {
+      ...ok,
+      requiresSafetyTest: true,
+      nextSafetyInspectionDue: new Date('2026-12-01'),
+      lastSafetyTestPassed: true,
+    };
+
+    it('is quiet while the test is in date', () => {
+      expect(assetAlerts(inProgramme, now)).toEqual([]);
+    });
+
+    it('cautions when the test is overdue', () => {
+      expect(
+        assetAlerts(
+          { ...inProgramme, nextSafetyInspectionDue: new Date('2026-10-01') },
+          now,
+        ),
+      ).toEqual([
+        {
+          level: 'caution',
+          message:
+            'Electrical safety test is overdue. Let biomedical engineering know.',
+        },
+      ]);
+    });
+
+    it('says nothing about devices outside the programme', () => {
+      expect(
+        assetAlerts(
+          {
+            ...inProgramme,
+            requiresSafetyTest: false,
+            nextSafetyInspectionDue: new Date('2026-10-01'),
+          },
+          now,
+        ),
+      ).toEqual([]);
+    });
+
+    it('stops use after a failed test, even if the status says active', () => {
+      expect(
+        assetAlerts(
+          {
+            ...inProgramme,
+            lastSafetyTestPassed: false,
+            nextSafetyInspectionDue: new Date('2026-10-01'),
+          },
+          now,
+        ),
+      ).toEqual([
+        {
+          level: 'stop',
+          message:
+            'Failed its last electrical safety test. Do not use until biomedical engineering retests it.',
+        },
+      ]);
+    });
+
+    it('has nothing to say before the first test is recorded', () => {
+      expect(
+        assetAlerts({ ...inProgramme, lastSafetyTestPassed: null }, now),
+      ).toEqual([]);
+    });
+  });
 });

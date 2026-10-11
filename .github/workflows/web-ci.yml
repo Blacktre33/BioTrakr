@@ -5,11 +5,14 @@ on:
     paths:
       - 'apps/web/**'
       - 'packages/**'
+      # The web tests check the form's IEC 62353 limits against this file.
+      - 'apps/api/src/safety-tests/iec62353.ts'
       - '.github/workflows/web-ci.yml'
   pull_request:
     paths:
       - 'apps/web/**'
       - 'packages/**'
+      - 'apps/api/src/safety-tests/iec62353.ts'
 
 jobs:
   test:

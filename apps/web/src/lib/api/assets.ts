@@ -1,3 +1,4 @@
+import type { AppliedPartType, ElectricalClass } from "../iec62353";
 import type { CalibrationResult } from "./calibration";
 import { api } from "./client";
 
@@ -165,6 +166,13 @@ export interface Asset {
   lastCalibrationDate?: string | null;
   nextCalibrationDue?: string | null;
   lastCalibrationResult?: CalibrationResult | null;
+  requiresSafetyTest?: boolean;
+  safetyTestFrequencyDays?: number | null;
+  lastSafetyInspectionDate?: string | null;
+  nextSafetyInspectionDue?: string | null;
+  lastSafetyTestPassed?: boolean | null;
+  electricalClass?: ElectricalClass | null;
+  appliedPartType?: AppliedPartType | null;
   udiDeviceIdentifier?: string | null;
   notes?: string | null;
   currentFacility?: {
@@ -202,6 +210,12 @@ export interface CreateAssetPayload {
   calibrationFrequencyDays?: number;
   /** YYYY-MM-DD; without it, a device that needs calibration is due now. */
   nextCalibrationDue?: string;
+  requiresSafetyTest?: boolean;
+  safetyTestFrequencyDays?: number;
+  /** YYYY-MM-DD; without it, a device that needs safety testing is due now. */
+  nextSafetyInspectionDue?: string;
+  electricalClass?: ElectricalClass;
+  appliedPartType?: AppliedPartType;
   // organizationId comes from the signed-in user's token; never sent by the client.
   currentFacilityId: string;
   primaryCustodianId: string;
@@ -244,6 +258,12 @@ export interface UpdateAssetPayload {
   calibrationFrequencyDays?: number;
   /** YYYY-MM-DD */
   nextCalibrationDue?: string;
+  requiresSafetyTest?: boolean;
+  safetyTestFrequencyDays?: number;
+  /** YYYY-MM-DD */
+  nextSafetyInspectionDue?: string;
+  electricalClass?: ElectricalClass;
+  appliedPartType?: AppliedPartType;
   usefulLifeYears?: number;
   warrantyEndDate?: string;
   udiDeviceIdentifier?: string;
@@ -373,6 +393,15 @@ export interface AssetLookup {
     lastResult: CalibrationResult | null;
     overdue: boolean;
   } | null;
+  /** Null when the device is not in the electrical safety test programme. */
+  safetyTest: {
+    lastTestDate: string | null;
+    nextTestDue: string | null;
+    lastPassed: boolean | null;
+    overdue: boolean;
+  } | null;
+  electricalClass: ElectricalClass | null;
+  appliedPartType: AppliedPartType | null;
   recentMaintenance: Array<{
     id: string;
     workOrderType: string;

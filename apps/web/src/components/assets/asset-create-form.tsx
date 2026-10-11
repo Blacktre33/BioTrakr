@@ -8,6 +8,8 @@ import { useCreateAssetMutation } from "@/lib/hooks/use-assets";
 import { useAssetFormReference } from "@/lib/hooks/use-asset-form-reference";
 import { getSession } from "@/lib/auth/session";
 import type { FormOption } from "@/lib/api/reference";
+import { APPLIED_PART_LABEL, CLASS_LABEL } from "@/lib/api/safety-tests";
+import type { AppliedPartType, ElectricalClass } from "@/lib/iec62353";
 import {
   Button,
   Dialog,
@@ -410,7 +412,7 @@ export function AssetCreateForm({ open, onOpenChange, onAssetCreated }: AssetCre
             </div>
           </section>
 
-          <section className="space-y-4" aria-labelledby="calibration-heading">
+          <section className="space-y-4" aria-labelledby="asset-calibration-heading">
             <h3 id="asset-calibration-heading" className="text-sm font-semibold uppercase tracking-wide text-gray-400">
               Calibration
             </h3>
@@ -446,6 +448,65 @@ export function AssetCreateForm({ open, onOpenChange, onAssetCreated }: AssetCre
                   hint="From the current certificate or sticker. Empty: due now."
                 >
                   {textInput("nextCalibrationDue", "", { type: "date" })}
+                </Field>
+              </div>
+            )}
+          </section>
+
+          <section className="space-y-4" aria-labelledby="asset-safety-heading">
+            <h3 id="asset-safety-heading" className="text-sm font-semibold uppercase tracking-wide text-gray-400">
+              Electrical safety
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Field field="electricalClass" label="Protection class" hint="From the rating plate">
+                <select {...control("electricalClass")} className={SELECT_CLASS}>
+                  <option value="">Not known yet</option>
+                  {(Object.keys(CLASS_LABEL) as ElectricalClass[]).map((c) => (
+                    <option key={c} value={c}>
+                      {CLASS_LABEL[c]}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field field="appliedPartType" label="Applied parts" hint="The symbol by the patient connections">
+                <select {...control("appliedPartType")} className={SELECT_CLASS}>
+                  <option value="">Not known yet</option>
+                  {(Object.keys(APPLIED_PART_LABEL) as AppliedPartType[]).map((t) => (
+                    <option key={t} value={t}>
+                      {APPLIED_PART_LABEL[t]}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+            <label className="flex items-start gap-3 text-sm text-gray-100">
+              <input
+                type="checkbox"
+                id="requiresSafetyTest"
+                checked={values.requiresSafetyTest === "yes"}
+                onChange={(e) => setField("requiresSafetyTest", e.target.checked ? "yes" : "")}
+                className="mt-1"
+              />
+              <span>
+                Needs periodic electrical safety tests (IS/IEC 62353)
+                <span className="block text-xs text-gray-400">
+                  Mains-powered devices and anything connected to the patient: monitors, ECGs, defibrillators,
+                  electrosurgical units, infusion pumps.
+                </span>
+              </span>
+            </label>
+            {values.requiresSafetyTest === "yes" && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field field="safetyTestFrequencyDays" label="Test every (days)" error={errorFor("safetyTestFrequencyDays")}>
+                  {textInput("safetyTestFrequencyDays", "365", { type: "number", min: 1, max: 3650, step: 1, inputMode: "numeric" })}
+                </Field>
+                <Field
+                  field="nextSafetyInspectionDue"
+                  label="Next test due"
+                  error={errorFor("nextSafetyInspectionDue")}
+                  hint="From the last test sticker. Empty: due now."
+                >
+                  {textInput("nextSafetyInspectionDue", "", { type: "date" })}
                 </Field>
               </div>
             )}

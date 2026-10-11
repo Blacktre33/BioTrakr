@@ -4,7 +4,7 @@ import { useState } from "react";
 import type { Route } from "next";
 import Link from "next/link";
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { AlertOctagon, CalendarClock, CheckCircle2, Clock, Gauge, ShieldCheck, Wrench, type LucideIcon } from "lucide-react";
+import { AlertOctagon, CalendarClock, CheckCircle2, Clock, Gauge, ShieldCheck, Wrench, Zap, type LucideIcon } from "lucide-react";
 
 import { Header } from "@/components/layout";
 import { FacilityPicker } from "@/components/layout/facility-picker";
@@ -79,12 +79,54 @@ function Tile({
   );
 }
 
-function Tiles({ data }: { data: DashboardSummary }) {
-  const { devices, pm, calibration, workOrders, repairs } = data;
-  const compliance = pm.compliancePercent;
-  const calCompliance = calibration.compliancePercent;
+/** A recurring check (calibration, electrical safety): compliance, and what is failing or overdue. */
+function ProgrammeTile({
+  title,
+  figures: f,
+  programme,
+  icon,
+}: {
+  title: string;
+  figures: DashboardSummary["calibration"];
+  programme: string;
+  icon: LucideIcon;
+}) {
+  const compliance = f.compliancePercent;
   return (
-    <ul aria-label="Key figures" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
+    <Tile
+      title={title}
+      value={compliance === null ? "–" : `${compliance}%`}
+      detail={
+        f.failed > 0
+          ? `${plural(f.failed, "device")} failed, out of use · ${formatNumber(f.overdue)} overdue`
+          : f.overdue > 0
+            ? `${formatNumber(f.overdue)} overdue · ${formatNumber(f.dueSoon)} due in the next ${f.dueSoonDays} days`
+            : f.scheduled === 0
+              ? `No devices in the ${programme} programme`
+              : "In date"
+      }
+      href="/maintenance"
+      icon={icon}
+      tone={
+        f.failed > 0
+          ? "critical"
+          : compliance === null
+            ? "neutral"
+            : compliance >= 95
+              ? "good"
+              : compliance >= 80
+                ? "warning"
+                : "critical"
+      }
+    />
+  );
+}
+
+function Tiles({ data }: { data: DashboardSummary }) {
+  const { devices, pm, calibration, safetyTests, workOrders, repairs } = data;
+  const compliance = pm.compliancePercent;
+  return (
+    <ul aria-label="Key figures" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <Tile
         title="In use"
         value={formatNumber(devices.inUse)}
@@ -120,32 +162,8 @@ function Tiles({ data }: { data: DashboardSummary }) {
         icon={ShieldCheck}
         tone={compliance === null ? "neutral" : compliance >= 95 ? "good" : compliance >= 80 ? "warning" : "critical"}
       />
-      <Tile
-        title="Calibration"
-        value={calCompliance === null ? "–" : `${calCompliance}%`}
-        detail={
-          calibration.failed > 0
-            ? `${plural(calibration.failed, "device")} failed, out of use · ${formatNumber(calibration.overdue)} overdue`
-            : calibration.overdue > 0
-              ? `${formatNumber(calibration.overdue)} overdue · ${formatNumber(calibration.dueSoon)} due in the next ${calibration.dueSoonDays} days`
-              : calibration.scheduled === 0
-                ? "No devices in the calibration programme"
-                : "In date"
-        }
-        href="/maintenance"
-        icon={Gauge}
-        tone={
-          calibration.failed > 0
-            ? "critical"
-            : calCompliance === null
-              ? "neutral"
-              : calCompliance >= 95
-                ? "good"
-                : calCompliance >= 80
-                  ? "warning"
-                  : "critical"
-        }
-      />
+      <ProgrammeTile title="Calibration" figures={calibration} programme="calibration" icon={Gauge} />
+      <ProgrammeTile title="Electrical safety" figures={safetyTests} programme="electrical safety test" icon={Zap} />
       <Tile
         title="Open work orders"
         value={formatNumber(workOrders.open)}

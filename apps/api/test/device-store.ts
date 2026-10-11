@@ -1,7 +1,7 @@
 /**
- * In-memory Prisma for the dashboard, PM schedule and calibration specs:
- * assets, work orders, users, notices, status history and calibration
- * records, with the query features those services use (relation filters,
+ * In-memory Prisma for the dashboard, PM schedule, calibration and safety
+ * test specs: assets, work orders, users, notices, status history,
+ * calibration and safety test records, with the query features those services use (relation filters,
  * nested selects, groupBy, ordering, conditional updates).
  */
 import { ORG_A, ORG_B } from './helpers';
@@ -109,6 +109,9 @@ export function buildStore() {
   const statusChanges: Rec[] = [];
   const notifications: Rec[] = [];
   const calibrations: Rec[] = [];
+  const safetyTests: Rec[] = [];
+  /** Calibration and safety test records: their ids never collide. */
+  const records = () => [...calibrations, ...safetyTests];
   const users: Rec[] = [
     {
       id: 'user-admin',
@@ -171,9 +174,9 @@ export function buildStore() {
   function matches(row: Rec, where: Rec = {}): boolean {
     return Object.entries(where).every(([k, v]) => {
       if (v === undefined) return true;
-      // Calibration records: "supersededBy: null" means not corrected.
+      // Records: "supersededBy: null" means not corrected.
       if (k === 'supersededBy') {
-        const corrected = calibrations.some((c) => c.supersedesId === row.id);
+        const corrected = records().some((c) => c.supersedesId === row.id);
         return v === null ? !corrected : corrected;
       }
       if (k === 'AND') return (v as Rec[]).every((w) => matches(row, w));
@@ -189,7 +192,7 @@ export function buildStore() {
     row: Rec,
     key: string,
     args: Rec,
-    of: 'asset' | 'order' | 'calibration',
+    of: 'asset' | 'order' | 'record',
   ): unknown {
     if (of === 'asset') {
       if (key === 'currentFacility')
@@ -232,13 +235,13 @@ export function buildStore() {
         return u ? project(u, args.select, 'user') : null;
       }
     }
-    if (of === 'calibration') {
+    if (of === 'record') {
       if (key === 'recordedBy') {
         const u = users.find((x) => x.id === row.recordedById);
         return u ? project(u, args.select, 'user') : null;
       }
       if (key === 'supersededBy') {
-        const c = calibrations.find((x) => x.supersedesId === row.id);
+        const c = records().find((x) => x.supersedesId === row.id);
         return c ? { id: c.id } : null;
       }
     }
@@ -253,20 +256,20 @@ export function buildStore() {
       if (!want) continue;
       out[key] =
         want === true && !(key in row) && of !== 'change' && of !== 'user'
-          ? related(row, key, {}, of as 'asset' | 'order' | 'calibration')
+          ? related(row, key, {}, of as 'asset' | 'order' | 'record')
           : want === true
             ? row[key]
             : related(
                 row,
                 key,
                 want as Rec,
-                of as 'asset' | 'order' | 'calibration',
+                of as 'asset' | 'order' | 'record',
               );
     }
     return out;
   }
 
-  function finder(rows: Rec[], of: 'asset' | 'order' | 'calibration') {
+  function finder(rows: Rec[], of: 'asset' | 'order' | 'record') {
     const findMany = async ({ where, select, orderBy, take }: Rec = {}) =>
       sortBy(
         rows.filter((r) => matches(r, where)),
@@ -303,6 +306,36 @@ export function buildStore() {
     ...data,
   });
 
+  /**
+   * Records are never changed (a database trigger refuses), and a record is
+   * corrected at most once (the unique supersedesId).
+   */
+  function recordStore(rows: Rec[], table: string, idPrefix: string) {
+    return {
+      ...finder(rows, 'record'),
+      updateMany: jest.fn(async () => {
+        throw new Error(`${table} cannot be changed`);
+      }),
+      create: jest.fn(async ({ data }: Rec) => {
+        if (
+          data.supersedesId &&
+          rows.some((c) => c.supersedesId === data.supersedesId)
+        ) {
+          throw Object.assign(new Error('Unique constraint failed'), {
+            code: 'P2002',
+          });
+        }
+        const row = {
+          id: `${idPrefix}-0000-4000-8000-${String(rows.length + 1).padStart(12, '0')}`,
+          recordedAt: new Date(),
+          ...data,
+        };
+        rows.push(row);
+        return row;
+      }),
+    };
+  }
+
   const mock = {
     assets,
     orders,
@@ -310,6 +343,7 @@ export function buildStore() {
     notifications,
     users,
     calibrations,
+    safetyTests,
     asset: {
       ...finder(assets, 'asset'),
       groupBy: jest.fn(async ({ by, where }: Rec) => {
@@ -370,31 +404,16 @@ export function buildStore() {
         return row;
       }),
     },
-    calibrationRecord: {
-      ...finder(calibrations, 'calibration'),
-      // Records are never changed (a database trigger refuses).
-      updateMany: jest.fn(async () => {
-        throw new Error('calibration_records cannot be changed');
-      }),
-      // The unique supersedesId: a record is corrected at most once.
-      create: jest.fn(async ({ data }: Rec) => {
-        if (
-          data.supersedesId &&
-          calibrations.some((c) => c.supersedesId === data.supersedesId)
-        ) {
-          throw Object.assign(new Error('Unique constraint failed'), {
-            code: 'P2002',
-          });
-        }
-        const row = {
-          id: `cc000000-0000-4000-8000-${String(calibrations.length + 1).padStart(12, '0')}`,
-          recordedAt: new Date(),
-          ...data,
-        };
-        calibrations.push(row);
-        return row;
-      }),
-    },
+    calibrationRecord: recordStore(
+      calibrations,
+      'calibration_records',
+      'cc000000',
+    ),
+    safetyTestRecord: recordStore(
+      safetyTests,
+      'safety_test_records',
+      '5a000000',
+    ),
     notification: {
       createMany: jest.fn(async ({ data }: Rec) => {
         for (const row of data as Rec[]) {

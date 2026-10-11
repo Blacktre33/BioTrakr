@@ -75,7 +75,11 @@ export async function changeAssetStatus(
       organizationId: input.organizationId,
       deletedAt: null,
     },
-    select: { assetStatus: true, lastCalibrationResult: true },
+    select: {
+      assetStatus: true,
+      lastCalibrationResult: true,
+      lastSafetyTestPassed: true,
+    },
   });
   if (!asset) return { changed: false, reason: 'not_found' };
 
@@ -88,14 +92,17 @@ export async function changeAssetStatus(
   }
   // Every way back into use comes through here (work orders, the device
   // page, imports), so a failed calibration cannot be bypassed.
-  if (
-    isStopStatus(fromStatus) &&
-    !isStopStatus(input.toStatus) &&
-    asset.lastCalibrationResult === 'FAIL'
-  ) {
-    throw new BadRequestException(
-      'This device failed its last calibration. Record a passing calibration before putting it back into use.',
-    );
+  if (isStopStatus(fromStatus) && !isStopStatus(input.toStatus)) {
+    if (asset.lastCalibrationResult === 'FAIL') {
+      throw new BadRequestException(
+        'This device failed its last calibration. Record a passing calibration before putting it back into use.',
+      );
+    }
+    if (asset.lastSafetyTestPassed === false) {
+      throw new BadRequestException(
+        'This device failed its last electrical safety test. Record a passing test before putting it back into use.',
+      );
+    }
   }
 
   const { count } = await tx.asset.updateMany({
