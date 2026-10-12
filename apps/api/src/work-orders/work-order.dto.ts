@@ -18,6 +18,7 @@ import { Type } from 'class-transformer';
 
 import { CalibrationInputDto } from '../calibration/calibration.dto';
 import { SafetyTestInputDto } from '../safety-tests/safety-test.dto';
+import { PmChecklistInputDto } from '../pm/pm.dto';
 
 export class ReportProblemDto {
   @ApiProperty()
@@ -142,4 +143,13 @@ export class UpdateWorkOrderDto {
   @Type(() => SafetyTestInputDto)
   @IsOptional()
   safetyTest?: SafetyTestInputDto;
+
+  @ApiPropertyOptional({
+    type: PmChecklistInputDto,
+    description: 'Required to complete a preventive maintenance work order',
+  })
+  @ValidateNested()
+  @Type(() => PmChecklistInputDto)
+  @IsOptional()
+  checklist?: PmChecklistInputDto;
 }

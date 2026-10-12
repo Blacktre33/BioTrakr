@@ -2,11 +2,12 @@
 
 import { Suspense, useEffect, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { Building2, LogOut, UserCircle, Users } from 'lucide-react';
+import { Building2, ClipboardCheck, LogOut, UserCircle, Users } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Header } from '@/components/layout';
 import { ChangePasswordForm } from '@/components/settings/change-password-form';
+import { ChecklistsAdmin } from '@/components/settings/checklists-admin';
 import { LocationsAdmin } from '@/components/settings/locations-admin';
 import { PeopleAdmin } from '@/components/settings/people-admin';
 import { Button, Card } from '@/components/ui';
@@ -14,10 +15,12 @@ import { api, signOut } from '@/lib/api/client';
 import { getSession, ROLE_LABEL, type SessionUser } from '@/lib/auth/session';
 import { cn } from '@/lib/utils';
 
+/** Who sees each tab: everyone, or these roles (the API checks the same). */
 const TABS = [
-  { id: 'account', label: 'My account', icon: UserCircle, adminOnly: false },
-  { id: 'locations', label: 'Facilities & rooms', icon: Building2, adminOnly: true },
-  { id: 'people', label: 'People', icon: Users, adminOnly: true },
+  { id: 'account', label: 'My account', icon: UserCircle, roles: null },
+  { id: 'locations', label: 'Facilities & rooms', icon: Building2, roles: ['admin'] },
+  { id: 'people', label: 'People', icon: Users, roles: ['admin'] },
+  { id: 'checklists', label: 'PM checklists', icon: ClipboardCheck, roles: ['admin', 'engineer'] },
 ] as const;
 type TabId = (typeof TABS)[number]['id'];
 
@@ -91,8 +94,7 @@ function SettingsContent() {
   useEffect(() => setMe(getSession()?.user ?? null), []);
 
   if (!me) return null;
-  const isAdmin = me.role === 'admin';
-  const tabs = TABS.filter((t) => isAdmin || !t.adminOnly);
+  const tabs = TABS.filter((t) => !t.roles || (t.roles as readonly string[]).includes(me.role));
   const requested = searchParams.get('tab') as TabId | null;
   const active: TabId = tabs.some((t) => t.id === requested) ? requested! : 'account';
 
@@ -127,6 +129,7 @@ function SettingsContent() {
         {active === 'account' && <MyAccount me={me} />}
         {active === 'locations' && <LocationsAdmin />}
         {active === 'people' && <PeopleAdmin />}
+        {active === 'checklists' && <ChecklistsAdmin />}
       </div>
     </div>
   );

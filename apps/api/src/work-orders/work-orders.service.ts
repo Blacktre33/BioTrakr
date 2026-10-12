@@ -30,6 +30,7 @@ import {
   notify,
   type Severity,
 } from '../notifications/notify';
+import { checkPmChecklist, recordPmChecklist } from '../pm/pm-record';
 import {
   recordSafetyTest,
   safetyTestProblems,
@@ -331,7 +332,26 @@ export class WorkOrdersService {
           'Record the safety test readings to complete an electrical safety test work order',
         );
       }
+      const isPm = current.workOrderType === 'PREVENTIVE_MAINTENANCE';
+      if (dto.checklist && !(completing && isPm)) {
+        throw new BadRequestException(
+          'A PM checklist can only be recorded when completing a preventive maintenance work order',
+        );
+      }
+      if (completing && isPm && !dto.checklist) {
+        throw new BadRequestException(
+          'Fill in the PM checklist to complete a preventive maintenance work order',
+        );
+      }
       // Checked before anything is written.
+      const checklist = dto.checklist
+        ? await checkPmChecklist(tx, user.organizationId, dto.checklist)
+        : null;
+      if (checklist?.outcome === 'FAIL' && dto.releaseDevice) {
+        throw new BadRequestException(
+          'The device failed its PM: it stays out of use until the fault is repaired',
+        );
+      }
       const recordIssues = [
         ...(dto.calibration ? calibrationProblems(dto.calibration) : []),
         ...(dto.safetyTest ? safetyTestProblems(dto.safetyTest).problems : []),
@@ -415,6 +435,8 @@ export class WorkOrdersService {
       /** The calibration or safety test this completed, to attach its certificate to. */
       let record: { type: 'calibration' | 'safetyTest'; id: string } | null =
         null;
+      /** The PM checklist's outcome, when one was recorded. */
+      let pmOutcome: 'PASS' | 'FLAG' | 'FAIL' | null = null;
       if (completing) {
         // Before any release, so a failed check keeps the device out of use.
         if (isCalibration) {
@@ -434,6 +456,16 @@ export class WorkOrdersService {
             workOrderId: id,
           });
           record = { type: 'safetyTest', id: recordId };
+        }
+        if (checklist) {
+          const pm = await recordPmChecklist(tx, {
+            workOrderId: id,
+            assetId: current.assetId,
+            actor: actorOf(user),
+            input: dto.checklist!,
+            checked: checklist,
+          });
+          pmOutcome = pm.outcome;
         }
         if (current.workOrderType === 'PREVENTIVE_MAINTENANCE') {
           await recordPmCompleted(
@@ -478,7 +510,12 @@ export class WorkOrdersService {
         where: { id },
         select: LIST_SELECT,
       });
-      return { ...present(row!), deviceReleased: released, record };
+      return {
+        ...present(row!),
+        deviceReleased: released,
+        record,
+        pmOutcome,
+      };
     });
   }
 

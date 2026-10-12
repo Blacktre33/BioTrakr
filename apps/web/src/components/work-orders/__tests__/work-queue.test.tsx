@@ -15,6 +15,31 @@ jest.mock("@/lib/hooks/use-documents", () => ({
   useWithdrawDocument: () => ({ mutateAsync: jest.fn(), isPending: false }),
 }));
 jest.mock("sonner", () => ({ toast: { success: jest.fn(), error: jest.fn() } }));
+const monitorChecklist = {
+  key: "builtin:patient-monitor",
+  name: "Patient monitor",
+  keywords: ["monitor"],
+  builtIn: true,
+  active: true,
+  items: [
+    { key: "housing", text: "Housing intact", kind: "check" },
+    { key: "battery", text: "Battery runs the device", kind: "check" },
+    { key: "spo2", text: "SpO2 at 97%", kind: "reading", unit: "%", min: 95, max: 99 },
+  ],
+};
+jest.mock("@/lib/hooks/use-checklists", () => ({
+  useChecklists: () => ({
+    isPending: false,
+    isError: false,
+    data: {
+      suggested: "builtin:patient-monitor",
+      checklists: [
+        monitorChecklist,
+        { key: "builtin:general", name: "General electrical equipment", keywords: [], builtIn: true, active: true, items: [] },
+      ],
+    },
+  }),
+}));
 jest.mock("@/lib/auth/session", () => ({ getSession: () => ({ user: { id: "u-tech", role: "technician" } }) }));
 jest.mock("@/lib/hooks/use-work-orders", () => ({
   useWorkOrders: () => ({ isPending: false, isError: false, data: { total: items.length, items } }),
@@ -205,6 +230,75 @@ describe("WorkQueue", () => {
       expect(screen.queryByRole("checkbox", { name: /put the device back into use/i })).not.toBeInTheDocument();
       expect(screen.getByRole("status")).toHaveTextContent(/taken out of use/);
       expect(screen.getByLabelText(/What was out of tolerance/)).toBeInTheDocument();
+    });
+  });
+
+  describe("a preventive maintenance work order", () => {
+    const pmOrder: WorkOrder = {
+      ...base,
+      id: "wo-pm",
+      workOrderType: "PREVENTIVE_MAINTENANCE",
+      workOrderStatus: "IN_PROGRESS",
+      isEmergency: false,
+      description: "Preventive maintenance due 2026-10-20",
+      reportedBy: null,
+      asset: { ...base.asset, equipmentName: "Patient monitor", assetStatus: "ACTIVE" },
+    };
+
+    it("works through the checklist the device's name suggests, with its readings", async () => {
+      const user = userEvent.setup();
+      items = [pmOrder];
+      mutateAsync.mockResolvedValue({ deviceReleased: false, record: null, pmOutcome: "FLAG" });
+      render(<WorkQueue />);
+      await user.click(screen.getByRole("button", { name: "Complete…" }));
+      expect(screen.getByRole("heading", { name: "Complete preventive maintenance" })).toBeInTheDocument();
+      expect(screen.getByLabelText(/^Checklist/)).toHaveValue("builtin:patient-monitor");
+
+      await user.type(screen.getByLabelText(/what was done/i), "Quarterly PM");
+      await user.click(screen.getByRole("button", { name: "Complete" }));
+      expect(mutateAsync).not.toHaveBeenCalled();
+      expect(screen.getAllByText("Choose pass, flag, fail or not applicable")).toHaveLength(2);
+      expect(screen.getByText("Enter the reading")).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Mark the remaining checks as passed" }));
+      const battery = screen.getByRole("group", { name: "2. Battery runs the device" });
+      await user.click(within(battery).getByText("Flag"));
+      await user.type(within(battery).getByLabelText("What was found"), "Holds 40 min");
+      const spo2 = screen.getByRole("group", { name: "3. SpO2 at 97%" });
+      await user.type(within(spo2).getByLabelText("Reading in %"), "97");
+      expect(within(spo2).getByText("Pass")).toBeInTheDocument();
+      expect(screen.getByRole("status")).toHaveTextContent("1 item flagged");
+      await user.type(screen.getByLabelText(/Test equipment used/), "Fluke ProSim 8");
+      await user.click(screen.getByRole("button", { name: "Complete" }));
+      expect(mutateAsync).toHaveBeenCalledWith({
+        id: "wo-pm",
+        body: expect.objectContaining({
+          status: "COMPLETED",
+          checklist: {
+            checklistKey: "builtin:patient-monitor",
+            testEquipment: "Fluke ProSim 8",
+            items: [
+              { key: "housing", result: "PASS" },
+              { key: "battery", result: "FLAG", note: "Holds 40 min" },
+              { key: "spo2", reading: 97 },
+            ],
+          },
+        }),
+      });
+    });
+
+    it("says a reading out of its limits fails the PM, and never offers release", async () => {
+      const user = userEvent.setup();
+      items = [{ ...pmOrder, asset: { ...pmOrder.asset, assetStatus: "QUARANTINED" } }];
+      render(<WorkQueue />);
+      await user.click(screen.getByRole("button", { name: "Complete…" }));
+      expect(screen.getByRole("checkbox", { name: /put the device back into use/i })).toBeInTheDocument();
+      const spo2 = screen.getByRole("group", { name: "3. SpO2 at 97%" });
+      await user.type(within(spo2).getByLabelText("Reading in %"), "91");
+      expect(within(spo2).getByText("Fail")).toBeInTheDocument();
+      expect(within(spo2).getByLabelText("What was found")).toBeInTheDocument();
+      expect(screen.getByRole("status")).toHaveTextContent("This PM fails");
+      expect(screen.queryByRole("checkbox", { name: /put the device back into use/i })).not.toBeInTheDocument();
     });
   });
 

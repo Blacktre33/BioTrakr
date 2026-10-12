@@ -119,6 +119,9 @@ export function buildStore() {
   const withdrawals: Rec[] = [];
   /** The edit history, as the database's trigger would number it. */
   const auditEvents: Rec[] = [];
+  /** What each PM found, and the hospital's own checklists. */
+  const pmRecords: Rec[] = [];
+  const checklists: Rec[] = [];
   /** Calibration and safety test records: their ids never collide. */
   const records = () => [...calibrations, ...safetyTests];
   const users: Rec[] = [
@@ -251,6 +254,10 @@ export function buildStore() {
           .map((c) => project(c, args.select, 'change'));
     }
     if (of === 'order') {
+      if (key === 'pmChecklist') {
+        const r = pmRecords.find((x) => x.workOrderId === row.id);
+        return r ? project(r, args.select, 'pmRecord') : null;
+      }
       if (key === 'calibrationRecords' || key === 'safetyTestRecords')
         return (key === 'calibrationRecords' ? calibrations : safetyTests)
           .filter((r) => r.workOrderId === row.id && matches(r, args.where))
@@ -311,6 +318,10 @@ export function buildStore() {
         const w = withdrawals.find((x) => x.documentId === row.id);
         return w ? project(w, args.select, 'withdrawal') : null;
       }
+    }
+    if (of === 'pmRecord' && key === 'recordedBy') {
+      const u = users.find((x) => x.id === row.recordedById);
+      return u ? project(u, args.select, 'user') : null;
     }
     if (of === 'audit') {
       if (key === 'actor') {
@@ -531,6 +542,53 @@ export function buildStore() {
     organization: {
       findFirst: jest.fn(async () => ({ name: 'City General Hospital' })),
       findMany: jest.fn(async () => [{ id: ORG_A }, { id: ORG_B }]),
+    },
+    pmRecords,
+    checklists,
+    pmChecklistRecord: {
+      ...finder(pmRecords, 'pmRecord'),
+      // Written once; one per work order.
+      updateMany: jest.fn(async () => {
+        throw new Error('pm_checklist_records cannot be changed');
+      }),
+      create: jest.fn(async ({ data, select }: Rec) => {
+        if (pmRecords.some((r) => r.workOrderId === data.workOrderId)) {
+          throw Object.assign(new Error('Unique constraint failed'), {
+            code: 'P2002',
+          });
+        }
+        const row = {
+          id: `9c000000-0000-4000-8000-${String(pmRecords.length + 1).padStart(12, '0')}`,
+          recordedAt: new Date(),
+          ...data,
+        };
+        pmRecords.push(row);
+        return project(row, select, 'pmRecord');
+      }),
+    },
+    pmChecklistTemplate: {
+      ...finder(checklists, 'checklist'),
+      // Unique (organizationId, name).
+      create: jest.fn(async ({ data, select }: Rec) => {
+        if (
+          checklists.some(
+            (c) =>
+              c.organizationId === data.organizationId && c.name === data.name,
+          )
+        ) {
+          throw Object.assign(new Error('Unique constraint failed'), {
+            code: 'P2002',
+          });
+        }
+        const row = {
+          id: `9d000000-0000-4000-8000-${String(checklists.length + 1).padStart(12, '0')}`,
+          active: true,
+          updatedAt: new Date(),
+          ...data,
+        };
+        checklists.push(row);
+        return project(row, select, 'checklist');
+      }),
     },
     auditEvents,
     auditEvent: {

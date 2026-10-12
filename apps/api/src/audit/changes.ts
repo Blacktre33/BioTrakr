@@ -85,6 +85,10 @@ const LABELS: Record<string, string> = {
   phone: 'Phone',
   email: 'Email',
   address: 'Address',
+  // PM checklists
+  keywords: 'Picked by words in the name',
+  items: 'Items',
+  active: 'Offered',
   // People
   firstName: 'First name',
   lastName: 'Last name',
