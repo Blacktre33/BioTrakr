@@ -129,6 +129,10 @@ export function buildStore() {
   const checklists: Rec[] = [];
   /** Proposals to condemn a device, with the decision and disposal. */
   const condemnations: Rec[] = [];
+  /** Training sessions, the devices they covered and who attended. */
+  const trainingSessions: Rec[] = [];
+  const trainingDevices: Rec[] = [];
+  const trainingAttendees: Rec[] = [];
   /** Calibration and safety test records: their ids never collide. */
   const records = () => [...calibrations, ...safetyTests];
   const users: Rec[] = [
@@ -188,9 +192,12 @@ export function buildStore() {
   const relations: Record<string, (row: Rec, where: Rec) => boolean> = {
     contract: (row, where) =>
       matches(contracts.find((c) => c.id === row.contractId)!, where),
+    // A contract's devices, or a training session's.
     devices: (row, where) =>
       anyOf(
-        contractAssets.filter((ca) => ca.contractId === row.id),
+        'heldOn' in row
+          ? trainingDevices.filter((d) => d.sessionId === row.id)
+          : contractAssets.filter((ca) => ca.contractId === row.id),
         where,
       ),
     serviceContracts: (row, where) =>
@@ -331,6 +338,31 @@ export function buildStore() {
         return w ? project(w, args.select, 'withdrawal') : null;
       }
     }
+    if (of === 'training') {
+      if (key === 'devices')
+        return trainingDevices
+          .filter((d) => d.sessionId === row.id)
+          .map((d) => project(d, args.select, 'trainingDevice'));
+      if (key === 'attendees')
+        return sortBy(
+          trainingAttendees.filter((a) => a.sessionId === row.id),
+          args.orderBy,
+        ).map((a) => project(a, args.select, 'attendee'));
+      if (key === 'recordedBy') {
+        const u = users.find((x) => x.id === row.recordedById);
+        return project(
+          u ?? { firstName: 'Someone', lastName: '' },
+          args.select,
+          'user',
+        );
+      }
+    }
+    if (of === 'trainingDevice' && key === 'asset')
+      return project(
+        assets.find((a) => a.id === row.assetId)!,
+        args.select,
+        'asset',
+      );
     if (of === 'change' && key === 'changedBy') {
       const u = users.find((x) => x.id === row.changedById);
       return u ? project(u, args.select, 'user') : null;
@@ -627,6 +659,50 @@ export function buildStore() {
         return project(row, select, 'checklist');
       }),
     },
+    trainingSessions,
+    trainingDevices,
+    trainingAttendees,
+    trainingSession: {
+      ...finder(trainingSessions, 'training'),
+      create: jest.fn(async ({ data, select }: Rec) => {
+        const row = {
+          id: `7a000000-0000-4000-8000-${String(trainingSessions.length + 1).padStart(12, '0')}`,
+          recordedAt: new Date(),
+          updatedAt: new Date(),
+          ...data,
+        };
+        trainingSessions.push(row);
+        return project(row, select, 'training');
+      }),
+    },
+    trainingSessionDevice: {
+      createMany: jest.fn(async ({ data }: Rec) => {
+        for (const d of data as Rec[]) trainingDevices.push({ ...d });
+        return { count: data.length };
+      }),
+      deleteMany: jest.fn(async ({ where }: Rec) => {
+        const gone = trainingDevices.filter((r) => matches(r, where));
+        for (const r of gone)
+          trainingDevices.splice(trainingDevices.indexOf(r), 1);
+        return { count: gone.length };
+      }),
+    },
+    trainingAttendee: {
+      createMany: jest.fn(async ({ data }: Rec) => {
+        for (const d of data as Rec[])
+          trainingAttendees.push({
+            id: `att-${trainingAttendees.length + 1}`,
+            ...d,
+          });
+        return { count: data.length };
+      }),
+      deleteMany: jest.fn(async ({ where }: Rec) => {
+        const gone = trainingAttendees.filter((r) => matches(r, where));
+        for (const r of gone)
+          trainingAttendees.splice(trainingAttendees.indexOf(r), 1);
+        return { count: gone.length };
+      }),
+    },
     condemnations,
     condemnation: {
       ...finder(condemnations, 'condemnation'),
@@ -809,6 +885,7 @@ export function buildStore() {
           contractId: null,
           workOrderId: null,
           condemnationId: null,
+          trainingSessionId: null,
           uploadedAt: new Date(),
           ...data,
         };

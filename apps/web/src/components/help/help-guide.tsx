@@ -9,6 +9,7 @@ import {
   CalendarClock,
   ClipboardCheck,
   ClipboardList,
+  GraduationCap,
   ExternalLink,
   FileText,
   Gauge,
@@ -81,13 +82,19 @@ const tasks: Task[] = [
     title: 'Registers for NABH',
     href: '/registers',
     icon: ClipboardList,
-    body: "For biomed and auditors: the inventory master, annual survey and device logbook in the NHSRC formats; each device's history card; the year's maintenance plan, month by month; and the calibration, electrical safety, PM, breakdown, AMC/CMC and condemnation registers. Print on A4 with a sign-off, or download for Excel.",
+    body: "For biomed and auditors: the inventory master, annual survey and device logbook in the NHSRC formats; each device's history card; the year's maintenance plan, month by month; and the calibration, electrical safety, PM, breakdown, AMC/CMC, condemnation and training registers. Print on A4 with a sign-off, or download for Excel.",
   },
   {
     title: 'Uptime and repair limits',
     href: '/registers?kind=uptime',
     icon: Timer,
     body: 'For biomed: each breakdown shows how long it has waited against its limit (72 hours for critical and life-saving equipment, 7 days for the rest), and you are warned before it runs out. The uptime register shows each device’s time out of use, breakdowns and repair times for any period.',
+  },
+  {
+    title: 'Record training',
+    href: '/training',
+    icon: GraduationCap,
+    body: 'For biomed engineers: record each training session on equipment (operators, biomed, refreshers, new staff) with the trainer, the devices covered and who attended, as on the attendance sheet, and how each was assessed. Attach the signed sheet. Each device page shows its training, and the training register prints it for NABH.',
   },
   {
     title: 'Condemn a device',

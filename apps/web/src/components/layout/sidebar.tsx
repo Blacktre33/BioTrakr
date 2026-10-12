@@ -20,6 +20,7 @@ import {
   ScanLine,
   FileText,
   ClipboardList,
+  GraduationCap,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -71,6 +72,14 @@ const navigationItems: NavItem[] = [
     description: 'AMC, CMC and vendors',
     // Must match the API's BIOMED_ROLES.
     roles: ['admin', 'engineer', 'technician'],
+  },
+  {
+    name: 'Training',
+    href: '/training',
+    icon: GraduationCap,
+    description: 'Who is trained on what',
+    // Must match the API's DOCUMENT_READ_ROLES.
+    roles: ['admin', 'engineer', 'technician', 'viewer'],
   },
   {
     name: 'Registers',

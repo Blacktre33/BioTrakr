@@ -27,6 +27,7 @@ function useInvalidateDocumentViews() {
     void queryClient.invalidateQueries({ queryKey: ["safety-tests"] });
     void queryClient.invalidateQueries({ queryKey: ["contracts"] });
     void queryClient.invalidateQueries({ queryKey: ["condemnation"] });
+    void queryClient.invalidateQueries({ queryKey: ["training"] });
     void queryClient.invalidateQueries({ queryKey: ["audit"] });
   };
 }

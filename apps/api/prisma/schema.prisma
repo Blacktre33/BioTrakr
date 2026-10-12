@@ -97,6 +97,8 @@ enum DocumentCategory {
   INVOICE
   /// Committee minutes, condemnation certificate, e-waste or disposal papers.
   CONDEMNATION
+  /// Training attendance sheet or certificate.
+  TRAINING
   OTHER
 }
 
@@ -253,6 +255,7 @@ model Organization {
   auditEvents      AuditEvent[]
   pmChecklists     PmChecklistTemplate[]
   condemnations    Condemnation[]
+  trainingSessions TrainingSession[]
 
   @@map("organizations")
 }
@@ -441,7 +444,7 @@ model User {
   transfersInitiated        TransferHistory[] @relation("TransferInitiated")
   transfersApproved         TransferHistory[] @relation("TransferApproved")
   transfersReceived         TransferHistory[] @relation("TransferReceived")
-  trainingRecords           TrainingRecord[]
+  trainingSessionsRecorded  TrainingSession[]   @relation("TrainingRecordedBy")
   mediaUploaded             MediaAttachment[]
   assetScans                AssetScanLog[] @relation("AssetScanLogUser")
   assetStatusChanges        AssetStatusChange[] @relation("AssetStatusChangedBy")
@@ -742,7 +745,7 @@ model Asset {
   mediaAttachments                MediaAttachment[]
   assetRelationshipsParent        AssetRelationship[] @relation("ParentAsset")
   assetRelationshipsChild         AssetRelationship[] @relation("ChildAsset")
-  trainingRecords                 TrainingRecord[]
+  trainingSessions                TrainingSessionDevice[]
   telemetryIngestEvents           TelemetryIngestEvent[]
   scanLogs                        AssetScanLog[]
   statusChanges                   AssetStatusChange[]
@@ -1241,6 +1244,7 @@ model Document {
   contractId          String?
   workOrderId         String?
   condemnationId      String?
+  trainingSessionId   String?
   category            DocumentCategory
   title               String              @db.VarChar(200)
   fileName            String              @db.VarChar(255)
@@ -1260,6 +1264,7 @@ model Document {
   contract            ServiceContract?    @relation(fields: [contractId], references: [id], onDelete: Restrict)
   workOrder           MaintenanceHistory? @relation(fields: [workOrderId], references: [id], onDelete: Restrict)
   condemnation        Condemnation?       @relation(fields: [condemnationId], references: [id], onDelete: Restrict)
+  trainingSession     TrainingSession?    @relation(fields: [trainingSessionId], references: [id], onDelete: Restrict)
   uploadedBy          User                @relation("DocumentUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
   withdrawal          DocumentWithdrawal?
 
@@ -1270,6 +1275,7 @@ model Document {
   @@index([contractId])
   @@index([workOrderId])
   @@index([condemnationId])
+  @@index([trainingSessionId])
   @@map("documents")
 }
 
@@ -1424,30 +1430,6 @@ model TransferHistory {
 
   @@index([assetId, transferDate(sort: Desc)])
   @@map("transfer_history")
-}
-
-model TrainingRecord {
-  id                      String          @id @default(uuid())
-  assetId                 String?
-  userId                  String
-  trainingDate            DateTime
-  trainerName             String?
-  trainingType            String?
-  certificationIssued     Boolean         @default(false)
-  certificationNumber     String?
-  certificationExpiryDate DateTime?
-  hoursCompleted          Decimal?        @db.Decimal(4, 1)
-  assessmentScore         Decimal?        @db.Decimal(5, 2)
-  assessmentPassed        Boolean?
-  attachments             Json?
-  createdAt               DateTime        @default(now())
-
-  asset                   Asset?          @relation(fields: [assetId], references: [id], onDelete: Restrict) // history outlives the asset; assets are soft-deleted
-  user                    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([assetId, trainingDate(sort: Desc)])
-  @@index([userId, trainingDate(sort: Desc)])
-  @@map("training_records")
 }
 
 // =====================================================
@@ -1847,4 +1829,80 @@ model Condemnation {
   @@index([organizationId, status])
   @@index([assetId])
   @@map("condemnations")
+}
+
+// =====================================================
+// TRAINING
+// =====================================================
+
+/// What a training session prepared people for.
+enum TrainingKind {
+  OPERATOR    // using the equipment on patients
+  MAINTENANCE // biomed: maintaining and testing it
+  REFRESHER
+  INDUCTION   // new staff
+}
+
+enum TrainingAssessment {
+  PASSED
+  NEEDS_RETRAINING
+  NOT_ASSESSED
+}
+
+/// A training session on medical equipment, and who attended (NABH FMS.5.e:
+/// qualified and trained personnel operate and maintain it).
+model TrainingSession {
+  id             String                  @id @default(uuid())
+  organizationId String
+  heldOn         DateTime
+  kind           TrainingKind
+  topic          String                  @db.VarChar(300)
+  /// The kind of equipment, e.g. "Philips IntelliVue MX450 monitors".
+  equipment      String                  @db.VarChar(200)
+  /// Who gave it, and from where (in-house, or the vendor's specialist).
+  trainer        String                  @db.VarChar(200)
+  trainerFrom    String?                 @db.VarChar(200)
+  durationHours  Decimal?                @db.Decimal(4, 1)
+  notes          String?
+  recordedById   String
+  recordedAt     DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+
+  organization   Organization            @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  recordedBy     User                    @relation("TrainingRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+  devices        TrainingSessionDevice[]
+  attendees      TrainingAttendee[]
+  documents      Document[]
+
+  @@index([organizationId, heldOn(sort: Desc)])
+  @@map("training_sessions")
+}
+
+/// The particular devices a session covered.
+model TrainingSessionDevice {
+  sessionId String
+  assetId   String
+
+  session   TrainingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  asset     Asset           @relation(fields: [assetId], references: [id], onDelete: Restrict)
+
+  @@id([sessionId, assetId])
+  @@index([assetId])
+  @@map("training_session_devices")
+}
+
+/// One person at a session, named as on the attendance sheet: ward staff
+/// often have no account.
+model TrainingAttendee {
+  id          String             @id @default(uuid())
+  sessionId   String
+  name        String             @db.VarChar(200)
+  designation String?            @db.VarChar(120)
+  department  String?            @db.VarChar(120)
+  assessment  TrainingAssessment @default(NOT_ASSESSED)
+
+  session     TrainingSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@map("training_attendees")
 }
