@@ -3,7 +3,7 @@
 import { useId, useState } from "react";
 import type { Route } from "next";
 import Link from "next/link";
-import { AlertOctagon, Siren } from "lucide-react";
+import { AlertOctagon, Siren, Timer } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -36,6 +36,7 @@ import {
 import { ACCEPTED_TYPES, fileProblem } from "@/lib/api/documents";
 import type { WorkOrder, WorkOrderStatus, WorkOrderUpdate, WorkOrderView } from "@/lib/api/work-orders";
 import { getSession } from "@/lib/auth/session";
+import { clockText } from "@/lib/downtime";
 import { useUploadDocument } from "@/lib/hooks/use-documents";
 import { useTechnicians, useUpdateWorkOrderMutation, useWorkOrders } from "@/lib/hooks/use-work-orders";
 import { cn, formatDate, formatRelativeTime } from "@/lib/utils";
@@ -357,6 +358,21 @@ function WorkOrderCard({ order, technicians }: { order: WorkOrder; technicians: 
           </span>
         )}
       </p>
+      {order.downtime && (
+        <p
+          className={cn(
+            "mt-2 inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs",
+            order.downtime.state === "over"
+              ? "bg-critical-500/15 font-semibold text-critical-500"
+              : order.downtime.state === "nearing"
+                ? "bg-warning-500/15 text-warning-500"
+                : "bg-surface-200/40 text-gray-300",
+          )}
+        >
+          <Timer className="h-3.5 w-3.5" aria-hidden="true" />
+          {clockText(order.downtime)}
+        </p>
+      )}
       {order.description && <p className="mt-2 whitespace-pre-line text-sm text-gray-200">{order.description}</p>}
       {order.workPerformed && (
         <p className="mt-2 rounded-lg bg-surface-200/40 p-2 text-sm text-gray-300">{order.workPerformed}</p>

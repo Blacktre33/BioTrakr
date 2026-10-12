@@ -13,6 +13,7 @@ import {
   startOfDay,
 } from '../contracts/contract-status';
 import { PrismaService } from '../database/prisma.service';
+import { DowntimeService } from '../downtime/downtime.service';
 import { OPEN_STATUSES } from '../work-orders/work-orders.service';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -21,6 +22,8 @@ const WEEK = 7 * DAY;
 export const DUE_SOON_DAYS = 30;
 /** Time to repair is averaged over repairs finished in this window. */
 export const REPAIR_WINDOW_DAYS = 90;
+/** Uptime is measured over this many days. */
+export const UPTIME_WINDOW_DAYS = 30;
 /** Weeks of opened / completed work orders in the trend. */
 export const TREND_WEEKS = 8;
 const LIST_SIZE = 10;
@@ -57,7 +60,10 @@ function median(sorted: number[]): number {
 
 @Injectable()
 export class DashboardService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly downtime: DowntimeService,
+  ) {}
 
   /**
    * A recurring check (calibration, electrical safety test): how many
@@ -252,6 +258,8 @@ export class DashboardService {
       calibration,
       safetyTests,
       cover,
+      uptime,
+      breakdowns,
     ] = await Promise.all([
       this.prisma.asset.groupBy({
         by: ['assetStatus'],
@@ -359,6 +367,16 @@ export class DashboardService {
         failed: { lastSafetyTestPassed: false },
       }),
       this.cover(inService, user.organizationId, query.facilityId, now),
+      this.downtime.uptime(
+        { organizationId: user.organizationId, facilityId: query.facilityId },
+        new Date(now.getTime() - UPTIME_WINDOW_DAYS * DAY),
+        now,
+        now,
+      ),
+      this.downtime.open(
+        { organizationId: user.organizationId, facilityId: query.facilityId },
+        now,
+      ),
     ]);
 
     const byStatus = Object.fromEntries(
@@ -468,6 +486,20 @@ export class DashboardService {
       safetyTests,
       /** Warranty and AMC/CMC cover. */
       cover,
+      /** Time in use, and breakdowns against their repair limits. */
+      uptime: {
+        windowDays: UPTIME_WINDOW_DAYS,
+        /** Share of time in service the devices were in use. */
+        percent: uptime.totals.uptimePercent,
+        /** NHSRC census: devices working now, of those in service. */
+        censusPercent: uptime.totals.censusPercent,
+        targetPercent: uptime.totals.targetPercent,
+        breakdowns: uptime.totals.breakdowns,
+        mtbfHours: uptime.totals.mtbfHours,
+        meanAttendHours: uptime.totals.meanAttendHours,
+        /** Open breakdowns: how many, near or past their limit, and how old. */
+        open: breakdowns,
+      },
       workOrders: {
         open: openCount,
         urgent,

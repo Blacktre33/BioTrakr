@@ -5,6 +5,7 @@ import type { Route } from "next";
 import Link from "next/link";
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
+  Activity,
   AlertOctagon,
   CalendarClock,
   CheckCircle2,
@@ -12,6 +13,7 @@ import {
   FileText,
   Gauge,
   ShieldCheck,
+  Timer,
   Wrench,
   Zap,
   type LucideIcon,
@@ -134,7 +136,7 @@ function ProgrammeTile({
 }
 
 function Tiles({ data }: { data: DashboardSummary }) {
-  const { devices, pm, calibration, safetyTests, cover, workOrders, repairs } = data;
+  const { devices, pm, calibration, safetyTests, cover, workOrders, repairs, uptime } = data;
   const compliance = pm.compliancePercent;
   return (
     <ul aria-label="Key figures" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -213,6 +215,36 @@ function Tiles({ data }: { data: DashboardSummary }) {
         href="/maintenance"
         icon={Wrench}
         tone={workOrders.urgent > 0 ? "critical" : "neutral"}
+      />
+      <Tile
+        title="Uptime"
+        value={uptime.percent === null ? "–" : `${uptime.percent}%`}
+        detail={`Last ${uptime.windowDays} days, target ${uptime.targetPercent}%${
+          uptime.censusPercent === null ? "" : ` · ${uptime.censusPercent}% working now`
+        }`}
+        href="/registers?kind=uptime"
+        icon={Activity}
+        tone={
+          uptime.percent === null
+            ? "neutral"
+            : uptime.percent >= uptime.targetPercent
+              ? "good"
+              : uptime.percent >= uptime.targetPercent - 10
+                ? "warning"
+                : "critical"
+        }
+      />
+      <Tile
+        title="Repairs past their limit"
+        value={formatNumber(uptime.open.over)}
+        detail={
+          uptime.open.total === 0
+            ? "No breakdowns waiting"
+            : `${formatNumber(uptime.open.nearing)} near the limit · ${plural(uptime.open.total, "breakdown")} open`
+        }
+        href="/maintenance"
+        icon={Timer}
+        tone={uptime.open.over > 0 ? "critical" : uptime.open.nearing > 0 ? "warning" : "good"}
       />
       <Tile
         title="Time to repair"

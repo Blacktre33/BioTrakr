@@ -12,6 +12,12 @@ import type { AuthUser } from '../auth/auth-user';
 import { contractStatus } from '../contracts/contract-status';
 import { PrismaService } from '../database/prisma.service';
 import { documentCounts } from '../documents/documents.service';
+import { breakdownClock, downtimeConfig } from '../downtime/downtime';
+import {
+  DowntimeService,
+  hoursText,
+  limitText,
+} from '../downtime/downtime.service';
 import type { RegisterKind, RegisterQuery } from './registers.dto';
 import {
   day,
@@ -73,6 +79,7 @@ export class RegistersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly downtime: DowntimeService,
   ) {}
 
   async build(
@@ -155,6 +162,8 @@ export class RegistersService {
         return this.breakdown(s);
       case 'contracts':
         return this.contracts(s);
+      case 'uptime':
+        return this.uptime(s);
       case 'audit':
         return this.auditTrail(s);
     }
@@ -742,6 +751,7 @@ export class RegistersService {
       take: MAX_ROWS + 1,
       select: {
         id: true,
+        workOrderType: true,
         createdAt: true,
         startedAt: true,
         completedAt: true,
@@ -756,11 +766,14 @@ export class RegistersService {
           select: {
             assetTagNumber: true,
             equipmentName: true,
+            criticalityLevel: true,
+            deviceCategory: true,
             ...LOCATION_SELECT,
           },
         },
       },
     });
+    const now = new Date();
     const STATUS: Record<string, string> = {
       COMPLETED: 'Rectified',
       CANCELLED: 'Cancelled',
@@ -781,12 +794,15 @@ export class RegistersService {
         { key: 'attended', label: 'Attended' },
         { key: 'rectified', label: 'Rectified (by)' },
         { key: 'downtime', label: 'Downtime', align: 'right' },
+        { key: 'limit', label: 'Repair limit', align: 'right' },
+        { key: 'within', label: 'Within limit' },
         { key: 'cause', label: 'Cause' },
         { key: 'action', label: 'Action taken' },
         { key: 'status', label: 'Status' },
       ],
       rows: orders.map((o) => {
         const by = name(o.assignedTechnician);
+        const clock = breakdownClock(o, o.asset, now);
         return {
           no: o.id.slice(0, 8).toUpperCase(),
           reported: `${dayTime(o.createdAt)}${o.isEmergency ? ' (urgent)' : ''}`,
@@ -803,12 +819,23 @@ export class RegistersService {
               ? null
               : duration(o.createdAt, o.completedAt ?? new Date()) +
                 (o.completedAt ? '' : ' so far'),
+          limit: clock ? limitText(clock.limitHours) : null,
+          within: !clock
+            ? null
+            : clock.state === 'over'
+              ? `No, over by ${hoursText(-clock.leftHours)}`
+              : clock.open
+                ? `Open, ${hoursText(clock.leftHours)} left`
+                : 'Yes',
           cause: title(o.failureCategory),
           action: o.workPerformed,
           status: STATUS[o.workOrderStatus] ?? 'Open',
         };
       }),
-      notes: ['Downtime runs from the report to the device being rectified.'],
+      notes: [
+        'Downtime runs from the report to the device being rectified.',
+        `Repair limits (BMMP Model RFP): ${limitText(downtimeConfig().criticalHours)} for critical and life-saving equipment (critical or high criticality, or life support), ${limitText(downtimeConfig().otherHours)} for everything else.`,
+      ],
     };
   }
 
@@ -896,6 +923,60 @@ export class RegistersService {
         };
       }),
       notes: [],
+    };
+  }
+
+  /**
+   * NABH FMS.5 and the NHSRC guidelines: how much of the period each
+   * device was in use, with its breakdowns; worst first.
+   */
+  private async uptime(s: Scope): Promise<Body> {
+    const result = await this.downtime.uptime(
+      { organizationId: s.organizationId, facilityId: s.facilityId },
+      s.from,
+      s.to,
+    );
+    const t = result.totals;
+    const pct = (n: number | null) => (n === null ? null : `${n}%`);
+    const rows = [...result.devices]
+      .filter((d) => d.serviceHours > 0)
+      .sort(
+        (a, b) =>
+          (a.uptimePercent ?? 100) - (b.uptimePercent ?? 100) ||
+          a.assetTagNumber.localeCompare(b.assetTagNumber),
+      );
+    return {
+      title: 'Equipment Uptime Register',
+      basis:
+        'NABH FMS.5 (downtime from report to correction); NHSRC uptime targets: 95% district hospital, 90% CHC, 80% PHC',
+      columns: [
+        { key: 'device', label: 'Equipment' },
+        { key: 'department', label: 'Department' },
+        { key: 'limit', label: 'Repair limit' },
+        { key: 'service', label: 'Hours in service', align: 'right' },
+        { key: 'down', label: 'Hours out of use', align: 'right' },
+        { key: 'uptime', label: 'Uptime', align: 'right' },
+        { key: 'breakdowns', label: 'Breakdowns', align: 'right' },
+        { key: 'longest', label: 'Longest breakdown', align: 'right' },
+        { key: 'over', label: 'Over the limit', align: 'right' },
+      ],
+      rows: rows.map((d) => ({
+        device: deviceCell(d),
+        department: d.department,
+        limit: limitText(d.limitHours),
+        service: Math.round(d.serviceHours),
+        down: d.downHours,
+        uptime: pct(d.uptimePercent),
+        breakdowns: d.breakdowns,
+        longest: d.longestHours === null ? null : hoursText(d.longestHours),
+        over: d.overLimit,
+      })),
+      notes: [
+        `Overall uptime ${pct(t.uptimePercent) ?? 'not measurable'} against a target of ${t.targetPercent}%. Census today: ${pct(t.censusPercent) ?? '—'} of devices in service are working.`,
+        `${t.breakdowns} breakdowns reported; ${t.overLimit} ran past their repair limit. Mean time to attend ${t.meanAttendHours === null ? '—' : hoursText(t.meanAttendHours)}, to repair ${t.mttrHours === null ? '—' : hoursText(t.mttrHours)}; mean time between failures ${t.mtbfHours === null ? '—' : hoursText(t.mtbfHours)}.`,
+        `Repair limits (BMMP Model RFP): ${limitText(downtimeConfig().criticalHours)} for critical and life-saving equipment (critical or high criticality, or life support), ${limitText(downtimeConfig().otherHours)} for everything else.`,
+        'Uptime: the share of time in service a device was not out of use (quarantined or under repair), from its status history. Time before it was registered, or after it was condemned or retired, is not counted. Worst first.',
+      ],
     };
   }
 

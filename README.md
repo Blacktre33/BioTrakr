@@ -39,6 +39,7 @@ biotrakr/
 - **Certificates and reports**: PDF, JPEG or PNG files (up to 10 MB) attached to calibrations, safety tests, contracts, work orders (signed service reports) and devices (manuals, installation reports, invoices). Files are kept in the database, so the nightly backup includes them; a wrong file is withdrawn with a reason and stays on record.
 - **Registers for NABH and NHSRC**: the inventory master record (Annexure F), annual inventory survey (Annexure D) and each device's maintenance logbook (Annexure E) in the NHSRC column formats, plus calibration, electrical safety, PM, breakdown and AMC/CMC registers. Printed on A4 with a sign-off block, or downloaded for Excel; viewer accounts let auditors open them.
 - **Records that cannot be changed**: calibration and safety test records are never edited or deleted (the database refuses); a mistake is corrected by a new record that replaces it, with a reason, and the original stays on file.
+- **Downtime and uptime**: every breakdown runs a clock from the report to the device being put right, against the BMMP limits: 72 hours for critical and life-saving equipment, 7 days for everything else. The work queue shows it, biomed is warned at three quarters of the limit and again (urgently, outside the app too for life-saving equipment) once it has passed, and the hours are kept with the completed work order. The uptime register lists each device's hours in service and out of use, breakdowns and time over the limit for any period, with mean time to attend, to repair and between failures.
 - **Edit history (audit trail)**: every change to devices, work orders, checks, contracts, vendors, files, places and accounts is recorded with who, when, what changed (before and after) and why, in the same transaction as the change. Entries cannot be edited or deleted, and each is hash-chained (SHA-256) to the one before, so an entry altered or removed directly in the database is detected; the chain is checked daily and administrators are told if it breaks. Shown on each device page and printable as a register with the chain's latest hash. Personal details (names, phone, email) are recorded as changed, without their values.
 - **Dashboard**: devices out of use, PM, calibration and electrical safety compliance, open work orders, time to repair.
 - **Notifications**: in-app and browser notices, escalation of urgent reports, and a signed webhook for an SMS/WhatsApp gateway.
@@ -166,6 +167,8 @@ Escalation and delivery run inside the API process every 30 s, so the API must r
 - **PM**: overdue, due in the next 30 days, devices without a PM schedule, and compliance (the share of scheduled devices that are not overdue). The overdue list shows whether a work order is already open.
 - **Work orders**: open, urgent, not assigned, waiting for parts; opened and completed per week over 8 weeks.
 - **Time to repair**: mean and median hours from report to completion, for repairs finished in the last 90 days.
+- **Uptime**: the share of time in service that devices were in use over the last 30 days (from each device's status history), against the target (`UPTIME_TARGET_PERCENT`, 95% by default as for a district hospital), and the NHSRC census figure (devices working now, of those in service).
+- **Repairs past their limit**: open breakdowns past, or near, their repair limit, with how long they have waited.
 
 ### Preventive maintenance schedule
 
@@ -179,6 +182,9 @@ A device is on the PM schedule once it has a next-PM date, set from its PM inter
 |---|---|
 | `PM_LEAD_DAYS` | Open PM work orders this many days before they fall due (0–90, default 14). |
 | `PM_JOBS` | `off` stops the hourly PM pass in this instance. |
+| `DOWNTIME_LIMIT_CRITICAL_HOURS` | Hours to put right critical and life-saving equipment (critical or high criticality, or life support; default 72, as in the BMMP Model RFP). |
+| `DOWNTIME_LIMIT_OTHER_HOURS` | Hours to put right everything else (default 168, seven days). |
+| `UPTIME_TARGET_PERCENT` | The uptime target on the dashboard and uptime register (default 95; NHSRC sets 90 for CHCs and 80 for PHCs). |
 | `TZ` | The hospital's time zone, for the due date written in work orders. |
 
 ### Service Entry Points

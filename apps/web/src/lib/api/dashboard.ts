@@ -85,6 +85,24 @@ export interface DashboardSummary {
     meanHours: number | null;
     medianHours: number | null;
   };
+  /** Time in use, and breakdowns against their repair limits. */
+  uptime: {
+    windowDays: number;
+    /** Share of time in service the devices were in use. */
+    percent: number | null;
+    /** NHSRC census: devices working now, of those in service. */
+    censusPercent: number | null;
+    targetPercent: number;
+    breakdowns: number;
+    mtbfHours: number | null;
+    meanAttendHours: number | null;
+    open: {
+      total: number;
+      nearing: number;
+      over: number;
+      ageing: { underOneDay: number; oneToThreeDays: number; threeToSevenDays: number; overSevenDays: number };
+    };
+  };
 }
 
 export async function getDashboard(facilityId?: string): Promise<DashboardSummary> {

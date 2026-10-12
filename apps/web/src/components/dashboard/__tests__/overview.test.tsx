@@ -134,6 +134,21 @@ const summary: DashboardSummary = {
     ],
   },
   repairs: { windowDays: 90, completed: 14, meanHours: 30.5, medianHours: 6 },
+  uptime: {
+    windowDays: 30,
+    percent: 93.4,
+    censusPercent: 96.5,
+    targetPercent: 95,
+    breakdowns: 11,
+    mtbfHours: 6200,
+    meanAttendHours: 3.2,
+    open: {
+      total: 4,
+      nearing: 1,
+      over: 1,
+      ageing: { underOneDay: 1, oneToThreeDays: 1, threeToSevenDays: 1, overSevenDays: 1 },
+    },
+  },
 };
 
 describe("DashboardOverview", () => {
@@ -164,6 +179,14 @@ describe("DashboardOverview", () => {
     expect(
       within(tiles).getByText("Average of 14 repairs, last 90 days (median 6 h)").previousSibling,
     ).toHaveTextContent("30.5 h");
+    // Below the 95% target but within 10 points: a warning.
+    const uptime = tile(/Uptime 93.4% Last 30 days, target 95% · 96.5% working now/);
+    expect(uptime).toHaveAttribute("href", "/registers?kind=uptime");
+    expect(within(uptime).getByText("93.4%")).toHaveClass("text-warning-500");
+    expect(tile(/Repairs past their limit 1 1 near the limit · 4 breakdowns open/)).toHaveAttribute(
+      "href",
+      "/maintenance",
+    );
   });
 
   it("lists devices out of use and PM overdue, highest risk marked", () => {
