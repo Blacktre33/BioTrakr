@@ -10,6 +10,7 @@ export type RegisterKind =
   | "breakdown"
   | "contracts"
   | "uptime"
+  | "condemnation"
   | "audit";
 
 export interface RegisterInfo {
@@ -34,6 +35,7 @@ export const REGISTERS: RegisterInfo[] = [
   { kind: "breakdown", label: "Breakdown (complaint) register", group: "NABH registers", period: true },
   { kind: "contracts", label: "AMC/CMC register", group: "NABH registers", period: true },
   { kind: "uptime", label: "Equipment uptime and breakdowns", group: "NABH registers", period: true },
+  { kind: "condemnation", label: "Condemnation register", group: "NABH registers", period: true },
   { kind: "audit", label: "Edit history (audit trail)", group: "NABH registers", period: true, wholeHospital: true },
 ];
 

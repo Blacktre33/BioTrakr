@@ -28,6 +28,7 @@ export const AUDIT_ENTITIES = [
   'user',
   'checklist',
   'pm_checklist',
+  'condemnation',
 ] as const;
 
 export class ListAuditQuery {

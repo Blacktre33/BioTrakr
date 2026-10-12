@@ -40,6 +40,7 @@ const META_SELECT = {
   safetyTestRecordId: true,
   contractId: true,
   workOrderId: true,
+  condemnationId: true,
   category: true,
   title: true,
   fileName: true,
@@ -78,6 +79,7 @@ const DEFAULT_CATEGORY: Record<DocumentTarget, DocumentCategory> = {
   safetyTest: 'SAFETY_TEST_REPORT',
   contract: 'CONTRACT',
   workOrder: 'SERVICE_REPORT',
+  condemnation: 'CONDEMNATION',
 };
 
 type Link = Pick<
@@ -87,12 +89,17 @@ type Link = Pick<
   | 'safetyTestRecordId'
   | 'contractId'
   | 'workOrderId'
+  | 'condemnationId'
 >;
 
 /** How many files (not withdrawn) each record has, for "certificate on file". */
 export async function documentCounts(
   prisma: Pick<PrismaService, 'document'>,
-  field: 'calibrationRecordId' | 'safetyTestRecordId' | 'contractId',
+  field:
+    | 'calibrationRecordId'
+    | 'safetyTestRecordId'
+    | 'contractId'
+    | 'condemnationId',
   ids: string[],
 ): Promise<Map<string, number>> {
   if (ids.length === 0) return new Map();
@@ -125,7 +132,9 @@ export class DocumentsService {
             ? { calibrationRecordId: link.calibrationRecordId }
             : query.targetType === 'safetyTest'
               ? { safetyTestRecordId: link.safetyTestRecordId }
-              : { workOrderId: link.workOrderId };
+              : query.targetType === 'condemnation'
+                ? { condemnationId: link.condemnationId }
+                : { workOrderId: link.workOrderId };
     const rows = await this.prisma.document.findMany({
       where: { ...where, organizationId: user.organizationId },
       orderBy: [{ uploadedAt: 'desc' }, { id: 'asc' }],
@@ -281,6 +290,14 @@ export class DocumentsService {
           select: { assetId: true },
         });
         link = w && { assetId: w.assetId, workOrderId: id };
+        break;
+      }
+      case 'condemnation': {
+        const c = await this.prisma.condemnation.findFirst({
+          where: { id, ...inOrg },
+          select: { assetId: true },
+        });
+        link = c && { assetId: c.assetId, condemnationId: id };
         break;
       }
     }

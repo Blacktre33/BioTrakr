@@ -7,6 +7,7 @@ import { ArrowLeft, History, Pencil, QrCode, ShieldCheck } from "lucide-react";
 
 import { EditHistorySection } from "@/components/audit/edit-history-section";
 import { CalibrationSection } from "@/components/calibration/calibration-section";
+import { CondemnationSection } from "@/components/condemnation/condemnation-section";
 import { ServiceCoverSection } from "@/components/contracts/service-cover-section";
 import { DocumentsSection } from "@/components/documents/documents-section";
 import { PmRecordsSection } from "@/components/pm/pm-records-section";
@@ -38,8 +39,8 @@ const SOURCE_LABEL: Record<string, string> = {
 /**
  * One device: the same safety answer staff get when they scan it, plus
  * biomed actions (change status with a reason, edit details), calibration
- * and electrical safety test records, warranty and contracts, the full
- * status history and the edit history.
+ * and electrical safety test records, warranty and contracts, the
+ * condemnation file, the full status history and the edit history.
  */
 export function DevicePage({ assetId }: { assetId: string }) {
   const router = useRouter();
@@ -137,6 +138,14 @@ export function DevicePage({ assetId }: { assetId: string }) {
 
           {(canChangeStatus || role === "viewer") && (
             <DocumentsSection assetId={assetId} canUpload={canChangeStatus} />
+          )}
+
+          {(canChangeStatus || role === "viewer") && (
+            <CondemnationSection
+              assetId={assetId}
+              equipmentName={device.equipmentName}
+              assetStatus={device.assetStatus}
+            />
           )}
 
           <section aria-labelledby="status-history-heading" className="rounded-2xl border border-white/10 p-4">

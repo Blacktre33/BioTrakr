@@ -4,6 +4,7 @@ import type { Route } from 'next';
 import Link from 'next/link';
 import {
   AlertTriangle,
+  Archive,
   ArrowRight,
   CalendarClock,
   ClipboardCheck,
@@ -80,13 +81,19 @@ const tasks: Task[] = [
     title: 'Registers for NABH',
     href: '/registers',
     icon: ClipboardList,
-    body: 'For biomed and auditors: the inventory master, annual survey and device logbook in the NHSRC formats, and the calibration, electrical safety, PM, breakdown and AMC/CMC registers. Print on A4 with a sign-off, or download for Excel.',
+    body: 'For biomed and auditors: the inventory master, annual survey and device logbook in the NHSRC formats, and the calibration, electrical safety, PM, breakdown, AMC/CMC and condemnation registers. Print on A4 with a sign-off, or download for Excel.',
   },
   {
     title: 'Uptime and repair limits',
     href: '/registers?kind=uptime',
     icon: Timer,
     body: 'For biomed: each breakdown shows how long it has waited against its limit (72 hours for critical and life-saving equipment, 7 days for the rest), and you are warned before it runs out. The uptime register shows each device’s time out of use, breakdowns and repair times for any period.',
+  },
+  {
+    title: 'Condemn a device',
+    href: '/registers?kind=condemnation',
+    icon: Archive,
+    body: "For biomed: on the device page, propose it for condemnation with the reasons; its age, book value and breakdowns go on file with it. An administrator who did not propose it records the committee's decision, and only then is the device condemned. Record the disposal with the recycler's certificate and, for X-ray or ultrasound, the AERB approval or PC-PNDT NOC.",
   },
   {
     title: 'Who changed what',
