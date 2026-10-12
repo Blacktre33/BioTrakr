@@ -29,6 +29,7 @@ import {
   OPEN_CONDEMNATION,
   reasonsText,
   repairShare,
+  REVERSED,
   type CondemnationEvidence,
 } from './condemnation';
 import type {
@@ -326,7 +327,7 @@ export class CondemnationService {
           assetId: c.assetId,
           actor,
           toStatus: 'QUARANTINED',
-          reason: `Condemnation reversed: ${dto.reason}`.slice(0, 1000),
+          reason: `${REVERSED}: ${dto.reason}`.slice(0, 1000),
           source: 'MANUAL',
         });
       }

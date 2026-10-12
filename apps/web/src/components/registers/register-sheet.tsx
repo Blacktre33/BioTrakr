@@ -49,6 +49,17 @@ export function RegisterSheet({ register: r }: { register: Register }) {
         </dl>
       </header>
 
+      {r.details && r.details.length > 0 && (
+        <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2 lg:grid-cols-3 print:grid-cols-3">
+          {r.details.map((d) => (
+            <div key={d.label} className="flex gap-1">
+              <dt className="shrink-0 text-gray-400">{d.label}:</dt>
+              <dd className="text-gray-100">{d.value ?? "—"}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+
       {r.truncated && (
         <p role="status" className="rounded-lg bg-warning-500/10 p-3 text-sm text-warning-500 print:border print:p-2">
           Only the first {r.rows.length.toLocaleString("en-IN")} lines are shown. Choose a shorter period or one facility

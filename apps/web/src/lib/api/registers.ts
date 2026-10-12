@@ -4,6 +4,8 @@ export type RegisterKind =
   | "inventory"
   | "survey"
   | "logbook"
+  | "history"
+  | "planner"
   | "calibration"
   | "safety"
   | "pm"
@@ -29,6 +31,8 @@ export const REGISTERS: RegisterInfo[] = [
   { kind: "inventory", label: "Inventory master record (Annexure F)", group: "NHSRC formats", period: false },
   { kind: "survey", label: "Annual inventory survey (Annexure D)", group: "NHSRC formats", period: false },
   { kind: "logbook", label: "Equipment maintenance logbook (Annexure E)", group: "NHSRC formats", period: true, device: true },
+  { kind: "history", label: "Equipment history card", group: "NABH registers", period: false, device: true },
+  { kind: "planner", label: "Annual maintenance plan (PM, calibration, safety tests)", group: "NABH registers", period: true },
   { kind: "calibration", label: "Calibration register", group: "NABH registers", period: true },
   { kind: "safety", label: "Electrical safety test register", group: "NABH registers", period: true },
   { kind: "pm", label: "Preventive maintenance register", group: "NABH registers", period: true },
@@ -55,6 +59,8 @@ export interface Register {
   facility: string | null;
   period: { from: string; to: string } | null;
   device: string | null;
+  /** About the device, above the table (history card). */
+  details?: Array<{ label: string; value: string | null }>;
   generatedAt: string;
   columns: RegisterColumn[];
   rows: Array<Record<string, string | number | null>>;
@@ -85,6 +91,8 @@ function cell(value: string | number | null): string {
 /** The register as CSV, with a byte-order mark so Excel reads ₹ and Hindi right. */
 export function registerCsv(r: Register): string {
   const lines = [
+    // The device's particulars first, then a blank line (history card).
+    ...(r.details?.length ? [...r.details.map((d) => `${cell(d.label)},${cell(d.value)}`), ""] : []),
     r.columns.map((c) => cell(c.label)).join(","),
     ...r.rows.map((row) => r.columns.map((c) => cell(row[c.key] ?? null)).join(",")),
   ];

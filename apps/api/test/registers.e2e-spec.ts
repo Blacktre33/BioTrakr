@@ -273,6 +273,198 @@ describe('Registers (e2e)', () => {
     await get(`logbook?assetId=${assetId(9)}`).expect(404);
   });
 
+  it("prints a device's history card: its particulars and everything on record", async () => {
+    Object.assign(store.assets[0], {
+      vendorId: 'v1',
+      purchaseOrderNumber: 'PO-77',
+      purchaseCost: 120000,
+      salvageValue: 0,
+      usefulLifeYears: 10,
+      deviceCategory: 'THERAPEUTIC',
+      criticalityLevel: 'HIGH',
+      requiresCalibration: true,
+      calibrationFrequencyDays: 365,
+      requiresSafetyTest: false,
+    });
+    const reported = ago(20);
+    store.orders.push(
+      {
+        id: '00000000-0000-4000-8000-000000000101',
+        assetId: assetId(1),
+        workOrderType: 'CORRECTIVE_MAINTENANCE',
+        workOrderStatus: 'COMPLETED',
+        createdAt: reported,
+        completedAt: new Date(reported.getTime() + 6.5 * 3600e3),
+        description: 'Occlusion alarm at every start',
+        workPerformed: 'Replaced pressure sensor',
+        failureCategory: 'MECHANICAL',
+        assignedTechnicianId: 'user-technician',
+      },
+      {
+        id: '00000000-0000-4000-8000-000000000102',
+        assetId: assetId(1),
+        workOrderType: 'PREVENTIVE_MAINTENANCE',
+        workOrderStatus: 'COMPLETED',
+        createdAt: ago(40),
+        completedAt: ago(38),
+        workPerformed: 'PM per checklist',
+        assignedTechnicianId: 'user-technician',
+      },
+    );
+    store.calibrations.push({
+      id: 'cc000000-0000-4000-8000-000000000001',
+      assetId: assetId(1),
+      workOrderId: null,
+      calibratedAt: ago(29),
+      result: 'PASS',
+      provider: 'EXTERNAL_LAB',
+      providerName: 'Precise Labs',
+      certificateNumber: 'PL-77',
+      recordedById: 'user-technician',
+      supersedesId: null,
+    });
+    store.statusChanges.push(
+      {
+        assetId: assetId(1),
+        fromStatus: 'ACTIVE',
+        toStatus: 'QUARANTINED',
+        reason: 'Occlusion alarm',
+        source: 'FAULT_REPORT',
+        changedById: 'user-clinical_staff',
+        changedAt: reported,
+      },
+      {
+        assetId: assetId(1),
+        fromStatus: 'ACTIVE',
+        toStatus: 'RETIRED',
+        reason: 'Kept as a spare',
+        source: 'MANUAL',
+        changedById: 'user-admin',
+        changedAt: ago(5),
+      },
+    );
+    store.condemnations.push({
+      id: 'cd000000-0000-4000-8000-000000000001',
+      organizationId: ORG_A,
+      assetId: assetId(1),
+      status: 'REJECTED',
+      reasons: ['obsolete'],
+      justification: 'Superseded by the GH Plus',
+      repairEstimate: null,
+      proposedAt: ago(4),
+      proposedById: 'user-technician',
+      decidedAt: ago(3),
+      decidedById: 'user-admin',
+      committee: 'Equipment committee, minute 2',
+      decisionNote: 'Still in use as a spare',
+      withdrawnAt: null,
+      disposedAt: null,
+      disposalMethod: null,
+      clearance: null,
+    });
+
+    await get('history').expect(400);
+    const res = await get(`history?assetId=${assetId(1)}`).expect(200);
+    expect(res.body).toMatchObject({
+      title: 'Equipment History Card',
+      period: null,
+      device: 'TAG-1 · Syringe pump',
+    });
+    const details = Object.fromEntries(
+      res.body.details.map((d: { label: string; value: string }) => [
+        d.label,
+        d.value,
+      ]),
+    );
+    expect(details).toMatchObject({
+      'Make and model': 'BD Alaris GH',
+      'Serial number': 'SN-1',
+      Category: 'Therapeutic',
+      Criticality: 'High',
+      Supplier: 'BD India',
+      Purchased: '1 Apr 2024; ₹1,20,000; PO PO-77',
+      'Service contract': expect.stringMatching(/^CMC with BD India to /),
+      'Useful life': expect.stringMatching(
+        /^10 years; book value today ₹[\d,]+ \(straight line\)$/,
+      ),
+      Maintenance: 'PM quarterly; calibration yearly',
+      Status: 'Functional',
+    });
+    const rows = read(res.body);
+    expect(rows.map((r) => r.Event)).toEqual([
+      'Purchased',
+      'Installed',
+      'Preventive maintenance',
+      'CMC contract',
+      'Calibration',
+      'Breakdown',
+      'Status changed',
+      'Proposed for condemnation',
+      'Condemnation not approved',
+    ]);
+    expect(rows[0].Details).toBe('₹1,20,000; from BD India; PO PO-77');
+    expect(rows[5]).toMatchObject({
+      Details: expect.stringMatching(
+        /^Occlusion alarm at every start; cause: Mechanical; rectified .*: Replaced pressure sensor$/,
+      ),
+      By: 'Tara Tech',
+      Downtime: '6.5 h',
+    });
+    expect(rows[6]).toMatchObject({
+      Details: 'Functional → Retired: Kept as a spare',
+      By: 'Ada Admin',
+    });
+    expect(rows[8].Details).toBe(
+      'Equipment committee, minute 2; Still in use as a spare',
+    );
+    await get(`history?assetId=${assetId(9)}`).expect(404);
+  });
+
+  it('plans the year ahead month by month: PM, calibration and safety tests', async () => {
+    const due = new Date(Date.now() + 20 * DAY);
+    Object.assign(store.assets[0], {
+      pmFrequencyDays: 90,
+      nextPmDueDate: due,
+      requiresCalibration: true,
+      calibrationFrequencyDays: 365,
+      nextCalibrationDue: ago(5),
+    });
+    store.orders.push({
+      id: '00000000-0000-4000-8000-000000000102',
+      assetId: assetId(1),
+      workOrderType: 'PREVENTIVE_MAINTENANCE',
+      workOrderStatus: 'COMPLETED',
+      createdAt: new Date(),
+      completedAt: new Date(),
+    });
+    const month = (d: Date) =>
+      `m${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+
+    const res = await get('planner').expect(200);
+    expect(res.body.title).toBe('Annual Maintenance Plan');
+    expect(res.body.columns).toHaveLength(1 + 3 + 12);
+    // Only devices in service with something due or done.
+    expect(res.body.rows).toHaveLength(1);
+    const row = res.body.rows[0];
+    expect(row).toMatchObject({
+      device: 'TAG-1 · Syringe pump',
+      schedule: 'PM quarterly; calibration yearly',
+    });
+    expect(row[month(new Date())]).toContain('Cal overdue');
+    expect(row[month(new Date())]).toContain(`PM done ${new Date().getDate()}`);
+    expect(row[month(due)]).toContain(`PM ${due.getDate()}`);
+    const later = new Date(due.getTime() + 90 * DAY);
+    expect(row[month(later)]).toContain(`PM ${later.getDate()}`);
+    expect(res.body.notes).toContain(
+      '1 device in service has no PM, calibration or safety test due and is not listed.',
+    );
+
+    const long = await get('planner?from=2026-01-01&to=2027-06-30').expect(400);
+    expect(long.body.message).toBe(
+      'Choose a period of up to a year for the plan',
+    );
+  });
+
   it('lists calibrations with their NABL details and whether the certificate is on file', async () => {
     store.calibrations.push(
       {

@@ -76,6 +76,18 @@ describe("registerCsv", () => {
     ]);
   });
 
+  it("puts a history card's particulars above its table", () => {
+    const csv = registerCsv(
+      register({ details: [{ label: "Make and model", value: "BD Alaris GH" }, { label: "Warranty until", value: null }] }),
+    );
+    expect(csv.replace("\uFEFF", "").split("\r\n").slice(0, 4)).toEqual([
+      "Make and model,BD Alaris GH",
+      "Warranty until,",
+      "",
+      "Sl. No.,Equipment,Result,Certificate on file",
+    ]);
+  });
+
   it("never lets typed text run as a spreadsheet formula", () => {
     const csv = registerCsv(
       register({ rows: [{ sl: 1, device: '=HYPERLINK("http://x","click")', result: "-1+1", file: "@SUM(A1)" }] }),
@@ -186,6 +198,42 @@ describe("RegistersPage", () => {
     await waitFor(() =>
       expect(getRegister).toHaveBeenLastCalledWith("logbook", expect.objectContaining({ assetId: "a1" })),
     );
+  });
+
+  it("opens a device's history card from its page, with its particulars", async () => {
+    searchParams = new URLSearchParams("kind=history&assetId=a1&tag=SP-1&name=Syringe+pump");
+    getRegister.mockResolvedValue(
+      register({
+        kind: "history",
+        title: "Equipment History Card",
+        period: null,
+        device: "SP-1 · Syringe pump",
+        details: [
+          { label: "Make and model", value: "BD Alaris GH" },
+          { label: "Warranty until", value: null },
+        ],
+      }),
+    );
+    render(wrap(<RegistersPage />));
+    await screen.findByRole("table");
+    expect(getRegister).toHaveBeenLastCalledWith("history", expect.objectContaining({ assetId: "a1", from: undefined }));
+    expect(screen.getByText("Syringe pump")).toBeInTheDocument();
+    expect(screen.getByText("BD Alaris GH")).toBeInTheDocument();
+    expect(screen.getByText("—")).toBeInTheDocument();
+  });
+
+  it("plans the year ahead, and looks back again for other registers", async () => {
+    const user = userEvent.setup();
+    render(wrap(<RegistersPage />));
+    await user.selectOptions(screen.getByLabelText("Register"), "planner");
+    const now = new Date();
+    const first = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+    await waitFor(() =>
+      expect(getRegister).toHaveBeenLastCalledWith("planner", expect.objectContaining({ from: first })),
+    );
+    expect((screen.getByLabelText("To") as HTMLInputElement).value > first).toBe(true);
+    await user.selectOptions(screen.getByLabelText("Register"), "breakdown");
+    expect((screen.getByLabelText("From") as HTMLInputElement).value < first).toBe(true);
   });
 
   it("downloads the register for Excel", async () => {

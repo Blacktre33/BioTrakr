@@ -36,6 +36,9 @@ export const STATUS_TEXT: Record<CondemnationStatus, string> = {
   DISPOSED: 'Disposed of',
 };
 
+/** How the status change of a reversed approval begins. */
+export const REVERSED = 'Condemnation reversed';
+
 /** A device has at most one of these at a time. */
 export const OPEN_CONDEMNATION: CondemnationStatus[] = ['PROPOSED', 'APPROVED'];
 

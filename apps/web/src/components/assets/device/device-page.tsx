@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, History, Pencil, QrCode, ShieldCheck } from "lucide-react";
+import { ArrowLeft, BookOpen, History, Pencil, QrCode, ShieldCheck } from "lucide-react";
 
 import { EditHistorySection } from "@/components/audit/edit-history-section";
 import { CalibrationSection } from "@/components/calibration/calibration-section";
@@ -117,6 +117,23 @@ export function DevicePage({ assetId }: { assetId: string }) {
                 onClick={() => router.push(`/labels?id=${encodeURIComponent(assetId)}` as never)}
               >
                 Print label
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                leftIcon={<BookOpen className="h-4 w-4" />}
+                onClick={() =>
+                  router.push(
+                    `/registers?${new URLSearchParams({
+                      kind: "history",
+                      assetId,
+                      tag: device.assetTagNumber,
+                      name: device.equipmentName,
+                    })}` as never,
+                  )
+                }
+              >
+                History card
               </Button>
             </div>
           )}

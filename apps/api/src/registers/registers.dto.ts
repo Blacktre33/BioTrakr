@@ -6,6 +6,8 @@ export const REGISTER_KINDS = [
   'inventory',
   'survey',
   'logbook',
+  'history',
+  'planner',
   'calibration',
   'safety',
   'pm',
@@ -36,7 +38,7 @@ export class RegisterQuery {
   @IsOptional()
   to?: string;
 
-  @ApiPropertyOptional({ description: 'The device (logbook only)' })
+  @ApiPropertyOptional({ description: 'The device (logbook and history card)' })
   @IsUUID()
   @IsOptional()
   assetId?: string;
