@@ -1,3 +1,4 @@
+import type { BreakdownClock } from "../downtime";
 import type { AppliedPartType, ElectricalClass } from "../iec62353";
 import type { CalibrationInput } from "./calibration";
 import { api } from "./client";
@@ -38,6 +39,8 @@ export interface WorkOrder {
   };
   reportedBy: string | null;
   assignedTo: { id: string; name: string } | null;
+  /** A breakdown's clock against its repair limit; null for other work. */
+  downtime?: BreakdownClock | null;
 }
 
 export interface WorkOrderUpdate {

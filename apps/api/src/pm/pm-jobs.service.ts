@@ -12,6 +12,7 @@ import { AuditService } from '../audit/audit.service';
 import { BIOMED_ROLES } from '../auth/roles';
 import { ContractAlertsService } from '../contracts/contract-alerts.service';
 import { PrismaService } from '../database/prisma.service';
+import { DowntimeService } from '../downtime/downtime.service';
 import { bestEffort, deviceLabel, notify } from '../notifications/notify';
 import { OPEN_STATUSES } from '../work-orders/work-orders.service';
 
@@ -175,6 +176,7 @@ export class PmJobsService implements OnApplicationBootstrap, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly contractAlerts: ContractAlertsService,
     private readonly audit: AuditService,
+    private readonly downtime: DowntimeService,
   ) {}
 
   onApplicationBootstrap(): void {
@@ -201,6 +203,9 @@ export class PmJobsService implements OnApplicationBootstrap, OnModuleDestroy {
       await this.step('PM schedule', () => this.openDue());
       await this.step('Contract and warranty notices', () =>
         this.contractAlerts.check(),
+      );
+      await this.step('Repair limit notices', () =>
+        this.downtime.checkLimits(),
       );
       // Once a day: the edit history's hash chain, recomputed.
       const today = formatDay(new Date());

@@ -178,6 +178,8 @@ The containers restart on their own after a crash or a server reboot. Logs are r
 
 **Preventive maintenance**: the API opens PM work orders 14 days before they fall due. To change that, set `PM_LEAD_DAYS` in `.env`, then run `docker compose up -d`. Set `TZ` to the hospital's time zone so the due dates written in work orders are local.
 
+**Repair limits and uptime target**: breakdowns are held to 72 hours for critical and life-saving equipment and 7 days for the rest (the BMMP Model RFP), and uptime is measured against 95%. A CHC or PHC, or a contract with other terms, can change `DOWNTIME_LIMIT_CRITICAL_HOURS`, `DOWNTIME_LIMIT_OTHER_HOURS` and `UPTIME_TARGET_PERCENT` in `.env`.
+
 ## 9. Security checklist
 
 - Firewall: only 80 and 443 (from the hospital network) and SSH (from IT's machines) need to be reachable. Note that ports published by Docker bypass `ufw` rules, so limit them with the hospital's network firewall, with `BIND_IP` in `.env` (answer only on one server address), or with rules in Docker's `DOCKER-USER` chain. The database is not published at all.

@@ -21,6 +21,7 @@ import {
   recordCalibration,
 } from '../calibration/calibration';
 import { PrismaService } from '../database/prisma.service';
+import { BREAKDOWN_TYPES, breakdownClock } from '../downtime/downtime';
 import {
   deviceForNotice,
   deviceLabel,
@@ -80,6 +81,8 @@ const LIST_SELECT = {
       equipmentName: true,
       assetStatus: true,
       criticalityLevel: true,
+      // Its repair limit.
+      deviceCategory: true,
       // To fill in a safety test form.
       electricalClass: true,
       appliedPartType: true,
@@ -97,10 +100,12 @@ type Row = Prisma.MaintenanceHistoryGetPayload<{ select: typeof LIST_SELECT }>;
 const fullName = (u: { firstName: string; lastName: string } | null) =>
   u ? `${u.firstName} ${u.lastName}`.trim() : null;
 
-function present(row: Row) {
+function present(row: Row, now = new Date()) {
   const { asset, createdBy, assignedTechnician, ...wo } = row;
   return {
     ...wo,
+    /** A breakdown's clock against its repair limit; null for other work. */
+    downtime: breakdownClock(row, asset, now),
     asset: {
       id: asset.id,
       assetTagNumber: asset.assetTagNumber,
@@ -240,7 +245,8 @@ export class WorkOrdersService {
         take: query.take ?? 50,
       }),
     ]);
-    return { total, items: rows.map(present) };
+    const now = new Date();
+    return { total, items: rows.map((r) => present(r, now)) };
   }
 
   async update(id: string, dto: UpdateWorkOrderDto, user: AuthUser) {
@@ -253,6 +259,7 @@ export class WorkOrdersService {
           startedAt: true,
           assignedTechnicianId: true,
           failureCategory: true,
+          createdAt: true,
           assetId: true,
           isEmergency: true,
           createdByUserId: true,
@@ -342,6 +349,11 @@ export class WorkOrdersService {
         }
         data.completedAt = now;
         data.workPerformed = note;
+        // Report to rectified, kept with the record (Decimal(6, 2)).
+        if (BREAKDOWN_TYPES.includes(current.workOrderType)) {
+          const hours = (now.getTime() - current.createdAt.getTime()) / 3.6e6;
+          data.downtimeHours = Math.min(9999.99, Math.round(hours * 100) / 100);
+        }
         if (dto.failureCategory) data.failureCategory = dto.failureCategory;
         if (!current.assignedTechnicianId && !data.assignedTechnicianId) {
           data.assignedTechnicianId = user.userId;

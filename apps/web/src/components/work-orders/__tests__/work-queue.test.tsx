@@ -62,6 +62,30 @@ describe("WorkQueue", () => {
     expect(within(card).getByText("Quarantined")).toBeInTheDocument();
   });
 
+  it("shows how long a breakdown has waited against its repair limit", () => {
+    items = [
+      {
+        ...base,
+        downtime: { open: true, hours: 80, attendHours: null, limitHours: 72, leftHours: -8, state: "over" },
+      },
+      {
+        ...base,
+        id: "wo-2",
+        downtime: { open: true, hours: 130, attendHours: 2, limitHours: 168, leftHours: 38, state: "nearing" },
+      },
+      {
+        ...base,
+        id: "wo-3",
+        workOrderStatus: "COMPLETED",
+        downtime: { open: false, hours: 6.5, attendHours: 1, limitHours: 72, leftHours: 65.5, state: "within" },
+      },
+    ];
+    render(<WorkQueue />);
+    expect(screen.getByText("Over the 72 h repair limit by 8 h")).toHaveClass("text-critical-500");
+    expect(screen.getByText("Open 5 days 10 h: 38 h left of 7 days")).toHaveClass("text-warning-500");
+    expect(screen.getByText("Put right in 6.5 h (limit 72 h)")).toBeInTheDocument();
+  });
+
   it("starts unassigned work and takes it on in one tap", async () => {
     const user = userEvent.setup();
     render(<WorkQueue />);

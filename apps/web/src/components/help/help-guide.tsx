@@ -14,6 +14,7 @@ import {
   ScanLine,
   ScrollText,
   Server,
+  Timer,
   UserCog,
   Wrench,
   type LucideIcon,
@@ -73,6 +74,12 @@ const tasks: Task[] = [
     href: '/registers',
     icon: ClipboardList,
     body: 'For biomed and auditors: the inventory master, annual survey and device logbook in the NHSRC formats, and the calibration, electrical safety, PM, breakdown and AMC/CMC registers. Print on A4 with a sign-off, or download for Excel.',
+  },
+  {
+    title: 'Uptime and repair limits',
+    href: '/registers?kind=uptime',
+    icon: Timer,
+    body: 'For biomed: each breakdown shows how long it has waited against its limit (72 hours for critical and life-saving equipment, 7 days for the rest), and you are warned before it runs out. The uptime register shows each device’s time out of use, breakdowns and repair times for any period.',
   },
   {
     title: 'Who changed what',
