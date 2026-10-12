@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { Building2, ClipboardCheck, LogOut, UserCircle, Users } from 'lucide-react';
+import { Activity, Building2, ClipboardCheck, LogOut, UserCircle, Users } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Header } from '@/components/layout';
@@ -10,6 +10,7 @@ import { ChangePasswordForm } from '@/components/settings/change-password-form';
 import { ChecklistsAdmin } from '@/components/settings/checklists-admin';
 import { LocationsAdmin } from '@/components/settings/locations-admin';
 import { PeopleAdmin } from '@/components/settings/people-admin';
+import { SystemAdmin } from '@/components/settings/system-admin';
 import { Button, Card } from '@/components/ui';
 import { api, signOut } from '@/lib/api/client';
 import { getSession, ROLE_LABEL, type SessionUser } from '@/lib/auth/session';
@@ -21,6 +22,7 @@ const TABS = [
   { id: 'locations', label: 'Facilities & rooms', icon: Building2, roles: ['admin'] },
   { id: 'people', label: 'People', icon: Users, roles: ['admin'] },
   { id: 'checklists', label: 'PM checklists', icon: ClipboardCheck, roles: ['admin', 'engineer'] },
+  { id: 'system', label: 'System', icon: Activity, roles: ['admin'] },
 ] as const;
 type TabId = (typeof TABS)[number]['id'];
 
@@ -130,6 +132,7 @@ function SettingsContent() {
         {active === 'locations' && <LocationsAdmin />}
         {active === 'people' && <PeopleAdmin />}
         {active === 'checklists' && <ChecklistsAdmin />}
+        {active === 'system' && <SystemAdmin />}
       </div>
     </div>
   );

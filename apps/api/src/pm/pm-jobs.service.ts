@@ -14,10 +14,19 @@ import { ContractAlertsService } from '../contracts/contract-alerts.service';
 import { PrismaService } from '../database/prisma.service';
 import { DowntimeService } from '../downtime/downtime.service';
 import { bestEffort, deviceLabel, notify } from '../notifications/notify';
+import { jobFailed, jobSucceeded, registerJob } from '../system/job-health';
 import { OPEN_STATUSES } from '../work-orders/work-orders.service';
 
 const DAY = 24 * 60 * 60 * 1000;
 const BATCH = 200;
+/** The hourly jobs, by their names on Settings → System. */
+const HOURLY_STEPS = [
+  'PM schedule',
+  'Contract and warranty notices',
+  'Repair limit notices',
+] as const;
+/** Once a day. */
+const AUDIT_STEP = 'Edit history check';
 /** A notice names this many devices, then "and N more". */
 const NAMED_IN_NOTICE = 5;
 
@@ -184,6 +193,8 @@ export class PmJobsService implements OnApplicationBootstrap, OnModuleDestroy {
       return;
     }
     const every = Number(process.env.PM_JOB_INTERVAL_MS) || 60 * 60 * 1000;
+    for (const name of HOURLY_STEPS) registerJob(name, every);
+    registerJob(AUDIT_STEP, 24 * 60 * 60 * 1000);
     this.timer = setInterval(() => void this.tick(), every);
     this.timer.unref();
     // Soon after start too, rather than an hour later.
@@ -200,17 +211,13 @@ export class PmJobsService implements OnApplicationBootstrap, OnModuleDestroy {
     if (this.running) return;
     this.running = true;
     try {
-      await this.step('PM schedule', () => this.openDue());
-      await this.step('Contract and warranty notices', () =>
-        this.contractAlerts.check(),
-      );
-      await this.step('Repair limit notices', () =>
-        this.downtime.checkLimits(),
-      );
+      await this.step(HOURLY_STEPS[0], () => this.openDue());
+      await this.step(HOURLY_STEPS[1], () => this.contractAlerts.check());
+      await this.step(HOURLY_STEPS[2], () => this.downtime.checkLimits());
       // Once a day: the edit history's hash chain, recomputed.
       const today = formatDay(new Date());
       if (this.auditCheckedOn !== today) {
-        await this.step('Edit history check', async () => {
+        await this.step(AUDIT_STEP, async () => {
           await this.audit.checkAll();
           this.auditCheckedOn = today;
         });
@@ -224,7 +231,9 @@ export class PmJobsService implements OnApplicationBootstrap, OnModuleDestroy {
   private async step(name: string, job: () => Promise<unknown>) {
     try {
       await job();
+      jobSucceeded(name);
     } catch (error) {
+      jobFailed(name, error);
       this.logger.error(`${name} failed: ${(error as Error).message}`);
     }
   }

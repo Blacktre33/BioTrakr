@@ -1654,6 +1654,28 @@ model OutboundMessage {
   @@map("outbound_messages")
 }
 
+/// Problems with the installation itself: backups, disk space, background
+/// jobs, outside messages. One row per kind of problem, so administrators
+/// are told when it starts, reminded while it lasts, and told when it is
+/// fixed. Not tied to an organization: the server is shared.
+model SystemAlert {
+  /// e.g. backup.failed, disk.server, job.PM schedule, delivery.sms
+  key            String    @id @db.VarChar(100)
+  /// critical | warning
+  severity       String    @db.VarChar(10)
+  title          String    @db.VarChar(200)
+  detail         String?   @db.VarChar(1000)
+  firstSeenAt    DateTime  @default(now())
+  lastSeenAt     DateTime  @default(now())
+  /// Also a claim: whoever moves it on sends the notice.
+  lastNotifiedAt DateTime?
+  /// Set when the problem goes away; cleared if it comes back.
+  resolvedAt     DateTime?
+
+  @@index([resolvedAt])
+  @@map("system_alerts")
+}
+
 // =====================================================
 // EDIT HISTORY (AUDIT TRAIL)
 // =====================================================

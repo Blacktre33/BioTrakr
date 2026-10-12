@@ -23,6 +23,7 @@ import { RegistersModule } from './registers/registers.module';
 import { AuditModule } from './audit/audit.module';
 import { CondemnationModule } from './condemnation/condemnation.module';
 import { TrainingModule } from './training/training.module';
+import { SystemModule } from './system/system.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { requestIdMiddleware } from './common/request-id';
 import { AppController } from './app.controller';
@@ -50,6 +51,7 @@ import { AppService } from './app.service';
     AuditModule,
     CondemnationModule,
     TrainingModule,
+    SystemModule,
   ],
   controllers: [AppController],
   providers: [

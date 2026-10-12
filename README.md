@@ -46,7 +46,8 @@ biotrakr/
 - **Downtime and uptime**: every breakdown runs a clock from the report to the device being put right, against the BMMP limits: 72 hours for critical and life-saving equipment, 7 days for everything else. The work queue shows it, biomed is warned at three quarters of the limit and again (urgently, outside the app too for life-saving equipment) once it has passed, and the hours are kept with the completed work order. The uptime register lists each device's hours in service and out of use, breakdowns and time over the limit for any period, with mean time to attend, to repair and between failures.
 - **Edit history (audit trail)**: every change to devices, work orders, checks, contracts, vendors, files, places and accounts is recorded with who, when, what changed (before and after) and why, in the same transaction as the change. Entries cannot be edited or deleted, and each is hash-chained (SHA-256) to the one before, so an entry altered or removed directly in the database is detected; the chain is checked daily and administrators are told if it breaks. Shown on each device page and printable as a register with the chain's latest hash. Personal details (names, phone, email) are recorded as changed, without their values.
 - **Dashboard**: devices out of use, PM, calibration and electrical safety compliance, open work orders, time to repair.
-- **Notifications**: in-app and browser notices, escalation of urgent reports, and a signed webhook for an SMS/WhatsApp gateway.
+- **Notifications**: in-app and browser notices; urgent reports by email and SMS (any HTTP SMS provider) and a signed webhook for the hospital's own gateway; escalation until work starts.
+- **System health**: administrators are told (in the app, and by email and SMS) when a backup fails or is missed, a backup is not reaching its second location off the server, a disk fills up, a background job stops working, or messages are not getting through. Settings → System shows all of it, with a button to send yourself a test alert. An outside monitor can be told every five minutes that the server is alive (`HEARTBEAT_URL`).
 - **Settings**: people (roles, one-time passwords, mobile numbers) and locations.
 
 ### Not built yet
@@ -145,23 +146,45 @@ must already exist. Limits: 5 MB, 2,000 rows per file.
 
 ### Notifications
 
-Biomed sees notices in the app's bell: problem reports on their facility's devices, device faults that took a device out of use, work assigned to them. Reporters hear when their report is fixed or closed. An urgent report (a critical device, or a high-risk device taken out of use) that nobody takes on is escalated to engineers and administrators after 15 and again after 60 minutes.
+Biomed sees notices in the app's bell: problem reports on their facility's devices, device faults that took a device out of use, work assigned to them. Reporters hear when their report is fixed or closed.
 
-Urgent notices can also go to your own gateway (SMS, WhatsApp, pager) as a signed webhook. Set each person's mobile number in Settings → People; it is stored and sent as `+` and digits (for example `+919876543210`).
+A report is **urgent** when a life-saving device (critical or high criticality, or the life-support category) is out of use, whether the reporter took it out of use or it already was, and biomed does not already have it in hand (no earlier urgent report still open, no work started on it). Urgent reports go to the top of the queue and outside the app. Until someone starts the work (moves it to in progress), they are escalated to the facility's engineers and administrators, and to whoever it is assigned to, after each step in `NOTIFY_ESCALATE_MINUTES` (15 and 60 minutes), then every `NOTIFY_ESCALATE_REPEAT_MINUTES` (an hour) for a day. Assigning the work does not stop the escalation; starting it does.
+
+Outside the app, urgent notices go by **email** and **SMS** to each person who should hear (SMS to those with a mobile number in Settings → People, stored as `+` and digits, e.g. `+919876543210`), and to your own gateway as a signed **webhook**, whichever are set up. What ward staff typed is never sent outside (it may name a patient): messages carry the title, the place and a link. Set-up for hospitals, with SMS examples and Indian DLT templates, is in [docs/DEPLOY-ONPREM.md](./docs/DEPLOY-ONPREM.md#7-urgent-notices).
 
 | Variable | Meaning |
 |---|---|
-| `NOTIFY_WEBHOOK_URL` | Where to POST urgent notices. Unset: in-app only. |
+| `SMTP_HOST`, `SMTP_PORT` (587), `SMTP_SECURE` (`true` for 465), `SMTP_USER`, `SMTP_PASSWORD` | Mail server for email notices. |
+| `NOTIFY_EMAIL_FROM` | Sender address, e.g. `BioTrakr <biotrakr@hospital.example>`. Email is on when this and `SMTP_HOST` are set. |
+| `NOTIFY_SMS_URL` | SMS provider address; `{to}` (`+9198…`), `{to_digits}` (`9198…`) and `{text}` are filled in, URL-encoded. |
+| `NOTIFY_SMS_METHOD`, `NOTIFY_SMS_BODY`, `NOTIFY_SMS_HEADERS` | `POST` with a body template (JSON if it starts with `{`, else a form) and extra headers as a JSON object. |
+| `NOTIFY_SMS_TEXT` | Message wording, default `BioTrakr: {title} {link}` (match your DLT template). |
+| `NOTIFY_SMS_SUCCESS_MATCH` | Text the provider's reply must contain for the SMS to count as sent; otherwise it is retried. |
+| `NOTIFY_WEBHOOK_URL` | Where to POST urgent notices for your own gateway. |
 | `NOTIFY_WEBHOOK_SECRET` | At least 16 characters. Required with the URL; nothing is sent unsigned. |
 | `APP_URL` | Public address of the web app, used for links in messages. |
 | `NOTIFY_ESCALATE_MINUTES` | Escalation steps, default `15,60`. |
+| `NOTIFY_ESCALATE_REPEAT_MINUTES` | After the last step, again every N minutes until work starts (default 60, at least 5; `0` = never). |
 | `NOTIFY_JOBS` | `off` stops escalation and delivery in this instance (they run every 30 s). |
+
+Settings that were filled in but cannot work (a webhook secret under 16 characters, an SMS address without `{to}` or `{text}`, `SMTP_HOST` without `NOTIFY_EMAIL_FROM`) switch that channel off and are reported to administrators and on Settings → System, not ignored silently. **Send me a test alert** on that page sends one message to the administrator through each channel and shows the outcome.
 
 Each POST carries `X-BioTrakr-Timestamp` and `X-BioTrakr-Signature: sha256=<hex>`, the HMAC-SHA256 of `<timestamp>.<body>` with the secret. Check it, reject timestamps older than a few minutes, and de-duplicate on the body's `id` (it is signed; retries reuse it). The body has the title, severity, device, a link and the recipients' names, roles, phones and emails so the gateway can reach them; what ward staff typed is not included (it may name a patient). Keep the gateway inside the hospital network.
 
-Delivery: a timeout, network error, 408, 429 or 5xx is retried with backoff (8 attempts over about an hour); any other 3xx/4xx is final (redirects are not followed). Either way the outcome is logged. Sent and failed messages are deleted after 7 days, in-app notices after 90.
+Delivery: a timeout, network error, 408, 429 or 5xx is retried with backoff (8 attempts over about an hour); any other 3xx/4xx is final (redirects are not followed). For email, a 5xx answer from the mail server (address refused) is final and anything else is retried. Messages that keep failing are reported to administrators, and listed on Settings → System. Sent and failed messages are deleted after 7 days, in-app notices after 90.
 
-Escalation and delivery run inside the API process every 30 s, so the API must run as a long-lived service (not serverless). Faults reported by devices take the device out of use and notify biomed once; they are not escalated, because no work order exists for them yet.
+Escalation and delivery run inside the API process every 30 s, so the API must run as a long-lived service (not serverless). The system checks (below) notice if they stop working. Faults reported by devices take the device out of use and notify biomed once; they are not escalated, because no work order exists for them yet.
+
+### System health
+
+Every five minutes the API checks the installation itself and tells administrators (in the app; critical problems also by email, SMS and webhook) when a problem starts, reminds them daily while it lasts (weekly for warnings), and tells them when it is fixed:
+
+- **Backups**, from the status the backup container writes (`BACKUP_STATUS_FILE`, set by `deploy/docker-compose.yml`): the last backup failed, none for 26 hours, the second copy off the server failed or is overdue, or there is no second copy at all (a warning).
+- **Disk space** on the server (database) and on both backup locations: a warning under 15% or 5 GB free, critical under 5% or 1 GB.
+- **Background jobs** (escalation and delivery, PM work orders, contract and repair-limit notices, the edit-history check) that have not finished well for three of their intervals.
+- **Outside messages** that gave up or keep failing, by channel, and notification settings that cannot work. With no email, SMS or webhook set up, a warning that urgent reports reach only people who have the app open.
+
+`HEARTBEAT_URL`: called after each check while the API and database answer, for a monitor elsewhere (an Uptime Kuma push monitor, healthchecks.io) that alerts when the calls stop, which is the only way to hear that the server itself is down. `SYSTEM_CHECKS=off` turns the checks off in an instance. Alerts are kept in `system_alerts`. Job health is per API process, so run one API instance per server, as the hospital install does.
 
 ### Dashboard
 
