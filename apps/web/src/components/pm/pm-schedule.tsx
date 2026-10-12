@@ -6,6 +6,7 @@ import Link from "next/link";
 import {
   addDays,
   addMonths,
+  differenceInCalendarDays,
   endOfMonth,
   endOfWeek,
   format,
@@ -100,7 +101,7 @@ function WorkOrderState({ device }: { device: PmDevice }) {
 }
 
 function OverdueList({ items, total }: { items: PmDevice[]; total: number }) {
-  const now = Date.now();
+  const today = new Date();
   return (
     <Card className="p-6">
       <h2 className="text-lg font-semibold text-white">
@@ -111,7 +112,8 @@ function OverdueList({ items, total }: { items: PmDevice[]; total: number }) {
       ) : (
         <ul className="mt-3 divide-y divide-white/5">
           {items.map((d) => {
-            const days = Math.floor((now - new Date(d.dueDate).getTime()) / 86_400_000);
+            // Calendar days in the viewer's time zone, to match the "Due" date shown beside it.
+            const days = differenceInCalendarDays(today, new Date(d.dueDate));
             return (
               <li key={d.id} className="flex items-center justify-between gap-4 py-3">
                 <div className="min-w-0">
