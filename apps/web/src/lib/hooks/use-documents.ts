@@ -26,6 +26,7 @@ function useInvalidateDocumentViews() {
     void queryClient.invalidateQueries({ queryKey: ["calibrations"] });
     void queryClient.invalidateQueries({ queryKey: ["safety-tests"] });
     void queryClient.invalidateQueries({ queryKey: ["contracts"] });
+    void queryClient.invalidateQueries({ queryKey: ["audit"] });
   };
 }
 

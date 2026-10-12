@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 
+import { actorOf, audit, auditedTransaction } from '../audit/audit';
+import { changesBetween, listed } from '../audit/changes';
 import type { AuthUser } from '../auth/auth-user';
 import { PrismaService } from '../database/prisma.service';
 import { documentCounts } from '../documents/documents.service';
@@ -236,16 +238,24 @@ export class ContractsService {
   }
 
   async create(dto: ContractInputDto, user: AuthUser) {
-    const id = await this.prisma.$transaction(async (tx) => {
+    const id = await auditedTransaction(this.prisma, async (tx) => {
       await this.check(tx, dto, user);
-      return this.insert(tx, dto, user);
+      const id = await this.insert(tx, dto, user);
+      const added = await this.snapshot(tx, id);
+      audit(tx, actorOf(user), {
+        action: 'contract.created',
+        entityType: 'contract',
+        entityId: id,
+        summary: `Added ${added.contractType} ${added.contractNumber} with ${added.vendor} for ${added.devices.join(', ')}`,
+      });
+      return id;
     });
     return this.get(id, user);
   }
 
   /** Replaces a contract's details and devices. */
   async update(id: string, dto: ContractInputDto, user: AuthUser) {
-    await this.prisma.$transaction(async (tx) => {
+    await auditedTransaction(this.prisma, async (tx) => {
       const current = await this.find(tx, id, user);
       if (current.terminatedAt) {
         throw new ConflictException(
@@ -253,6 +263,7 @@ export class ContractsService {
         );
       }
       await this.check(tx, dto, user, id);
+      const before = await this.snapshot(tx, id);
       await tx.serviceContract.updateMany({
         where: { id, organizationId: user.organizationId },
         data: { ...this.fields(dto), updatedById: user.userId },
@@ -264,6 +275,18 @@ export class ContractsService {
         data: dto.deviceIds.map((assetId) => ({ contractId: id, assetId })),
         skipDuplicates: true,
       });
+      // The vendor is compared by vendorId.
+      const after = { ...(await this.snapshot(tx, id)), vendor: undefined };
+      const changes = await changesBetween(tx, before, after);
+      if (changes.length) {
+        audit(tx, actorOf(user), {
+          action: 'contract.updated',
+          entityType: 'contract',
+          entityId: id,
+          summary: `Edited ${before.contractType} ${before.contractNumber}: ${listed(changes)}`,
+          changes,
+        });
+      }
     });
     return this.get(id, user);
   }
@@ -272,7 +295,7 @@ export class ContractsService {
   async renew(id: string, dto: ContractInputDto, user: AuthUser) {
     let created: string;
     try {
-      created = await this.prisma.$transaction(async (tx) => {
+      created = await auditedTransaction(this.prisma, async (tx) => {
         const current = await this.find(tx, id, user);
         if (current.renewedBy) {
           throw new ConflictException(
@@ -290,7 +313,18 @@ export class ContractsService {
           ]);
         }
         await this.check(tx, dto, user);
-        return this.insert(tx, dto, user, id);
+        const renewal = await this.insert(tx, dto, user, id);
+        const [was, now] = await Promise.all([
+          this.snapshot(tx, id),
+          this.snapshot(tx, renewal),
+        ]);
+        audit(tx, actorOf(user), {
+          action: 'contract.renewed',
+          entityType: 'contract',
+          entityId: renewal,
+          summary: `Renewed ${was.contractType} ${was.contractNumber} as ${now.contractNumber}, ${formatDate(now.startDate)} to ${formatDate(now.endDate)}`,
+        });
+        return renewal;
       });
     } catch (error) {
       // The unique renewsId: someone renewed it just now.
@@ -306,23 +340,60 @@ export class ContractsService {
 
   /** Ends a contract early. It stays on record with the reason. */
   async terminate(id: string, dto: TerminateContractDto, user: AuthUser) {
-    const current = await this.find(this.prisma, id, user);
-    const status = contractStatus(current);
-    if (status === 'terminated' || status === 'expired') {
-      throw new ConflictException('This contract has already ended');
-    }
-    const { count } = await this.prisma.serviceContract.updateMany({
-      where: { id, organizationId: user.organizationId, terminatedAt: null },
-      data: {
-        terminatedAt: new Date(),
-        terminationReason: dto.reason,
-        updatedById: user.userId,
+    await auditedTransaction(this.prisma, async (tx) => {
+      const current = await this.find(tx, id, user);
+      const status = contractStatus(current);
+      if (status === 'terminated' || status === 'expired') {
+        throw new ConflictException('This contract has already ended');
+      }
+      const { count } = await tx.serviceContract.updateMany({
+        where: { id, organizationId: user.organizationId, terminatedAt: null },
+        data: {
+          terminatedAt: new Date(),
+          terminationReason: dto.reason,
+          updatedById: user.userId,
+        },
+      });
+      if (count === 0) {
+        throw new ConflictException('This contract has already ended');
+      }
+      const ended = await this.snapshot(tx, id);
+      audit(tx, actorOf(user), {
+        action: 'contract.terminated',
+        entityType: 'contract',
+        entityId: id,
+        summary: `Ended ${ended.contractType} ${ended.contractNumber} with ${ended.vendor} early`,
+        reason: dto.reason,
+      });
+    });
+    return this.get(id, user);
+  }
+
+  /** A contract as the edit history compares it: its terms and the devices it covers. */
+  private async snapshot(tx: Tx, id: string) {
+    const c = await tx.serviceContract.findFirst({
+      where: { id },
+      select: {
+        vendorId: true,
+        contractType: true,
+        contractNumber: true,
+        startDate: true,
+        endDate: true,
+        annualValue: true,
+        pmVisitsPerYear: true,
+        responseTimeHours: true,
+        uptimeGuaranteePercent: true,
+        notes: true,
+        vendor: { select: { vendorName: true } },
+        devices: { select: { asset: { select: { assetTagNumber: true } } } },
       },
     });
-    if (count === 0) {
-      throw new ConflictException('This contract has already ended');
-    }
-    return this.get(id, user);
+    const { vendor, devices, ...terms } = c!;
+    return {
+      ...terms,
+      vendor: vendor.vendorName,
+      devices: devices.map((d) => d.asset.assetTagNumber).sort(),
+    };
   }
 
   private async find(

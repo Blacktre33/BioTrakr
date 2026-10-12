@@ -12,6 +12,8 @@ import {
 } from '../assets/asset-status.service';
 import { describeLocation, LOCATION_SELECT } from '../assets/location';
 import { recordPmCompleted } from '../assets/pm-dates';
+import { actorOf, audit, auditedTransaction } from '../audit/audit';
+import { changesBetween, listed } from '../audit/changes';
 import type { AuthUser } from '../auth/auth-user';
 import { BIOMED_ROLES, normalizeRole } from '../auth/roles';
 import {
@@ -134,14 +136,18 @@ export class WorkOrdersService {
     }
     const where = dto.locationHint?.trim();
 
-    return this.prisma.$transaction(async (tx) => {
+    return auditedTransaction(this.prisma, async (tx) => {
       const asset = await tx.asset.findFirst({
         where: {
           id: dto.assetId,
           organizationId: user.organizationId,
           deletedAt: null,
         },
-        select: { assetStatus: true, criticalityLevel: true },
+        select: {
+          assetStatus: true,
+          criticalityLevel: true,
+          assetTagNumber: true,
+        },
       });
       if (!asset) throw new NotFoundException('Device not found');
 
@@ -163,17 +169,24 @@ export class WorkOrdersService {
         },
         select: { id: true },
       });
+      audit(tx, actorOf(user), {
+        action: 'work_order.reported',
+        entityType: 'work_order',
+        entityId: workOrder.id,
+        assetId: dto.assetId,
+        summary: `Problem reported on ${asset.assetTagNumber}`,
+        reason: where ? `${description} (where: ${where})` : description,
+      });
 
       let takenOutOfUse = false;
       if (dto.takeOutOfUse && !isStopStatus(asset.assetStatus)) {
         const change = await changeAssetStatus(tx, {
           assetId: dto.assetId,
-          organizationId: user.organizationId,
+          actor: actorOf(user),
           toStatus: 'QUARANTINED',
           expectedStatus: asset.assetStatus,
           reason: `Problem reported: ${description}`.slice(0, 1000),
           source: 'FAULT_REPORT',
-          changedById: user.userId,
           workOrderId: workOrder.id,
         });
         takenOutOfUse = change.changed;
@@ -231,7 +244,7 @@ export class WorkOrdersService {
   }
 
   async update(id: string, dto: UpdateWorkOrderDto, user: AuthUser) {
-    return this.prisma.$transaction(async (tx) => {
+    return auditedTransaction(this.prisma, async (tx) => {
       const current = await tx.maintenanceHistory.findFirst({
         where: { id, asset: { organizationId: user.organizationId } },
         select: {
@@ -239,6 +252,7 @@ export class WorkOrdersService {
           workOrderType: true,
           startedAt: true,
           assignedTechnicianId: true,
+          failureCategory: true,
           assetId: true,
           isEmergency: true,
           createdByUserId: true,
@@ -383,6 +397,7 @@ export class WorkOrdersService {
           'This work order was updated by someone else just now. Reload and check before trying again.',
         );
       }
+      await this.auditUpdate(tx, user, id, current, data);
 
       let released = false;
       /** The calibration or safety test this completed, to attach its certificate to. */
@@ -393,9 +408,8 @@ export class WorkOrdersService {
         if (isCalibration) {
           const { id: recordId } = await recordCalibration(tx, {
             assetId: current.assetId,
-            organizationId: user.organizationId,
+            actor: actorOf(user),
             input: dto.calibration!,
-            recordedById: user.userId,
             workOrderId: id,
           });
           record = { type: 'calibration', id: recordId };
@@ -403,9 +417,8 @@ export class WorkOrdersService {
         if (isSafetyTest) {
           const { id: recordId } = await recordSafetyTest(tx, {
             assetId: current.assetId,
-            organizationId: user.organizationId,
+            actor: actorOf(user),
             input: dto.safetyTest!,
-            recordedById: user.userId,
             workOrderId: id,
           });
           record = { type: 'safetyTest', id: recordId };
@@ -421,12 +434,11 @@ export class WorkOrdersService {
         if (dto.releaseDevice) {
           const change = await changeAssetStatus(tx, {
             assetId: current.assetId,
-            organizationId: user.organizationId,
+            actor: actorOf(user),
             toStatus: 'ACTIVE',
             expectedStatus: current.asset.assetStatus,
             reason: `Work order completed: ${note}`.slice(0, 1000),
             source: 'WORK_ORDER',
-            changedById: user.userId,
             workOrderId: id,
           });
           if (!change.changed) {
@@ -455,6 +467,59 @@ export class WorkOrdersService {
         select: LIST_SELECT,
       });
       return { ...present(row!), deviceReleased: released, record };
+    });
+  }
+
+  /**
+   * The edit history's entry for a work order update: what moved (status,
+   * assignee, cause), with the note given when it was closed.
+   */
+  private async auditUpdate(
+    tx: Prisma.TransactionClient,
+    user: AuthUser,
+    id: string,
+    current: {
+      workOrderStatus: WorkOrderStatus;
+      assignedTechnicianId: string | null;
+      failureCategory: string | null;
+      assetId: string;
+      description: string | null;
+      asset: { assetTagNumber: string };
+    },
+    data: Prisma.MaintenanceHistoryUncheckedUpdateManyInput,
+  ) {
+    const next = data.workOrderStatus as WorkOrderStatus;
+    const closing = next === 'COMPLETED' || next === 'CANCELLED';
+    const changes = await changesBetween(tx, current, {
+      workOrderStatus: data.workOrderStatus,
+      assignedTechnicianId: data.assignedTechnicianId,
+      failureCategory: data.failureCategory,
+      // A closing note is the entry's reason instead.
+      workPerformed: closing ? undefined : data.workPerformed,
+    });
+    if (!changes.length) return;
+    const what = current.description?.split('\n')[0] ?? 'work order';
+    const tag = current.asset.assetTagNumber;
+    audit(tx, actorOf(user), {
+      action:
+        next === 'COMPLETED'
+          ? 'work_order.completed'
+          : next === 'CANCELLED'
+            ? 'work_order.cancelled'
+            : changes.every((c) => c.field === 'assignedTechnicianId')
+              ? 'work_order.assigned'
+              : 'work_order.updated',
+      entityType: 'work_order',
+      entityId: id,
+      assetId: current.assetId,
+      summary:
+        next === 'COMPLETED'
+          ? `Work order for ${tag} completed: ${what}`
+          : next === 'CANCELLED'
+            ? `Work order for ${tag} cancelled: ${what}`
+            : `Work order for ${tag}: ${listed(changes)}`,
+      changes,
+      reason: closing ? (data.workPerformed as string) : null,
     });
   }
 

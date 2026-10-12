@@ -76,6 +76,8 @@ jobs:
             "select count(*) from timescaledb_information.hypertables where hypertable_schema='public'")
           echo "hypertables: $n"
           test "$n" -eq 7
+      - name: Check the edit history's hash chain and its guards
+        run: PGPASSWORD=postgres psql -h localhost -U postgres -d biotrakr_ci -v ON_ERROR_STOP=1 -f apps/api/prisma/tests/audit-chain.sql
 
   test:
     name: Typecheck and unit tests

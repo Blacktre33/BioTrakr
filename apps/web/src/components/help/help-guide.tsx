@@ -12,6 +12,7 @@ import {
   Gauge,
   LifeBuoy,
   ScanLine,
+  ScrollText,
   Server,
   UserCog,
   Wrench,
@@ -72,6 +73,12 @@ const tasks: Task[] = [
     href: '/registers',
     icon: ClipboardList,
     body: 'For biomed and auditors: the inventory master, annual survey and device logbook in the NHSRC formats, and the calibration, electrical safety, PM, breakdown and AMC/CMC registers. Print on A4 with a sign-off, or download for Excel.',
+  },
+  {
+    title: 'Who changed what',
+    href: '/registers?kind=audit',
+    icon: ScrollText,
+    body: "For biomed and auditors: every change is kept with who made it, when, the values before and after, and why. Each device page shows its own history; the edit history register prints the whole hospital's, checked against its hashes. Nothing in it can be edited or deleted.",
   },
 ];
 

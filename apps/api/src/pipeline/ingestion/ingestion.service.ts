@@ -11,6 +11,7 @@ import {
   changeAssetStatus,
   isStopStatus,
 } from '../../assets/asset-status.service';
+import { auditedTransaction, systemActor } from '../../audit/audit';
 import { recordPmCompleted } from '../../assets/pm-dates';
 import { BIOMED_ROLES } from '../../auth/roles';
 import { PrismaService } from '../../database/prisma.service';
@@ -391,7 +392,7 @@ export class IngestionService {
     event: ErrorEventDto,
     organizationId: string,
   ): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
+    await auditedTransaction(this.prisma, async (tx) => {
       const asset = await tx.asset.findFirst({
         where: { id: event.assetId, organizationId, deletedAt: null },
         select: { assetStatus: true },
@@ -402,7 +403,8 @@ export class IngestionService {
       } (needs intervention)`.slice(0, 1000);
       const change = await changeAssetStatus(tx, {
         assetId: event.assetId,
-        organizationId,
+        // The device itself raised it.
+        actor: systemActor(organizationId),
         toStatus: 'QUARANTINED',
         expectedStatus: asset.assetStatus,
         source: 'DEVICE_ALERT',

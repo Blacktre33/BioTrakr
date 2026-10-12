@@ -7,6 +7,8 @@ import {
 } from '@nestjs/common';
 import type { AssetStatus, Prisma, StatusChangeSource } from '@prisma/client';
 
+import { actorOf, audit, auditedTransaction, type Actor } from '../audit/audit';
+import { words } from '../audit/changes';
 import type { AuthUser } from '../auth/auth-user';
 import { PrismaService } from '../database/prisma.service';
 
@@ -37,11 +39,11 @@ type Tx = Prisma.TransactionClient;
 
 export interface StatusChangeInput {
   assetId: string;
-  organizationId: string;
+  /** Who: a person, or the system for a device alert. Their hospital is the device's. */
+  actor: Actor;
   toStatus: AssetStatus;
   reason: string;
   source: StatusChangeSource;
-  changedById?: string | null;
   workOrderId?: string | null;
   /** Only change if the status is still this (guards against two people at once). */
   expectedStatus?: AssetStatus;
@@ -62,20 +64,22 @@ export type StatusChangeResult =
 
 /**
  * Changes an asset's status and records who, why and from where, in the
- * caller's transaction. The status write is conditional on the status read,
- * so two simultaneous changes cannot both win.
+ * caller's (audited) transaction. The status write is conditional on the
+ * status read, so two simultaneous changes cannot both win.
  */
 export async function changeAssetStatus(
   tx: Tx,
   input: StatusChangeInput,
 ): Promise<StatusChangeResult> {
+  const { organizationId, userId: changedById } = input.actor;
   const asset = await tx.asset.findFirst({
     where: {
       id: input.assetId,
-      organizationId: input.organizationId,
+      organizationId,
       deletedAt: null,
     },
     select: {
+      assetTagNumber: true,
       assetStatus: true,
       lastCalibrationResult: true,
       lastSafetyTestPassed: true,
@@ -108,13 +112,13 @@ export async function changeAssetStatus(
   const { count } = await tx.asset.updateMany({
     where: {
       id: input.assetId,
-      organizationId: input.organizationId,
+      organizationId,
       deletedAt: null,
       assetStatus: fromStatus,
     },
     data: {
       assetStatus: input.toStatus,
-      ...(input.changedById ? { updatedById: input.changedById } : {}),
+      ...(changedById ? { updatedById: changedById } : {}),
     },
   });
   if (count === 0) return { changed: false, reason: 'conflict' };
@@ -126,9 +130,25 @@ export async function changeAssetStatus(
       toStatus: input.toStatus,
       reason: input.reason,
       source: input.source,
-      changedById: input.changedById ?? null,
+      changedById,
       workOrderId: input.workOrderId ?? null,
     },
+  });
+  audit(tx, input.actor, {
+    action: 'asset.status_changed',
+    entityType: 'asset',
+    entityId: input.assetId,
+    assetId: input.assetId,
+    summary: `${asset.assetTagNumber}: ${words(fromStatus)} → ${words(input.toStatus)}`,
+    changes: [
+      {
+        field: 'assetStatus',
+        label: 'Status',
+        from: words(fromStatus),
+        to: words(input.toStatus),
+      },
+    ],
+    reason: input.reason,
   });
   return {
     changed: true,
@@ -160,7 +180,7 @@ export class AssetStatusService {
       );
     }
 
-    const result = await this.prisma.$transaction(async (tx) => {
+    const result = await auditedTransaction(this.prisma, async (tx) => {
       const current = await tx.asset.findFirst({
         where: {
           id: assetId,
@@ -191,11 +211,10 @@ export class AssetStatusService {
       }
       return changeAssetStatus(tx, {
         assetId,
-        organizationId: user.organizationId,
+        actor: actorOf(user),
         toStatus: body.status,
         reason,
         source: 'MANUAL',
-        changedById: user.userId,
         expectedStatus: body.expectedStatus,
       });
     });

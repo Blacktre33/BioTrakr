@@ -8,11 +8,13 @@ import { RegisterSheet } from "../register-sheet";
 import { RegistersPage } from "../registers-page";
 
 const getRegister = jest.fn();
+let searchParams = new URLSearchParams();
 
 jest.mock("@/lib/api/registers", () => ({
   ...jest.requireActual("@/lib/api/registers"),
   getRegister: (...args: unknown[]) => getRegister(...args),
 }));
+jest.mock("next/navigation", () => ({ useSearchParams: () => searchParams }));
 jest.mock("@/lib/hooks/use-asset-form-reference", () => ({
   useAssetFormReference: () => ({
     data: {
@@ -121,7 +123,21 @@ describe("RegisterSheet", () => {
 
 describe("RegistersPage", () => {
   beforeEach(() => {
+    searchParams = new URLSearchParams();
     getRegister.mockReset().mockImplementation(async (kind: string) => register({ kind: kind as Register["kind"] }));
+  });
+
+  it("opens the edit history from a notice link, for the whole hospital", async () => {
+    searchParams = new URLSearchParams("kind=audit");
+    render(wrap(<RegistersPage />));
+    await screen.findByRole("table");
+    expect(screen.getByLabelText("Register")).toHaveValue("audit");
+    // The history is not kept per facility.
+    expect(screen.queryByLabelText("Facility")).not.toBeInTheDocument();
+    expect(getRegister).toHaveBeenLastCalledWith(
+      "audit",
+      expect.objectContaining({ facilityId: undefined, from: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) }),
+    );
   });
 
   it("shows the inventory first, and prints it", async () => {

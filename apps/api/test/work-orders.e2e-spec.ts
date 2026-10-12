@@ -6,6 +6,7 @@ import {
   signWebhook,
 } from '../src/notifications/notification-jobs.service';
 import { bearer, createTestApp, ORG_A } from './helpers';
+import { auditStore } from './audit-store';
 
 const VENT = '11111111-1111-4111-8111-111111111111';
 const PUMP = '22222222-2222-4222-8222-222222222222';
@@ -305,6 +306,7 @@ function buildPrisma() {
     },
     // Savepoints around notices (see bestEffort).
     $executeRawUnsafe: jest.fn(async () => 0),
+    auditEvent: auditStore(),
     $transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
       fn(mock),
     ),

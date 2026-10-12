@@ -23,6 +23,7 @@ function useInvalidateSafetyTestViews() {
     void queryClient.invalidateQueries({ queryKey: ["asset-status-history"] });
     void queryClient.invalidateQueries({ queryKey: ["work-orders"] });
     void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    void queryClient.invalidateQueries({ queryKey: ["audit"] });
   };
 }
 

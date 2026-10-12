@@ -21,6 +21,7 @@ export function useChangeAssetStatusMutation(assetId: string) {
       void queryClient.invalidateQueries({ queryKey: ["asset-lookup"] });
       void queryClient.invalidateQueries({ queryKey: ["asset-status-history", assetId] });
       void queryClient.invalidateQueries({ queryKey: ["assets"] });
+      void queryClient.invalidateQueries({ queryKey: ["audit"] });
     },
   });
 }

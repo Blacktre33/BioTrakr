@@ -248,6 +248,7 @@ model Organization {
   vendors          Vendor[]
   serviceContracts ServiceContract[]
   documents        Document[]
+  auditEvents      AuditEvent[]
 
   @@map("organizations")
 }
@@ -446,6 +447,7 @@ model User {
   contractsUpdated          ServiceContract[]   @relation("ContractUpdatedBy")
   documentsUploaded         Document[]          @relation("DocumentUploadedBy")
   documentsWithdrawn        DocumentWithdrawal[] @relation("DocumentWithdrawnBy")
+  auditEvents               AuditEvent[]        @relation("AuditActor")
   authSessions              AuthSession[]
   notifications             Notification[]
 
@@ -739,6 +741,7 @@ model Asset {
   safetyTestRecords               SafetyTestRecord[]
   serviceContracts                ServiceContractAsset[]
   documents                       Document[]
+  auditEvents                     AuditEvent[]
   telemetry                       AssetTelemetry[]
   maintenanceEvents               MaintenanceEvent[]
   errorEvents                     ErrorEvent[]
@@ -1652,4 +1655,51 @@ model OutboundMessage {
 
   @@index([sentAt, failedAt, nextAttemptAt])
   @@map("outbound_messages")
+}
+
+// =====================================================
+// EDIT HISTORY (AUDIT TRAIL)
+// =====================================================
+
+/// One change to a record: who made it, when, what changed and why. Never
+/// edited or deleted (a database trigger refuses). Each hospital's entries
+/// form a chain: the database numbers each one and stores a SHA-256 hash
+/// of it together with the previous entry's hash, so an entry altered or
+/// removed afterwards no longer matches (audit_chain_check finds it).
+model AuditEvent {
+  id             String   @id @default(uuid())
+  organizationId String
+  /// Position in the hospital's chain, from 1 (set by the database).
+  seq            BigInt   @default(0)
+  /// Set by the database when the entry is written.
+  occurredAt     DateTime @default(now())
+  /// Null for the system: the schedule, a device alert.
+  actorId        String?
+  /// The person's role at the time, or "system".
+  actorRole      String   @db.VarChar(40)
+  /// What happened, e.g. asset.updated, work_order.completed.
+  action         String   @db.VarChar(80)
+  entityType     String   @db.VarChar(40)
+  entityId       String
+  /// The device it concerns: a device's history includes its work orders,
+  /// checks and files.
+  assetId        String?
+  /// For people: "Status: In service → Quarantined".
+  summary        String   @db.VarChar(1000)
+  /// [{ field, label, from, to }], values as shown; personal details only
+  /// say that they changed.
+  changes        Json?
+  reason         String?
+  prevHash       String   @default("") @db.Char(64)
+  hash           String   @default("") @db.Char(64)
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  actor          User?        @relation("AuditActor", fields: [actorId], references: [id], onDelete: Restrict)
+  asset          Asset?       @relation(fields: [assetId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, seq])
+  @@index([organizationId, occurredAt(sort: Desc)])
+  @@index([organizationId, entityType, entityId])
+  @@index([assetId, occurredAt(sort: Desc)])
+  @@map("audit_events")
 }

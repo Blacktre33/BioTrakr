@@ -20,7 +20,8 @@ export type NotificationKind =
   | 'safety_test_due'
   | 'safety_test_failed'
   | 'contract_expiring'
-  | 'warranty_expiring';
+  | 'warranty_expiring'
+  | 'audit_chain_broken';
 
 /** Settings, read when used so tests and restarts pick up changes. */
 export function notificationConfig() {

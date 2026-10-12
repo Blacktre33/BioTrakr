@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, History, Pencil, QrCode, ShieldCheck } from "lucide-react";
 
+import { EditHistorySection } from "@/components/audit/edit-history-section";
 import { CalibrationSection } from "@/components/calibration/calibration-section";
 import { ServiceCoverSection } from "@/components/contracts/service-cover-section";
 import { DocumentsSection } from "@/components/documents/documents-section";
@@ -36,8 +37,8 @@ const SOURCE_LABEL: Record<string, string> = {
 /**
  * One device: the same safety answer staff get when they scan it, plus
  * biomed actions (change status with a reason, edit details), calibration
- * and electrical safety test records, warranty and contracts, and the full
- * status history.
+ * and electrical safety test records, warranty and contracts, the full
+ * status history and the edit history.
  */
 export function DevicePage({ assetId }: { assetId: string }) {
   const router = useRouter();
@@ -160,6 +161,9 @@ export function DevicePage({ assetId }: { assetId: string }) {
               <p className="mt-2 text-sm text-gray-500">No status changes recorded yet.</p>
             )}
           </section>
+
+          {/* Biomed, and auditors with a viewer account (the API's DOCUMENT_READ_ROLES). */}
+          {(canChangeStatus || role === "viewer") && <EditHistorySection assetId={assetId} />}
 
           {reference.data && (
             <ChangeStatusDialog

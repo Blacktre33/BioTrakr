@@ -4,6 +4,7 @@ import request from 'supertest';
 import { hashPassword, verifyPassword } from '@biotrakr/utils';
 
 import { bearer, createTestApp, ORG_A, ORG_B, tokenFor } from './helpers';
+import { auditStore } from './audit-store';
 
 const FAC_A = '0a000000-0000-4000-8000-000000000001';
 const FAC_B = '0b000000-0000-4000-8000-000000000001';
@@ -174,6 +175,7 @@ async function buildPrisma() {
     room: table(rooms, [['floorId', 'roomCode']]),
     user: table(users, [['email']]),
     authSession: table(sessions),
+    auditEvent: auditStore(),
   };
   mock.$queryRaw = jest.fn(async () => []);
   mock.$transaction = jest.fn(async (arg: unknown) =>

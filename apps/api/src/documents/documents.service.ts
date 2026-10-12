@@ -7,6 +7,7 @@ import {
 import type { DocumentCategory, Prisma } from '@prisma/client';
 import { createHash } from 'crypto';
 
+import { actorOf, audit, auditedTransaction } from '../audit/audit';
 import type { AuthUser } from '../auth/auth-user';
 import { PrismaService } from '../database/prisma.service';
 import type {
@@ -147,20 +148,30 @@ export class DocumentsService {
     }
     const link = await this.resolve(dto.targetType, dto.targetId, user);
     const fileName = cleanFileName(file.originalname);
-    const created = await this.prisma.document.create({
-      data: {
-        ...link,
-        organizationId: user.organizationId,
-        category: dto.category ?? DEFAULT_CATEGORY[dto.targetType],
-        title: dto.title?.trim() || titleFromFileName(fileName),
-        fileName,
-        mimeType,
-        sizeBytes: file.size,
-        sha256: createHash('sha256').update(file.buffer).digest('hex'),
-        content: file.buffer,
-        uploadedById: user.userId,
-      },
-      select: META_SELECT,
+    const created = await auditedTransaction(this.prisma, async (tx) => {
+      const doc = await tx.document.create({
+        data: {
+          ...link,
+          organizationId: user.organizationId,
+          category: dto.category ?? DEFAULT_CATEGORY[dto.targetType],
+          title: dto.title?.trim() || titleFromFileName(fileName),
+          fileName,
+          mimeType,
+          sizeBytes: file.size,
+          sha256: createHash('sha256').update(file.buffer).digest('hex'),
+          content: file.buffer,
+          uploadedById: user.userId,
+        },
+        select: META_SELECT,
+      });
+      audit(tx, actorOf(user), {
+        action: 'document.uploaded',
+        entityType: 'document',
+        entityId: doc.id,
+        assetId: doc.assetId,
+        summary: `Attached "${doc.title}" (${doc.fileName}, SHA-256 ${doc.sha256.slice(0, 16)}…)`,
+      });
+      return doc;
     });
     return present(created);
   }
@@ -179,19 +190,35 @@ export class DocumentsService {
   async withdraw(id: string, dto: WithdrawDocumentDto, user: AuthUser) {
     const doc = await this.prisma.document.findFirst({
       where: { id, organizationId: user.organizationId },
-      select: { id: true, withdrawal: { select: { documentId: true } } },
+      select: {
+        id: true,
+        assetId: true,
+        title: true,
+        fileName: true,
+        withdrawal: { select: { documentId: true } },
+      },
     });
     if (!doc) throw new NotFoundException('File not found');
     if (doc.withdrawal) {
       throw new ConflictException('This file has already been withdrawn');
     }
     try {
-      await this.prisma.documentWithdrawal.create({
-        data: {
-          documentId: id,
+      await auditedTransaction(this.prisma, async (tx) => {
+        await tx.documentWithdrawal.create({
+          data: {
+            documentId: id,
+            reason: dto.reason,
+            withdrawnById: user.userId,
+          },
+        });
+        audit(tx, actorOf(user), {
+          action: 'document.withdrawn',
+          entityType: 'document',
+          entityId: id,
+          assetId: doc.assetId,
+          summary: `Withdrew "${doc.title}" (${doc.fileName})`,
           reason: dto.reason,
-          withdrawnById: user.userId,
-        },
+        });
       });
     } catch (error) {
       if ((error as { code?: string }).code === 'P2002') {

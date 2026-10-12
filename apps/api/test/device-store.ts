@@ -117,6 +117,8 @@ export function buildStore() {
   const contractAssets: Rec[] = [];
   const documents: Rec[] = [];
   const withdrawals: Rec[] = [];
+  /** The edit history, as the database's trigger would number it. */
+  const auditEvents: Rec[] = [];
   /** Calibration and safety test records: their ids never collide. */
   const records = () => [...calibrations, ...safetyTests];
   const users: Rec[] = [
@@ -308,6 +310,16 @@ export function buildStore() {
       if (key === 'withdrawal') {
         const w = withdrawals.find((x) => x.documentId === row.id);
         return w ? project(w, args.select, 'withdrawal') : null;
+      }
+    }
+    if (of === 'audit') {
+      if (key === 'actor') {
+        const u = users.find((x) => x.id === row.actorId);
+        return u ? project(u, args.select, 'user') : null;
+      }
+      if (key === 'asset') {
+        const a = assets.find((x) => x.id === row.assetId);
+        return a ? project(a, args.select, 'asset') : null;
       }
     }
     if (of === 'withdrawal' && key === 'withdrawnBy')
@@ -518,9 +530,47 @@ export function buildStore() {
     contractAssets,
     organization: {
       findFirst: jest.fn(async () => ({ name: 'City General Hospital' })),
+      findMany: jest.fn(async () => [{ id: ORG_A }, { id: ORG_B }]),
     },
+    auditEvents,
+    auditEvent: {
+      ...finder(auditEvents, 'audit'),
+      createMany: jest.fn(async ({ data }: Rec) => {
+        for (const row of data as Rec[]) {
+          const chain = auditEvents.filter(
+            (e) => e.organizationId === row.organizationId,
+          );
+          auditEvents.push({
+            id: `ae-${auditEvents.length + 1}`,
+            seq: BigInt(chain.length + 1),
+            occurredAt: new Date(),
+            actorId: null,
+            assetId: null,
+            changes: null,
+            reason: null,
+            ...row,
+          });
+        }
+        return { count: data.length };
+      }),
+    },
+    // Names shown in the edit history.
+    department: {
+      findMany: jest.fn(async () => [
+        { id: 'dept-icu', departmentName: 'ICU' },
+      ]),
+    },
+    room: { findMany: jest.fn(async () => []) },
+    building: { findMany: jest.fn(async () => []) },
+    floor: { findMany: jest.fn(async () => []) },
     // Both facilities belong to ORG_A.
     facility: {
+      findMany: jest.fn(async ({ where }: Rec) =>
+        [
+          { id: FAC_1, facilityName: 'City General' },
+          { id: FAC_2, facilityName: 'North Clinic' },
+        ].filter((f) => !where?.id?.in || where.id.in.includes(f.id)),
+      ),
       findFirst: jest.fn(async ({ where }: Rec) =>
         (where.id === FAC_1 || where.id === FAC_2) &&
         where.organizationId === ORG_A
