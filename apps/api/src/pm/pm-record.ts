@@ -3,7 +3,7 @@ import type { Prisma } from '@prisma/client';
 
 import { takeOutOfUseAfterFailedCheck } from '../assets/failed-check';
 import { audit, type Actor } from '../audit/audit';
-import { HIGH_RISK } from '../notifications/notify';
+import { isLifeSaving } from '../downtime/downtime';
 import {
   BUILT_IN_CHECKLISTS,
   evaluateChecklist,
@@ -102,7 +102,11 @@ export async function recordPmChecklist(
 
   const device = await tx.asset.findFirst({
     where: { id: e.assetId, organizationId: e.actor.organizationId },
-    select: { assetTagNumber: true, criticalityLevel: true },
+    select: {
+      assetTagNumber: true,
+      criticalityLevel: true,
+      deviceCategory: true,
+    },
   });
   const tag = device?.assetTagNumber ?? 'the device';
   const failed = items.filter((i) => i.result === 'FAIL');
@@ -146,9 +150,7 @@ export async function recordPmChecklist(
           0,
           4000,
         ),
-        isEmergency: device
-          ? HIGH_RISK.includes(device.criticalityLevel)
-          : false,
+        isEmergency: device ? isLifeSaving(device) : false,
         createdByUserId: e.actor.userId,
       },
       select: { id: true },

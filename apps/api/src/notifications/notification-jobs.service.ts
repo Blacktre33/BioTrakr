@@ -4,18 +4,37 @@ import {
   OnApplicationBootstrap,
   OnModuleDestroy,
 } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
-import { createHmac } from 'crypto';
+import type { Prisma, WorkOrderStatus } from '@prisma/client';
 
 import { PrismaService } from '../database/prisma.service';
-import { deviceLabel, notificationConfig, notify } from './notify';
+import { jobFailed, jobSucceeded, registerJob } from '../system/job-health';
+import {
+  emailConfig,
+  sendEmail,
+  sendSms,
+  sendWebhook,
+  smsConfig,
+  type SendResult,
+} from './channels';
 
+export { signWebhook } from './channels';
+import {
+  deviceLabel,
+  escalationLevel,
+  formatMinutes,
+  notificationConfig,
+  notify,
+} from './notify';
+
+/** Its name on Settings → System. */
+export const NOTIFY_JOB = 'Escalations and outside messages';
+/** Urgent work orders are escalated until one of these moves them on. */
+const NOT_STARTED: WorkOrderStatus[] = ['PENDING', 'ASSIGNED'];
 /** Only fairly recent reports are escalated (not a backlog found on first start). */
 const ESCALATION_WINDOW_MS = 24 * 60 * 60 * 1000;
 /** A claimed message is this instance's for this long; far above one send (10 s). */
 const LEASE_MS = 2 * 60 * 1000;
 export const MAX_ATTEMPTS = 8;
-const TIMEOUT_MS = 10_000;
 /** In-app notices are kept this long; outside messages a week after they finish. */
 export const KEEP_NOTICES_DAYS = 90;
 export const KEEP_OUTBOUND_DAYS = 7;
@@ -27,18 +46,12 @@ export function retryDelayMs(attempts: number): number {
   return Math.min(60 * 60 * 1000, 30_000 * 2 ** Math.max(0, attempts - 1));
 }
 
-/** Header value a receiver recomputes to check a message really came from BioTrakr. */
-export function signWebhook(secret: string, timestamp: number, body: string) {
-  return `sha256=${createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex')}`;
-}
-
-/** Retrying will not help: the gateway refused the request itself. */
-const permanent = (status: number) =>
-  (status >= 300 && status < 400) ||
-  (status >= 400 && status < 500 && status !== 408 && status !== 429);
-
-/** error is set whenever ok is false. */
-type SendResult = { ok: boolean; error?: string; permanent?: boolean };
+/** The channel was switched off after the message was queued: not retried. */
+const off = (error: string): SendResult => ({
+  ok: false,
+  permanent: true,
+  error,
+});
 
 /**
  * Work that happens without anyone clicking: escalating urgent problem
@@ -63,6 +76,7 @@ export class NotificationJobsService
       return;
     }
     const every = Number(process.env.NOTIFY_JOB_INTERVAL_MS) || 30_000;
+    registerJob(NOTIFY_JOB, every);
     this.timer = setInterval(() => void this.tick(), every);
     this.timer.unref();
   }
@@ -82,7 +96,9 @@ export class NotificationJobsService
         this.lastPrune = Date.now();
         await this.prune();
       }
+      jobSucceeded(NOTIFY_JOB);
     } catch (error) {
+      jobFailed(NOTIFY_JOB, error);
       this.logger.error(`Notification job failed: ${(error as Error).message}`);
     } finally {
       this.running = false;
@@ -90,92 +106,110 @@ export class NotificationJobsService
   }
 
   /**
-   * An emergency report (a high-risk device taken out of use) still
-   * unassigned after 15 and again after 60 minutes goes to the engineers
-   * and administrators, and outside the app. Each level is claimed on the
-   * work order, so it happens once even with several API instances.
+   * An urgent report (a life-saving device out of use) that nobody has
+   * started on goes to the engineers and administrators, and to whoever it
+   * is assigned to, inside and outside the app: after each configured step
+   * (15 and 60 minutes by default), then again every
+   * NOTIFY_ESCALATE_REPEAT_MINUTES until work starts. Each step is claimed
+   * on the work order, so it happens once even with several API instances.
    */
   async escalate(now = new Date()): Promise<number> {
-    const { escalateAfterMinutes } = notificationConfig();
-    let sent = 0;
-    // Latest level first: after downtime, a report due for both 15 and 60
-    // minutes gets one message, not two.
-    for (const minutes of [...escalateAfterMinutes].reverse()) {
-      const notYet: Prisma.MaintenanceHistoryWhereInput = {
-        OR: [
-          { escalatedAfterMinutes: null },
-          { escalatedAfterMinutes: { lt: minutes } },
-        ],
-      };
-      const stuck = await this.prisma.maintenanceHistory.findMany({
-        where: {
-          isEmergency: true,
-          workOrderType: 'CORRECTIVE_MAINTENANCE',
-          workOrderStatus: 'PENDING',
-          assignedTechnicianId: null,
-          createdAt: {
-            lte: new Date(now.getTime() - minutes * 60_000),
-            gte: new Date(now.getTime() - ESCALATION_WINDOW_MS),
-          },
-          asset: { deletedAt: null },
-          ...notYet,
+    const { escalateAfterMinutes: steps, escalateRepeatMinutes: repeat } =
+      notificationConfig();
+    const waiting = await this.prisma.maintenanceHistory.findMany({
+      where: {
+        isEmergency: true,
+        workOrderType: 'CORRECTIVE_MAINTENANCE',
+        workOrderStatus: { in: NOT_STARTED },
+        createdAt: {
+          lte: new Date(now.getTime() - steps[0] * 60_000),
+          gte: new Date(now.getTime() - ESCALATION_WINDOW_MS),
         },
-        select: {
-          id: true,
-          asset: {
-            select: {
-              id: true,
-              organizationId: true,
-              currentFacilityId: true,
-              assetTagNumber: true,
-              equipmentName: true,
-            },
+        asset: { deletedAt: null },
+      },
+      select: {
+        id: true,
+        createdAt: true,
+        escalatedAfterMinutes: true,
+        assignedTechnicianId: true,
+        assignedTechnician: { select: { firstName: true, lastName: true } },
+        asset: {
+          select: {
+            id: true,
+            organizationId: true,
+            currentFacilityId: true,
+            assetTagNumber: true,
+            equipmentName: true,
           },
         },
-        orderBy: { createdAt: 'asc' },
-        take: 200,
-      });
+      },
+      orderBy: { createdAt: 'asc' },
+      take: 200,
+    });
 
-      for (const wo of stuck) {
-        await this.prisma.$transaction(async (tx) => {
-          // Claim this level; also skips it if someone took the work on.
-          const { count } = await tx.maintenanceHistory.updateMany({
-            where: {
-              id: wo.id,
-              workOrderStatus: 'PENDING',
-              assignedTechnicianId: null,
-              ...notYet,
-            },
-            data: { escalatedAfterMinutes: minutes },
-          });
-          if (count === 0) return;
-          const notice = {
-            organizationId: wo.asset.organizationId,
-            kind: 'escalation' as const,
-            severity: 'critical' as const,
-            title: `Nobody has taken this on for ${minutes} min: ${deviceLabel(wo.asset)}`,
-            link: '/maintenance',
-            assetId: wo.asset.id,
-            workOrderId: wo.id,
-            dedupeKey: `escalation:${minutes}:${wo.id}`,
-          };
-          const reached = await notify(tx, {
-            ...notice,
-            to: {
-              roles: ['admin', 'engineer'],
-              facilityId: wo.asset.currentFacilityId,
-            },
-            outbound: true,
-          });
-          // No engineer or admin for that facility: tell every administrator.
-          if (reached === 0) {
-            await notify(tx, { ...notice, to: { roles: ['admin'] } });
-          }
-          sent++;
-        });
+    let sent = 0;
+    for (const wo of waiting) {
+      // After downtime, a report due for several steps gets one message.
+      const minutes = escalationLevel(
+        Math.floor((now.getTime() - wo.createdAt.getTime()) / 60_000),
+        steps,
+        repeat,
+      );
+      if (minutes === null || (wo.escalatedAfterMinutes ?? 0) >= minutes) {
+        continue;
       }
+      await this.prisma.$transaction(async (tx) => {
+        // Claim this step; also skips it if work started meanwhile.
+        const { count } = await tx.maintenanceHistory.updateMany({
+          where: {
+            id: wo.id,
+            workOrderStatus: { in: NOT_STARTED },
+            OR: [
+              { escalatedAfterMinutes: null },
+              { escalatedAfterMinutes: { lt: minutes } },
+            ],
+          },
+          data: { escalatedAfterMinutes: minutes },
+        });
+        if (count === 0) return;
+        const assignee = wo.assignedTechnician
+          ? `${wo.assignedTechnician.firstName} ${wo.assignedTechnician.lastName}`.trim()
+          : null;
+        const notice = {
+          organizationId: wo.asset.organizationId,
+          kind: 'escalation' as const,
+          severity: 'critical' as const,
+          title: assignee
+            ? `Not started ${formatMinutes(minutes)} after it was reported: ${deviceLabel(wo.asset)} (assigned to ${assignee})`
+            : `Nobody has taken this on for ${formatMinutes(minutes)}: ${deviceLabel(wo.asset)}`,
+          link: '/maintenance',
+          assetId: wo.asset.id,
+          workOrderId: wo.id,
+          dedupeKey: `escalation:${minutes}:${wo.id}`,
+          outbound: true,
+        };
+        let reached = await notify(tx, {
+          ...notice,
+          to: {
+            roles: ['admin', 'engineer'],
+            facilityId: wo.asset.currentFacilityId,
+          },
+        });
+        if (wo.assignedTechnicianId) {
+          reached += await notify(tx, {
+            ...notice,
+            to: { userIds: [wo.assignedTechnicianId] },
+          });
+        }
+        // Nobody for that facility: tell every administrator.
+        if (reached === 0) {
+          await notify(tx, { ...notice, to: { roles: ['admin'] } });
+        }
+        sent++;
+      });
     }
-    if (sent) this.logger.warn(`Escalated ${sent} unclaimed urgent report(s)`);
+    if (sent)
+      this.logger.warn(`Escalated ${sent} urgent report(s) not yet started`);
     return sent;
   }
 
@@ -185,13 +219,18 @@ export class NotificationJobsService
    * slow gateway cannot make later messages' leases or signatures stale.
    */
   async deliver(now = new Date()): Promise<{ sent: number; failed: number }> {
-    const config = notificationConfig();
     const clock = () => new Date(Math.max(Date.now(), now.getTime()));
     const due = await this.prisma.outboundMessage.findMany({
       where: { sentAt: null, failedAt: null, nextAttemptAt: { lte: now } },
       orderBy: { nextAttemptAt: 'asc' },
-      take: 20,
-      select: { id: true, nextAttemptAt: true, attempts: true, payload: true },
+      take: 50,
+      select: {
+        id: true,
+        channel: true,
+        nextAttemptAt: true,
+        attempts: true,
+        payload: true,
+      },
     });
     let sent = 0;
     let failed = 0;
@@ -210,21 +249,7 @@ export class NotificationJobsService
       if (count === 0) continue;
       const attempts = message.attempts + 1;
 
-      const result: SendResult =
-        config.webhookUrl && config.webhookSecret
-          ? await this.post(
-              config.webhookUrl,
-              config.webhookSecret,
-              message.id,
-              message.payload,
-              clock(),
-            )
-          : {
-              ok: false,
-              permanent: true,
-              error:
-                'No webhook is configured (NOTIFY_WEBHOOK_URL and NOTIFY_WEBHOOK_SECRET)',
-            };
+      const result = await this.send(message, clock());
 
       const finished = clock();
       const giveUp =
@@ -285,48 +310,45 @@ export class NotificationJobsService
     return { notices: notices.count, outbound: outbound.count };
   }
 
-  private async post(
-    url: string,
-    secret: string,
-    id: string,
-    payload: Prisma.JsonValue,
+  /** Sends one queued message through its channel, as set up now. */
+  private async send(
+    message: { id: string; channel: string; payload: Prisma.JsonValue },
     at: Date,
   ): Promise<SendResult> {
-    const body = JSON.stringify(payload);
-    const timestamp = Math.floor(at.getTime() / 1000);
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': 'BioTrakr-Notifications',
-          'X-BioTrakr-Delivery': id,
-          'X-BioTrakr-Timestamp': String(timestamp),
-          'X-BioTrakr-Signature': signWebhook(secret, timestamp, body),
-        },
-        body,
-        // A redirect could carry the message elsewhere: not followed.
-        redirect: 'manual',
-        signal: AbortSignal.timeout(TIMEOUT_MS),
-      });
-      // Free the connection; the answer's content is not used.
-      await res.body?.cancel().catch(() => undefined);
-      return res.ok
-        ? { ok: true }
-        : {
-            ok: false,
-            error: `HTTP ${res.status}`,
-            permanent: permanent(res.status),
-          };
-    } catch (e) {
-      return {
-        ok: false,
-        permanent: false,
-        error:
-          (e as Error).name === 'TimeoutError'
-            ? `No answer within ${TIMEOUT_MS / 1000} s`
-            : (e as Error).message,
-      };
+    const payload = (message.payload ?? {}) as Record<string, unknown>;
+    switch (message.channel) {
+      case 'webhook': {
+        const config = notificationConfig();
+        return config.webhookUrl && config.webhookSecret
+          ? sendWebhook(
+              config.webhookUrl,
+              config.webhookSecret,
+              message.id,
+              message.payload,
+              at,
+            )
+          : off(
+              'No webhook is configured (NOTIFY_WEBHOOK_URL and NOTIFY_WEBHOOK_SECRET)',
+            );
+      }
+      case 'email': {
+        const config = emailConfig();
+        return config
+          ? sendEmail(config, {
+              to: String(payload.to),
+              subject: String(payload.subject),
+              text: String(payload.text),
+            })
+          : off('Email is not set up (SMTP_HOST and NOTIFY_EMAIL_FROM)');
+      }
+      case 'sms': {
+        const config = smsConfig();
+        return config
+          ? sendSms(config, String(payload.to), String(payload.text))
+          : off('SMS is not set up (NOTIFY_SMS_URL)');
+      }
+      default:
+        return off(`Unknown channel "${message.channel}"`);
     }
   }
 }

@@ -9,6 +9,7 @@ import type { AssetStatus, Prisma, WorkOrderStatus } from '@prisma/client';
 import {
   changeAssetStatus,
   isStopStatus,
+  OUT_OF_USE_STATUSES,
 } from '../assets/asset-status.service';
 import { describeLocation, LOCATION_SELECT } from '../assets/location';
 import { recordPmCompleted } from '../assets/pm-dates';
@@ -21,11 +22,14 @@ import {
   recordCalibration,
 } from '../calibration/calibration';
 import { PrismaService } from '../database/prisma.service';
-import { BREAKDOWN_TYPES, breakdownClock } from '../downtime/downtime';
+import {
+  BREAKDOWN_TYPES,
+  breakdownClock,
+  isLifeSaving,
+} from '../downtime/downtime';
 import {
   deviceForNotice,
   deviceLabel,
-  HIGH_RISK,
   bestEffort,
   notify,
   type Severity,
@@ -44,6 +48,13 @@ import type {
 export const OPEN_STATUSES: WorkOrderStatus[] = [
   'PENDING',
   'ASSIGNED',
+  'IN_PROGRESS',
+  'AWAITING_PARTS',
+  'ON_HOLD',
+];
+
+/** Open, and biomed has started on it. */
+export const STARTED_STATUSES: WorkOrderStatus[] = [
   'IN_PROGRESS',
   'AWAITING_PARTS',
   'ON_HOLD',
@@ -152,10 +163,29 @@ export class WorkOrdersService {
         select: {
           assetStatus: true,
           criticalityLevel: true,
+          deviceCategory: true,
           assetTagNumber: true,
         },
       });
       if (!asset) throw new NotFoundException('Device not found');
+
+      // A life-saving device out of use (taken out now, or already) is
+      // urgent unless biomed already has it in hand: an earlier urgent
+      // report still open, or work already started.
+      const inHand = await tx.maintenanceHistory.count({
+        where: {
+          assetId: dto.assetId,
+          workOrderType: 'CORRECTIVE_MAINTENANCE',
+          OR: [
+            { isEmergency: true, workOrderStatus: { in: OPEN_STATUSES } },
+            { workOrderStatus: { in: STARTED_STATUSES } },
+          ],
+        },
+      });
+      const outOfUseNow =
+        ((dto.takeOutOfUse ?? false) && !isStopStatus(asset.assetStatus)) ||
+        OUT_OF_USE_STATUSES.includes(asset.assetStatus);
+      const urgent = isLifeSaving(asset) && outOfUseNow && inHand === 0;
 
       const workOrder = await tx.maintenanceHistory.create({
         data: {
@@ -166,11 +196,8 @@ export class WorkOrdersService {
           description: where
             ? `${description}\n\nWhere: ${where}`
             : description,
-          // A high-risk device taken out of use goes to the top of the
-          // queue, and is escalated if nobody takes it on.
-          isEmergency:
-            (dto.takeOutOfUse ?? false) &&
-            HIGH_RISK.includes(asset.criticalityLevel),
+          // Goes to the top of the queue, and is escalated until work starts.
+          isEmergency: urgent,
           createdByUserId: user.userId,
         },
         select: { id: true },
@@ -208,9 +235,7 @@ export class WorkOrdersService {
           where,
           takenOutOfUse,
           outOfUse,
-          urgent:
-            (dto.takeOutOfUse ?? false) &&
-            HIGH_RISK.includes(asset.criticalityLevel),
+          urgent,
         }),
       );
 
@@ -574,8 +599,8 @@ export class WorkOrdersService {
 
   /**
    * Biomed hears about every report on their facility's devices. An urgent
-   * one (critical device, or a high-risk device taken out of use) is also
-   * sent outside the app when a webhook is set up.
+   * one (a life-saving device out of use that nobody has in hand) is also
+   * sent outside the app: email, SMS and the webhook, whichever are set up.
    */
   private async noticeProblemReported(
     tx: Prisma.TransactionClient,

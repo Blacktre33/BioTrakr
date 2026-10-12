@@ -1,7 +1,8 @@
 #!/bin/bash
 # Builds and starts the production stack (deploy/), then checks it end to
 # end: first admin, sign-in over HTTPS, setup, a device, a problem report,
-# the web pages, and a backup restored over the live database.
+# the web pages, a backup restored over the live database, and the second
+# backup copy (and its status file) working and failing as it should.
 set -euo pipefail
 cd "$(dirname "$0")/../../deploy"
 
@@ -89,6 +90,10 @@ report=$(sh scripts/status.sh)
 echo "$report"
 echo "$report" | grep -q '"status":"ok"' || fail "status.sh: API not reported ready"
 echo "$report" | grep -q 'hours old)$' || fail "status.sh: latest backup not reported"
+# The status file the API reads (through its own read-only mount) records it.
+st=$(docker compose exec -T api cat /backup-status/backup.json)
+echo "$st" | jq -e '.version == 1 and .lastSuccessAt != null and .lastError == null and .copy.configured == false' > /dev/null \
+  || fail "backup status file after a good backup: $st"
 file=$(docker compose exec -T backup sh -c 'ls -1t /backups/biotrakr_*.dump | head -1' | tr -d '\r')
 
 # Restore refuses while the app is running.
@@ -113,5 +118,42 @@ status=$(api "$URL/api/assets/lookup?code=VENT-CI-1" -H "authorization: Bearer $
 [ "$status" = QUARANTINED ] || fail "restore did not bring the data back: $status"
 hyper=$(docker compose exec -T db psql -U biotrakr -d biotrakr -Atc "select count(*) from timescaledb_information.hypertables" | tr -d '\r')
 [ "$hyper" -ge 7 ] || fail "hypertables after restore: $hyper"
+
+# A second copy location, set up as the guide tells hospital IT (a mounted
+# share with the marker file): each backup is copied there and checked.
+copy_dir=$(mktemp -d)
+touch "$copy_dir/.biotrakr-backup-target"
+sed -i "s|^BACKUP_COPY_DIR=.*|BACKUP_COPY_DIR=$copy_dir|" .env
+docker compose up -d --wait backup
+docker compose exec -T backup sh /scripts/backup.sh
+st=$(docker compose exec -T backup cat /status/backup.json)
+copied=$(echo "$st" | jq -r .lastFile)
+[ -f "$copy_dir/$copied" ] || fail "backup $copied not copied to BACKUP_COPY_DIR: $(ls -la "$copy_dir")"
+echo "$st" | jq -e '.copy.configured == true and .copy.lastSuccessAt != null and .copy.lastError == null and .copy.disk.freeBytes > 0' > /dev/null \
+  || fail "status file after a good copy: $st"
+report=$(sh scripts/status.sh)
+echo "$report"
+echo "$report" | grep -qF "Second copy: $copy_dir, last copied" || fail "status.sh: second copy not reported"
+# The app reads the same status (Settings → System, and alerts to administrators).
+keys() { api "$URL/api/admin/system" -H "authorization: Bearer $token" | jq -r '[.problems[].key] | join(",")'; }
+problems=$(keys)
+case ",$problems," in *,backup.*) fail "Settings → System reports backup problems after a good copy: $problems" ;; esac
+
+# A share that is not mounted (no marker file) is refused and reported, and
+# the run fails; the local backup is still made and kept.
+rm "$copy_dir/.biotrakr-backup-target"
+sleep 1   # backups are named to the second
+if docker compose exec -T backup sh /scripts/backup.sh; then fail "backup reported success without the copy location's marker file"; fi
+st=$(docker compose exec -T backup cat /status/backup.json)
+echo "$st" | jq -e '.lastError == null and (.copy.lastError // "" | test("not mounted"))' > /dev/null \
+  || fail "status file after a refused copy: $st"
+latest=$(echo "$st" | jq -r .lastFile)
+[ "$latest" != "$copied" ] || fail "no new local backup when the copy failed"
+docker compose exec -T backup test -s "/backups/$latest" || fail "local backup $latest missing after a failed copy"
+[ ! -e "$copy_dir/$latest" ] || fail "copied into a location without the marker file"
+report=$(sh scripts/status.sh)
+echo "$report" | grep -q "LAST COPY FAILED" || fail "status.sh: failed copy not reported: $report"
+problems=$(keys)
+case ",$problems," in *,backup.copy_failed,*) ;; *) fail "Settings → System does not show the failed copy: $problems" ;; esac
 
 echo "Deployment smoke test passed"

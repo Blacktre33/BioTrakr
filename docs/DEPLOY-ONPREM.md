@@ -19,6 +19,8 @@ Everything runs in Docker on one machine:
 - **Network access** from wards to the server on ports 80 and 443 (the hospital Wi-Fi that phones and ward computers use).
 - **Internet access during installation** (to download Docker images and packages). The running system does not need the internet. See [Servers without internet access](#servers-without-internet-access) if yours has none.
 - **An HTTPS certificate** for the name above. See step 3; it matters.
+- **A way to reach people at night**: an email account BioTrakr can send from, and ideally an SMS provider account. See step 7.
+- **Somewhere for a second copy of the backups**: a NAS share or a USB disk. See step 6.
 
 ## 2. Install Docker and get BioTrakr
 
@@ -110,14 +112,80 @@ Uploaded files (calibration certificates, safety test reports, service reports, 
 
 The edit history (who changed what) is in the database too, and each entry carries a hash of the one before it. A restore takes the history back to the night of the backup along with everything else; write the restore into the equipment logbook, because entries made after that backup are gone. The *Edit history* register prints the latest entry's hash: keep a printed copy now and then (for example with each month's registers), and a later check that no longer reaches that hash shows entries were removed.
 
-**A backup on the same server is not enough.** If the disk fails, both are lost. Copy the folder to another machine every night, for example to a hospital NAS with a cron job on the server (as root, since the files are root-only):
+**A backup on the same server is not enough.** One failed disk, or ransomware on the server, takes the data and its backups together. Give BioTrakr a second place for them: a shared folder on a NAS or file server (Windows/SMB or NFS), or a USB disk. After each backup it copies the file there (with `caddy-pki.tgz`), checks the copy, and removes copies older than `BACKUP_KEEP_DAYS`.
+
+**1. Mount it on the server** at `/mnt/biotrakr-copy`, through `/etc/fstab` so that it comes back after a reboot. Ask hospital IT for a share (or a folder) used only for this. `nofail` lets the server start even when the NAS is down. Pick one:
+
+A Windows (SMB) share:
 
 ```bash
-# sudo crontab -e
-30 3 * * * rsync -a /opt/biotrakr/deploy/backups/ backupuser@nas.citygeneral.local:/backups/biotrakr/
+sudo apt-get install -y cifs-utils
+sudo mkdir -p /mnt/biotrakr-copy
+sudo nano /root/.smb-biotrakr       # the share's account, three lines:
+                                    #   username=biotrakr-backup
+                                    #   password=...
+                                    #   domain=CITYGENERAL
+sudo chmod 600 /root/.smb-biotrakr
 ```
 
-Do not add `--delete`: it would also copy deletions (or a ransomware attack) to the NAS. Let the NAS keep its own retention.
+and this line in `/etc/fstab` (`sudo nano /etc/fstab`):
+
+```
+//nas.citygeneral.local/biotrakr  /mnt/biotrakr-copy  cifs  credentials=/root/.smb-biotrakr,uid=0,gid=0,file_mode=0600,dir_mode=0700,_netdev,nofail  0  0
+```
+
+An NFS export:
+
+```bash
+sudo apt-get install -y nfs-common
+sudo mkdir -p /mnt/biotrakr-copy
+```
+
+```
+nas.citygeneral.local:/volume1/biotrakr  /mnt/biotrakr-copy  nfs  soft,timeo=150,retrans=3,_netdev,nofail  0  0
+```
+
+(`soft`: if the NAS stops answering, the copy fails and is reported instead of waiting for ever.) The copies are written by the server's root user. Many NAS turn root into an anonymous user on NFS ("root squash"): give that user write access to the folder, or ask IT to allow root from this server.
+
+A USB disk (formatted ext4):
+
+```bash
+sudo blkid                          # find the disk's UUID
+sudo mkdir -p /mnt/biotrakr-copy
+```
+
+```
+UUID=<the disk's UUID>  /mnt/biotrakr-copy  ext4  defaults,nofail  0  2
+```
+
+Then mount it and check:
+
+```bash
+sudo mount -a
+findmnt /mnt/biotrakr-copy          # must show the share or disk; if it shows nothing, stop and fix that first
+```
+
+**2. Mark it**, once, while it is mounted:
+
+```bash
+sudo touch /mnt/biotrakr-copy/.biotrakr-backup-target
+```
+
+If the share ever fails to mount, `/mnt/biotrakr-copy` is just an empty folder on the server's own disk. Without this file there, BioTrakr refuses to copy into it and reports "copy location is not mounted", rather than quietly putting the "second" copy on the same disk. So never create the file while the share is not mounted. If you rotate USB disks, create it on each one.
+
+**3. Turn it on.** In `.env`, set `BACKUP_COPY_DIR=/mnt/biotrakr-copy`. Then:
+
+```bash
+docker compose up -d
+docker compose exec backup sh /scripts/backup.sh
+sh scripts/status.sh                # Second copy: /mnt/biotrakr-copy, last copied ... (0 hours ago)
+```
+
+The server can delete or encrypt what is on the share too (that is how it removes old copies). Turn on snapshots on the NAS (most have them), kept longer than `BACKUP_KEEP_DAYS`, so that ransomware on the server cannot reach the older versions. With USB disks, keep one unplugged and swap them weekly (`sudo umount /mnt/biotrakr-copy` before unplugging).
+
+After a reboot, if `status.sh` says the copy location is NOT MOUNTED while `findmnt /mnt/biotrakr-copy` shows it is, the share came up after BioTrakr started. Run `docker compose restart backup`.
+
+**Being told when backups go wrong.** BioTrakr warns administrators when a backup or the second copy fails, or when backups are overdue: in the app, and by email or SMS as well if those are set up (see [Urgent notices](#7-urgent-notices)). `sh scripts/status.sh` shows the same things: the latest backup, the error if the last one failed, free disk space, and the second copy. For a monitor outside BioTrakr, also set `BACKUP_PING_URL` to one that alerts when it stops being called (for example Uptime Kuma inside the hospital, or healthchecks.io). It is called only when both the backup and its second copy succeed.
 
 Back up by hand at any time (before updates, for example):
 
@@ -133,13 +201,57 @@ docker compose exec backup sh /scripts/restore.sh /backups/biotrakr_2026-10-09_0
 docker compose start api web
 ```
 
+To restore from the second copy (for example after the server's own disk failed and BioTrakr was installed again with the same `BACKUP_COPY_DIR`), give the file under `/backup-copy/` instead, e.g. `/backup-copy/biotrakr_2026-10-09_020000.dump`.
+
 The restore is loaded into a separate database first and only swapped in if it succeeds, so a failed or damaged backup leaves the current data as it was. The data you replaced is kept as a database named `biotrakr_before_restore_<date>`; the script prints how to delete it once everything looks right. The script refuses to run while the app is connected, so stop `api` and `web` first.
 
 Test a restore once a month on a spare machine, so you know it works before you need it.
 
-To be warned if backups stop, set `BACKUP_PING_URL` to a monitor that alerts when it stops being called (for example Uptime Kuma inside the hospital, or healthchecks.io).
+## 7. Urgent notices
 
-## 7. Updating
+When a life-saving device (critical or high criticality, or life support) is reported out of use and nobody has it in hand, biomed at that facility hears at once. If nobody has started on it, the engineers and administrators, and whoever it is assigned to, hear again after 15 and 60 minutes, then every hour until work starts (`NOTIFY_ESCALATE_MINUTES` and `NOTIFY_ESCALATE_REPEAT_MINUTES` in `.env`). Administrators also hear about the server itself: a backup that failed or was missed, a disk filling up, a background job that stopped, messages that are not getting through.
+
+Out of the box these notices appear only inside BioTrakr, so at night nobody sees them. Set up at least one way out of the app. Until you do, **Settings → System** shows a warning saying so.
+
+**Email**, through the hospital's mail server or an email provider. Each person gets it at the address they sign in with:
+
+```bash
+SMTP_HOST=mail.citygeneral.local
+SMTP_PORT=587                      # 465 needs SMTP_SECURE=true as well
+SMTP_USER=biotrakr@citygeneral.local
+SMTP_PASSWORD='the password'       # single quotes, in case it has $ or # in it
+NOTIFY_EMAIL_FROM=BioTrakr <biotrakr@citygeneral.local>
+```
+
+Email is easy to miss at night. For the people on call, add SMS.
+
+**SMS**, through any SMS provider with a web API (or the SMS gateway the hospital already uses for patients). For each message BioTrakr calls the address you give, with `{to}` replaced by the mobile number (`+919876543210`), `{to_digits}` by the same without the `+` (`919876543210`), and `{text}` by the message. Copy the format from your provider's API documentation. Two common shapes:
+
+```bash
+# A link with everything in it (GET):
+NOTIFY_SMS_URL='https://sms-provider.example/api/send?apikey=YOUR_KEY&sender=BTRKMS&to={to_digits}&message={text}'
+
+# JSON sent with a key in a header (POST):
+NOTIFY_SMS_URL=https://sms-provider.example/v1/messages
+NOTIFY_SMS_METHOD=POST
+NOTIFY_SMS_HEADERS='{"authkey":"YOUR_KEY"}'
+NOTIFY_SMS_BODY='{"to":"{to_digits}","message":"{text}","sender":"BTRKMS"}'
+```
+
+Keep these values in single quotes in `.env`. A body that starts with `{` is sent as JSON; anything else as a form.
+
+- **Know when the provider refuses a message.** Many providers answer "200 OK" even when they reject one, with the reason in the reply. Set `NOTIFY_SMS_SUCCESS_MATCH` to text that their reply contains only when the message was accepted (for example `NOTIFY_SMS_SUCCESS_MATCH='"status":"success"'`). Any other reply then counts as failed and is retried.
+- **In India, the wording must match a DLT template** registered with your sender ID. The message is `BioTrakr: {title} {link}`, for example `BioTrakr: Urgent: ICU ventilator (VENT-7) reported faulty https://biotrakr.citygeneral.local/maintenance`. The title is at most 120 characters. Register a template for it with your provider, or change the wording to fit a template you already have with `NOTIFY_SMS_TEXT` (it may use `{title}` and `{link}`). Some providers also want the template's id in the address.
+- Enter each person's mobile number in **Settings → People**. People without one get email only.
+- SMS providers are on the internet. If the server has no internet access, ask IT to allow it to reach the provider's address only, or use email through the hospital's own mail server.
+
+**Your own gateway (webhook).** If the hospital runs its own gateway (WhatsApp, a pager system), set `NOTIFY_WEBHOOK_URL` and `NOTIFY_WEBHOOK_SECRET` (at least 16 characters, e.g. `openssl rand -hex 32`). Each urgent notice is posted to it as signed JSON with the names and numbers of the people to reach. The README (Notifications) explains the format and how to check the signature.
+
+Then `docker compose up -d`, sign in as an administrator, open **Settings → System** and press **Send me a test alert**. It sends one message to your own email and mobile through each way that is set up, and shows what happened. The same page lists messages that did not get through, and settings that cannot work (an SMS address without `{to}`, a webhook secret that is too short) are reported there and to administrators instead of being ignored.
+
+**Knowing if the server itself stops.** Nothing on a server can report its own power cut or crash. Set `HEARTBEAT_URL` to a monitor on another machine. BioTrakr calls it every five minutes while the app and its database work, and the monitor alerts you (by its own email, SMS or app) when the calls stop. A "Push" monitor in Uptime Kuma, on any other machine in the hospital, works without internet access; healthchecks.io works if the server can reach the internet.
+
+## 8. Updating
 
 ```bash
 cd /opt/biotrakr/deploy
@@ -163,7 +275,7 @@ docker compose up -d --build
 
 Restore first, then the old version: the old version must not start on a database the new one has already changed. When the problem is fixed, return to normal updates with `git -C /opt/biotrakr checkout main` before `git pull`.
 
-## 8. Day to day
+## 9. Day to day
 
 | To… | Run (in `/opt/biotrakr/deploy`) |
 |---|---|
@@ -174,13 +286,13 @@ Restore first, then the old version: the old version must not start on a databas
 
 The containers restart on their own after a crash or a server reboot. Logs are rotated automatically (50 MB per service).
 
-**Optional SMS/WhatsApp alerts**: urgent problem reports can be sent to a gateway the hospital runs. Set `NOTIFY_WEBHOOK_URL` and `NOTIFY_WEBHOOK_SECRET` in `.env`, then `docker compose up -d`. Enter each person's mobile number in Settings → People so the gateway can reach them. The README (Notifications) explains the message format and how the gateway checks it is genuine.
+**Settings → System** (administrators) shows what needs attention: backups and their second copy, free disk space, the background jobs, and urgent messages that did not get through. Administrators are also told when any of these goes wrong (step 7).
 
 **Preventive maintenance**: the API opens PM work orders 14 days before they fall due. To change that, set `PM_LEAD_DAYS` in `.env`, then run `docker compose up -d`. Set `TZ` to the hospital's time zone so the due dates written in work orders are local.
 
 **Repair limits and uptime target**: breakdowns are held to 72 hours for critical and life-saving equipment and 7 days for the rest (the BMMP Model RFP), and uptime is measured against 95%. A CHC or PHC, or a contract with other terms, can change `DOWNTIME_LIMIT_CRITICAL_HOURS`, `DOWNTIME_LIMIT_OTHER_HOURS` and `UPTIME_TARGET_PERCENT` in `.env`.
 
-## 9. Security checklist
+## 10. Security checklist
 
 - Firewall: only 80 and 443 (from the hospital network) and SSH (from IT's machines) need to be reachable. Note that ports published by Docker bypass `ufw` rules, so limit them with the hospital's network firewall, with `BIND_IP` in `.env` (answer only on one server address), or with rules in Docker's `DOCKER-USER` chain. The database is not published at all.
 - Keep `.env` readable only by the administrator (`chmod 600 .env`).

@@ -5,6 +5,14 @@ import {
   NotificationJobsService,
   signWebhook,
 } from '../src/notifications/notification-jobs.service';
+
+const mockSendMail = jest.fn();
+jest.mock('nodemailer', () => ({
+  createTransport: jest.fn(() => ({
+    sendMail: (...args: unknown[]) => mockSendMail(...args),
+    close: jest.fn(),
+  })),
+}));
 import { GENERAL_CHECKLIST } from '../src/pm/checklists';
 import { bearer, createTestApp, ORG_A } from './helpers';
 import { auditStore } from './audit-store';
@@ -695,7 +703,7 @@ describe('Problem reports and work orders (e2e)', () => {
       expect(escalations()).toHaveLength(2);
     });
 
-    it('does not escalate once someone takes it on, or minor reports', async () => {
+    it('keeps escalating an assigned report until work starts, and never minor ones', async () => {
       await report({
         assetId: VENT,
         description: 'Alarm keeps sounding',
@@ -706,15 +714,44 @@ describe('Problem reports and work orders (e2e)', () => {
         description: 'Label peeling',
         takeOutOfUse: false,
       });
+      const TECH = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+      prisma.users.push({
+        id: TECH,
+        organizationId: ORG_A,
+        firstName: 'Ravi',
+        lastName: 'Rao',
+        role: 'technician',
+        isActive: true,
+      });
       await update(WO1, {
         expectedStatus: 'PENDING',
-        assignedTechnicianId: ENGINEER,
+        assignedTechnicianId: TECH,
       }).expect(200);
-      const t0 = Date.now();
+      const t0 = (prisma.orders[0].createdAt as Date).getTime();
+      const escalations = () =>
+        prisma.notifications.filter((n) => n.kind === 'escalation');
+
+      // Assigned is not started: supervisors and the assignee hear.
+      expect(await jobs.escalate(new Date(t0 + 16 * MIN))).toBe(1);
+      expect(
+        escalations()
+          .map((n) => n.userId)
+          .sort(),
+      ).toEqual([ENGINEER, TECH].sort());
+      expect(escalations()[0].title).toBe(
+        'Not started 15 min after it was reported: ICU ventilator (VENT-7) (assigned to Ravi Rao)',
+      );
+
+      // Once work starts, it stops.
+      await update(WO1, {
+        expectedStatus: 'ASSIGNED',
+        status: 'IN_PROGRESS',
+      }).expect(200);
       expect(await jobs.escalate(new Date(t0 + 90 * MIN))).toBe(0);
     });
 
     it('after downtime sends only the latest level', async () => {
+      process.env.NOTIFY_ESCALATE_REPEAT_MINUTES = '0';
       await report({
         assetId: VENT,
         description: 'Alarm keeps sounding',
@@ -727,6 +764,59 @@ describe('Problem reports and work orders (e2e)', () => {
         prisma.notifications.filter((n) => n.kind === 'escalation')[0]
           .dedupeKey,
       ).toBe(`escalation:60:${WO1}`);
+    });
+
+    it('repeats after the last step until someone starts', async () => {
+      process.env.NOTIFY_ESCALATE_REPEAT_MINUTES = '60';
+      await report({
+        assetId: VENT,
+        description: 'Alarm keeps sounding',
+        takeOutOfUse: true,
+      });
+      const t0 = (prisma.orders[0].createdAt as Date).getTime();
+      const titles = () =>
+        prisma.notifications
+          .filter((n) => n.kind === 'escalation')
+          .map((n) => n.title);
+      for (const m of [16, 61, 100, 121, 150, 181]) {
+        await jobs.escalate(new Date(t0 + m * MIN));
+      }
+      expect(titles()).toEqual([
+        'Nobody has taken this on for 15 min: ICU ventilator (VENT-7)',
+        'Nobody has taken this on for 60 min: ICU ventilator (VENT-7)',
+        'Nobody has taken this on for 2 h: ICU ventilator (VENT-7)',
+        'Nobody has taken this on for 3 h: ICU ventilator (VENT-7)',
+      ]);
+    });
+
+    it('treats a life-support device as urgent whatever its criticality', async () => {
+      prisma.assets[1].deviceCategory = 'LIFE_SUPPORT'; // MEDIUM criticality
+      await report({
+        assetId: PUMP,
+        description: 'Occlusion alarm on every bag',
+        takeOutOfUse: true,
+      }).expect(201);
+      expect(prisma.orders[0].isEmergency).toBe(true);
+      expect(prisma.notifications[0]).toMatchObject({ severity: 'critical' });
+    });
+
+    it('treats a report on a device already out of use as urgent unless biomed has it in hand', async () => {
+      // Quarantined by a device fault: no work order yet.
+      prisma.assets[0].assetStatus = 'QUARANTINED';
+      await report({
+        assetId: VENT,
+        description: 'Still alarming, needed for a patient',
+        takeOutOfUse: false,
+      }).expect(201);
+      expect(prisma.orders[0].isEmergency).toBe(true);
+
+      // That urgent report is still open: a second one is not urgent again.
+      await report({
+        assetId: VENT,
+        description: 'Same ventilator, other shift',
+        takeOutOfUse: false,
+      }).expect(201);
+      expect(prisma.orders[1].isEmergency).toBe(false);
     });
 
     it('sends urgent notices to a signed webhook, retrying until it answers', async () => {
@@ -795,6 +885,131 @@ describe('Problem reports and work orders (e2e)', () => {
         ),
       );
       expect(init.redirect).toBe('manual');
+    });
+
+    it('emails and texts each biomed person about an urgent report', async () => {
+      process.env.SMTP_HOST = 'mail.hospital.example';
+      process.env.NOTIFY_EMAIL_FROM = 'BioTrakr <biotrakr@hospital.example>';
+      process.env.NOTIFY_SMS_URL =
+        'https://sms.example.in/send?key=k&to={to_digits}&msg={text}';
+      process.env.APP_URL = 'https://biotrakr.hospital.example';
+      const engineer = prisma.users.find((u) => u.id === ENGINEER)!;
+      Object.assign(engineer, {
+        email: 'eli@hospital.example',
+        phone: '+919876543210',
+      });
+      // No phone on record: email only.
+      Object.assign(prisma.users.find((u) => u.id === 'user-technician')!, {
+        email: 'tara@hospital.example',
+        phone: null,
+      });
+
+      await report({
+        assetId: VENT,
+        description: 'Alarm keeps sounding',
+        takeOutOfUse: true,
+        locationHint: 'ICU bay 3',
+      });
+      await report({
+        assetId: PUMP,
+        description: 'Label peeling',
+        takeOutOfUse: false,
+      });
+
+      // Only the urgent one, one message per person and channel.
+      const queued = prisma.outbound.map((o) => [
+        o.channel,
+        (o.payload as Rec).to,
+      ]);
+      expect(queued.sort()).toEqual(
+        [
+          ['email', 'eli@hospital.example'],
+          ['email', 'tara@hospital.example'],
+          ['sms', '+919876543210'],
+        ].sort(),
+      );
+      const email = prisma.outbound.find((o) => o.channel === 'email')!;
+      expect(email.payload).toMatchObject({
+        subject: '[BioTrakr] Urgent: ICU ventilator (VENT-7) reported faulty',
+      });
+      const text = (email.payload as Rec).text as string;
+      expect(text).toContain('Where: ICU bay 3');
+      expect(text).toContain(
+        'Open in BioTrakr: https://biotrakr.hospital.example/maintenance',
+      );
+      // What the nurse typed stays inside the hospital system.
+      expect(JSON.stringify(prisma.outbound)).not.toContain(
+        'Alarm keeps sounding',
+      );
+
+      mockSendMail.mockReset().mockResolvedValue({ messageId: 'm1' });
+      const fetchMock = jest
+        .spyOn(global, 'fetch')
+        .mockResolvedValue(new Response('ok', { status: 200 }));
+      expect(await jobs.deliver()).toEqual({ sent: 3, failed: 0 });
+      expect(mockSendMail).toHaveBeenCalledTimes(2);
+      expect(mockSendMail.mock.calls[0][0]).toMatchObject({
+        from: 'BioTrakr <biotrakr@hospital.example>',
+      });
+      const [url] = fetchMock.mock.calls[0] as [string];
+      expect(url).toBe(
+        'https://sms.example.in/send?key=k&to=919876543210&msg=' +
+          encodeURIComponent(
+            'BioTrakr: Urgent: ICU ventilator (VENT-7) reported faulty https://biotrakr.hospital.example/maintenance',
+          ),
+      );
+    });
+
+    it('retries an email the mail server could not take, but not one it refused', async () => {
+      process.env.SMTP_HOST = 'mail.hospital.example';
+      process.env.NOTIFY_EMAIL_FROM = 'biotrakr@hospital.example';
+      Object.assign(prisma.users.find((u) => u.id === ENGINEER)!, {
+        email: 'eli@hospital.example',
+      });
+      Object.assign(prisma.users.find((u) => u.id === 'user-technician')!, {
+        email: 'nobody@hospital.example',
+      });
+      await report({
+        assetId: VENT,
+        description: 'Alarm keeps sounding',
+        takeOutOfUse: true,
+      });
+      mockSendMail
+        .mockReset()
+        .mockImplementation(async ({ to }: { to: string }) => {
+          if (to.startsWith('nobody')) {
+            throw Object.assign(new Error('mailbox unavailable'), {
+              responseCode: 550,
+            });
+          }
+          throw new Error('connect ECONNREFUSED 10.0.0.5:587');
+        });
+      expect(await jobs.deliver()).toEqual({ sent: 0, failed: 1 });
+      const byTo = (to: string) =>
+        prisma.outbound.find((o) => (o.payload as Rec).to === to)!;
+      expect(byTo('nobody@hospital.example').failedAt).toBeInstanceOf(Date);
+      expect(byTo('eli@hospital.example')).toMatchObject({
+        failedAt: null,
+        lastError: 'connect ECONNREFUSED 10.0.0.5:587',
+      });
+    });
+
+    it('does not send what is queued if the channel is switched off meanwhile', async () => {
+      process.env.NOTIFY_SMS_URL =
+        'https://sms.example.in/send?to={to}&msg={text}';
+      Object.assign(prisma.users.find((u) => u.id === ENGINEER)!, {
+        phone: '+919876543210',
+      });
+      await report({
+        assetId: VENT,
+        description: 'Alarm keeps sounding',
+        takeOutOfUse: true,
+      });
+      delete process.env.NOTIFY_SMS_URL;
+      expect(await jobs.deliver()).toEqual({ sent: 0, failed: 1 });
+      expect(prisma.outbound[0].lastError).toBe(
+        'SMS is not set up (NOTIFY_SMS_URL)',
+      );
     });
 
     it('gives up after the last attempt instead of retrying forever', async () => {
