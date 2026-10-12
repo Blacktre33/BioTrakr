@@ -1,7 +1,13 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 
-import { takeOutOfUseAfterFailedCheck } from '../assets/failed-check';
+import {
+  cancelStaleScheduledWork,
+  takeOutOfUseAfterFailedCheck,
+} from '../assets/failed-check';
+import { audit, type Actor, type Change } from '../audit/audit';
+import { changesBetween, listed } from '../audit/changes';
+import { formatDate } from '../contracts/contract-status';
 import { evaluateSafetyTest, type SafetyEvaluation } from './iec62353';
 import type { SafetyTestInputDto } from './safety-test.dto';
 
@@ -60,9 +66,9 @@ export async function recordSafetyTest(
   tx: Tx,
   e: {
     assetId: string;
-    organizationId: string;
+    /** The person recording it; their hospital is the device's. */
+    actor: Actor;
     input: SafetyTestInputDto;
-    recordedById: string;
     workOrderId?: string | null;
     supersedesId?: string;
     correctionReason?: string;
@@ -71,6 +77,7 @@ export async function recordSafetyTest(
   const { problems, evaluation } = safetyTestProblems(e.input);
   if (problems.length) throw new BadRequestException(problems);
   const i = e.input;
+  const { organizationId } = e.actor;
 
   let record;
   try {
@@ -99,7 +106,7 @@ export async function recordSafetyTest(
         passed: evaluation.passed,
         checks: evaluation.checks as unknown as Prisma.InputJsonValue,
         notes: clean(i.notes),
-        recordedById: e.recordedById,
+        recordedById: e.actor.userId!,
         supersedesId: e.supersedesId ?? null,
         correctionReason: clean(e.correctionReason),
       },
@@ -118,7 +125,7 @@ export async function recordSafetyTest(
   await tx.asset.updateMany({
     where: {
       id: e.assetId,
-      organizationId: e.organizationId,
+      organizationId,
       electricalClass: null,
     },
     data: { electricalClass: i.electricalClass },
@@ -126,16 +133,20 @@ export async function recordSafetyTest(
   await tx.asset.updateMany({
     where: {
       id: e.assetId,
-      organizationId: e.organizationId,
+      organizationId,
       appliedPartType: null,
     },
     data: { appliedPartType: i.appliedPartType },
   });
 
-  const latest = await refreshSafetyTestState(tx, e.assetId, e.organizationId);
+  await auditCheck(tx, e, record);
+
+  const latest = await refreshSafetyTestState(tx, e.assetId, organizationId);
   if (latest?.id === record.id && !record.passed) {
     await takeOutOfUseAfterFailedCheck(tx, {
-      ...e,
+      assetId: e.assetId,
+      actor: e.actor,
+      workOrderId: e.workOrderId,
       what: 'Failed electrical safety test',
       details: [evaluation.failures.join('; '), record.notes]
         .filter(Boolean)
@@ -144,7 +155,84 @@ export async function recordSafetyTest(
       kind: 'safety_test_failed',
     });
   }
+  if (e.supersedesId && latest) {
+    await cancelStaleScheduledWork(tx, {
+      assetId: e.assetId,
+      actor: e.actor,
+      workOrderType: 'ELECTRICAL_SAFETY_TEST',
+      nextDue: latest.nextDue,
+      why: `the safety test record was corrected; the device is next due ${formatDate(latest.nextDue)}`,
+    });
+  }
   return record;
+}
+
+/** What a correction can change, compared with the record it replaces. */
+const CORRECTABLE = {
+  testedAt: true,
+  reason: true,
+  provider: true,
+  providerName: true,
+  analyzer: true,
+  electricalClass: true,
+  appliedPartType: true,
+  leakageMethod: true,
+  visualInspectionPassed: true,
+  functionalTestPassed: true,
+  earthResistanceOhm: true,
+  insulationMainsMOhm: true,
+  insulationAppliedMOhm: true,
+  equipmentLeakageUa: true,
+  appliedPartLeakageUa: true,
+  passed: true,
+  notes: true,
+} as const;
+
+/** The edit history's entry for a test, or a correction with what it changed. */
+async function auditCheck(
+  tx: Tx,
+  e: {
+    assetId: string;
+    actor: Actor;
+    supersedesId?: string;
+    correctionReason?: string;
+  },
+  record: Prisma.SafetyTestRecordGetPayload<{ select: typeof CORRECTABLE }> & {
+    id: string;
+  },
+) {
+  const device = await tx.asset.findFirst({
+    where: { id: e.assetId, organizationId: e.actor.organizationId },
+    select: { assetTagNumber: true },
+  });
+  const tag = device?.assetTagNumber ?? 'the device';
+  let changes: Change[] = [];
+  if (e.supersedesId) {
+    const original = await tx.safetyTestRecord.findFirst({
+      where: { id: e.supersedesId },
+      select: CORRECTABLE,
+    });
+    if (original) {
+      const after = Object.fromEntries(
+        Object.keys(CORRECTABLE).map((k) => [
+          k,
+          record[k as keyof typeof CORRECTABLE],
+        ]),
+      );
+      changes = await changesBetween(tx, original, after);
+    }
+  }
+  audit(tx, e.actor, {
+    action: e.supersedesId ? 'safety_test.corrected' : 'safety_test.recorded',
+    entityType: 'safety_test',
+    entityId: record.id,
+    assetId: e.assetId,
+    summary: e.supersedesId
+      ? `Electrical safety test of ${tag} corrected${changes.length ? `: ${listed(changes)}` : ''}`
+      : `Electrical safety test of ${tag} recorded: ${record.passed ? 'passed' : 'failed'}`,
+    changes,
+    reason: e.correctionReason,
+  });
 }
 
 /**
@@ -167,16 +255,14 @@ export async function refreshSafetyTestState(
     select: { id: true, testedAt: true, passed: true },
   });
   if (!latest) return null;
+  const nextDue = safetyTestDueAfter(latest, asset.safetyTestFrequencyDays);
   await tx.asset.updateMany({
     where: { id: assetId, organizationId },
     data: {
       lastSafetyInspectionDate: latest.testedAt,
-      nextSafetyInspectionDue: safetyTestDueAfter(
-        latest,
-        asset.safetyTestFrequencyDays,
-      ),
+      nextSafetyInspectionDue: nextDue,
       lastSafetyTestPassed: latest.passed,
     },
   });
-  return latest;
+  return { ...latest, nextDue };
 }

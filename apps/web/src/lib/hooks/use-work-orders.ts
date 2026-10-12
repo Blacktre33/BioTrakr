@@ -35,6 +35,7 @@ function useInvalidateDeviceViews() {
     // Completing a calibration work order adds a record and moves the dates.
     void queryClient.invalidateQueries({ queryKey: ["calibrations"] });
     void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    void queryClient.invalidateQueries({ queryKey: ["audit"] });
   };
 }
 

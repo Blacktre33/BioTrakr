@@ -3,6 +3,7 @@ import request from 'supertest';
 import ExcelJS from 'exceljs';
 
 import { bearer, createTestApp, ORG_A, ORG_B } from './helpers';
+import { auditStore } from './audit-store';
 
 const HEADERS = [
   'Asset Tag*',
@@ -98,7 +99,22 @@ function buildPrisma() {
     asset: {
       create: jest.fn(async ({ data }) => ({ id: 'new', ...data })),
       updateMany: jest.fn(async () => ({ count: 1 })),
+      // The device as it was, for the edit history.
+      findFirst: jest.fn(
+        async ({ where }) => existing.find((a) => a.id === where.id) ?? null,
+      ),
     },
+    facility: {
+      findMany: jest.fn(async () => [
+        { id: 'f1', facilityName: 'City General' },
+      ]),
+    },
+    department: {
+      findMany: jest.fn(async () => [
+        { id: 'd1', departmentName: 'Intensive Care' },
+      ]),
+    },
+    auditEvent: auditStore(),
   };
   return {
     tx,
@@ -258,6 +274,7 @@ describe('Excel import (e2e)', () => {
         assetStatus: 'ACTIVE',
         purchaseCost: 50000,
       }),
+      select: expect.any(Object),
     });
     expect(prisma.tx.asset.updateMany).toHaveBeenCalledWith({
       where: {
@@ -283,6 +300,20 @@ describe('Excel import (e2e)', () => {
       row: 3,
       message: expect.stringContaining('Status stays Quarantined'),
     });
+    // Both rows are in the edit history, with the row they came from.
+    expect(prisma.tx.auditEvent.events).toEqual([
+      expect.objectContaining({
+        action: 'asset.created',
+        actorId: 'user-engineer',
+        summary: expect.stringMatching(/^Added PUMP-1 · /),
+        reason: 'Excel import, row 2',
+      }),
+      expect.objectContaining({
+        action: 'asset.updated',
+        entityId: 'a-existing',
+        reason: 'Excel import, row 3',
+      }),
+    ]);
   });
 
   it('keeps leading zeros in tags and rejects a repeated column', async () => {
@@ -342,6 +373,7 @@ describe('Excel import (e2e)', () => {
       data: expect.objectContaining({
         purchaseDate: new Date('2023-06-30T00:00:00Z'),
       }),
+      select: expect.any(Object),
     });
   });
 

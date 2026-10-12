@@ -77,7 +77,13 @@ export async function listWorkOrders(params: {
 export async function updateWorkOrder(
   id: string,
   body: WorkOrderUpdate,
-): Promise<WorkOrder & { deviceReleased: boolean }> {
+): Promise<
+  WorkOrder & {
+    deviceReleased: boolean;
+    /** The calibration or safety test recorded on completion. */
+    record: { type: "calibration" | "safetyTest"; id: string } | null;
+  }
+> {
   const { data } = await api.patch(`/work-orders/${id}`, body);
   return data;
 }

@@ -5,6 +5,8 @@ import {
 } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 
+import { actorOf, audit, auditedTransaction } from '../audit/audit';
+import { changesBetween, listed } from '../audit/changes';
 import type { AuthUser } from '../auth/auth-user';
 import { PrismaService } from '../database/prisma.service';
 import type { UpdateVendorDto, VendorInputDto } from './contracts.dto';
@@ -46,17 +48,26 @@ export class VendorsService {
   async create(dto: VendorInputDto, user: AuthUser) {
     await this.assertNameFree(dto.vendorName, user.organizationId);
     try {
-      return await this.prisma.vendor.create({
-        data: {
-          organizationId: user.organizationId,
-          vendorName: dto.vendorName,
-          vendorType: dto.vendorType,
-          contactPerson: blankToNull(dto.contactPerson),
-          phone: blankToNull(dto.phone),
-          email: blankToNull(dto.email),
-          address: blankToNull(dto.address),
-        },
-        select: VENDOR_SELECT,
+      return await auditedTransaction(this.prisma, async (tx) => {
+        const vendor = await tx.vendor.create({
+          data: {
+            organizationId: user.organizationId,
+            vendorName: dto.vendorName,
+            vendorType: dto.vendorType,
+            contactPerson: blankToNull(dto.contactPerson),
+            phone: blankToNull(dto.phone),
+            email: blankToNull(dto.email),
+            address: blankToNull(dto.address),
+          },
+          select: VENDOR_SELECT,
+        });
+        audit(tx, actorOf(user), {
+          action: 'vendor.created',
+          entityType: 'vendor',
+          entityId: vendor.id,
+          summary: `Added vendor ${vendor.vendorName}`,
+        });
+        return vendor;
       });
     } catch (error) {
       throw this.duplicate(error);
@@ -68,18 +79,37 @@ export class VendorsService {
       await this.assertNameFree(dto.vendorName, user.organizationId, id);
     }
     try {
-      const { count } = await this.prisma.vendor.updateMany({
-        where: { id, organizationId: user.organizationId },
-        data: {
+      await auditedTransaction(this.prisma, async (tx) => {
+        const data = {
           vendorName: dto.vendorName,
           vendorType: dto.vendorType,
           contactPerson: blankToNull(dto.contactPerson),
           phone: blankToNull(dto.phone),
           email: blankToNull(dto.email),
           address: blankToNull(dto.address),
-        },
+        };
+        const before = await tx.vendor.findFirst({
+          where: { id, organizationId: user.organizationId },
+          select: VENDOR_SELECT,
+        });
+        const { count } = await tx.vendor.updateMany({
+          where: { id, organizationId: user.organizationId },
+          data,
+        });
+        if (!before || count === 0) {
+          throw new NotFoundException('Vendor not found');
+        }
+        const changes = await changesBetween(tx, before, data);
+        if (changes.length) {
+          audit(tx, actorOf(user), {
+            action: 'vendor.updated',
+            entityType: 'vendor',
+            entityId: id,
+            summary: `Edited vendor ${before.vendorName}: ${listed(changes)}`,
+            changes,
+          });
+        }
       });
-      if (count === 0) throw new NotFoundException('Vendor not found');
     } catch (error) {
       throw this.duplicate(error);
     }

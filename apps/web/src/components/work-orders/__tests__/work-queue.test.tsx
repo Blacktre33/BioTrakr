@@ -6,11 +6,12 @@ import type { WorkOrder } from "@/lib/api/work-orders";
 import { WorkQueue } from "../work-queue";
 
 const mutateAsync = jest.fn();
+const uploadAsync = jest.fn();
 let items: WorkOrder[] = [];
 
 jest.mock("@/lib/hooks/use-documents", () => ({
   useDocuments: () => ({ isPending: false, isError: false, data: [] }),
-  useUploadDocument: () => ({ mutateAsync: jest.fn(), isPending: false }),
+  useUploadDocument: () => ({ mutateAsync: uploadAsync, isPending: false }),
   useWithdrawDocument: () => ({ mutateAsync: jest.fn(), isPending: false }),
 }));
 jest.mock("sonner", () => ({ toast: { success: jest.fn(), error: jest.fn() } }));
@@ -143,6 +144,29 @@ describe("WorkQueue", () => {
             calibratedAt: expect.any(String),
           }),
         },
+      });
+    });
+
+    it("attaches the certificate to the calibration it records", async () => {
+      const user = userEvent.setup();
+      items = [calibrationOrder];
+      mutateAsync.mockResolvedValue({ deviceReleased: false, record: { type: "calibration", id: "cal-9" } });
+      uploadAsync.mockReset().mockResolvedValue({});
+      render(<WorkQueue />);
+      await user.click(screen.getByRole("button", { name: "Complete…" }));
+      await user.type(screen.getByLabelText(/what was done/i), "Calibrated by the lab on site");
+      await user.type(screen.getByLabelText(/^Laboratory/), "Precise Calibration Labs");
+      await user.type(screen.getByLabelText(/NABL accreditation/), "CC-2345");
+      await user.type(screen.getByLabelText(/Certificate no/), "PCL/2026/0412");
+      await user.type(screen.getByLabelText(/Measurement uncertainty/), "±0.5 mmHg (k=2)");
+      const pdf = new File(["%PDF-1.4"], "PCL-0412.pdf", { type: "application/pdf" });
+      await user.upload(screen.getByLabelText(/^Certificate \(optional/), pdf);
+      await user.click(screen.getByRole("button", { name: "Complete" }));
+      expect(uploadAsync).toHaveBeenCalledWith({
+        targetType: "calibration",
+        targetId: "cal-9",
+        file: pdf,
+        title: "Calibration certificate, VENT-7",
       });
     });
 

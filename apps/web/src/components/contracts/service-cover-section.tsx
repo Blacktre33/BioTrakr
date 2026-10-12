@@ -6,12 +6,25 @@ import Link from "next/link";
 import { FileText, Plus } from "lucide-react";
 
 import { Button, Skeleton } from "@/components/ui";
-import { describeEnd } from "@/lib/api/contracts";
+import { describeEnd, type EarlierCover } from "@/lib/api/contracts";
 import { useDeviceCover } from "@/lib/hooks/use-contracts";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 
 import { ContractCard } from "./contract-card";
-import { ContractDialog } from "./contract-dialog";
+import { ContractDialog, toDay, type ContractFormValues } from "./contract-dialog";
+
+/** The contract form, filled in from details typed on the device earlier. */
+function fromEarlier(e: EarlierCover): Partial<ContractFormValues> {
+  return {
+    contractType: e.contractType,
+    vendorId: e.vendor?.id ?? "",
+    contractNumber: e.contractNumber ?? "",
+    ...(e.startDate ? { startDate: toDay(new Date(e.startDate)) } : {}),
+    ...(e.endDate ? { endDate: toDay(new Date(e.endDate)) } : {}),
+    annualValue: e.annualValue === null ? "" : String(e.annualValue),
+    notes: "Moved from the details typed on the device record.",
+  };
+}
 
 /**
  * Who maintains this device and until when: its warranty and its AMC/CMC
@@ -25,7 +38,7 @@ export function ServiceCoverSection({
   canEdit: boolean;
 }) {
   const cover = useDeviceCover(device.id);
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState<Partial<ContractFormValues> | null>(null);
   const [showPast, setShowPast] = useState(false);
 
   const contracts = cover.data?.contracts ?? [];
@@ -35,7 +48,7 @@ export function ServiceCoverSection({
     .sort((a, b) => a.startDate.localeCompare(b.startDate));
   const past = contracts.filter((c) => c.status === "expired" || c.status === "terminated");
   const warranty = cover.data?.warranty;
-  const earlier = cover.data?.earlierAmc;
+  const earlier = cover.data?.earlier ?? [];
 
   return (
     <section aria-labelledby="service-cover-heading" className="rounded-2xl border border-white/10 p-4">
@@ -48,7 +61,7 @@ export function ServiceCoverSection({
             size="sm"
             variant="secondary"
             leftIcon={<Plus className="h-4 w-4" />}
-            onClick={() => setAdding(true)}
+            onClick={() => setAdding({})}
             className="ml-auto"
           >
             Add contract
@@ -85,13 +98,30 @@ export function ServiceCoverSection({
             </p>
           )}
 
-          {earlier && (
-            <p className="mt-2 text-sm text-gray-400">
-              Recorded on the device earlier: AMC {earlier.contractNumber ?? "(no number)"}
-              {earlier.endDate ? ` until ${formatDate(earlier.endDate)}` : ""}
-              {earlier.annualCost !== null ? `, ${formatCurrency(earlier.annualCost)} a year` : ""}. Add it as a contract
-              to get reminders.
-            </p>
+          {earlier.length > 0 && (
+            <ul className="mt-2 space-y-1 text-sm text-gray-400">
+              {earlier.map((e) => (
+                <li key={e.contractType} className="flex flex-wrap items-center gap-x-2">
+                  <span>
+                    Typed on the device earlier: {e.contractType}{" "}
+                    {e.contractNumber ?? "(no number)"}
+                    {e.vendor ? ` with ${e.vendor.vendorName}` : ""}
+                    {e.endDate ? ` until ${formatDate(e.endDate)}` : ""}
+                    {e.annualValue !== null ? `, ${formatCurrency(e.annualValue)} a year` : ""}.
+                    {canEdit ? "" : " Not yet entered as a contract."}
+                  </span>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={() => setAdding(fromEarlier(e))}
+                      className="text-primary-400 hover:underline"
+                    >
+                      Enter as a contract
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
           )}
 
           {past.length > 0 && (
@@ -130,7 +160,8 @@ export function ServiceCoverSection({
         <ContractDialog
           mode="create"
           devices={[{ id: device.id, assetTagNumber: device.assetTagNumber, equipmentName: device.equipmentName }]}
-          onClose={() => setAdding(false)}
+          prefill={adding}
+          onClose={() => setAdding(null)}
         />
       )}
     </section>

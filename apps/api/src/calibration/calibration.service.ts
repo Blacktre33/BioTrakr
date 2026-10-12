@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 
+import { actorOf, auditedTransaction } from '../audit/audit';
 import type { AuthUser } from '../auth/auth-user';
 import { PrismaService } from '../database/prisma.service';
 import { documentCounts } from '../documents/documents.service';
@@ -74,7 +75,7 @@ export class CalibrationService {
    * calibration programme if it was not in it.
    */
   async create(assetId: string, dto: CalibrationInputDto, user: AuthUser) {
-    return this.prisma.$transaction(async (tx) => {
+    return auditedTransaction(this.prisma, async (tx) => {
       await this.assertAsset(tx, assetId, user);
       // One record per calibration: an open work order is completed instead.
       const open = await tx.maintenanceHistory.count({
@@ -95,9 +96,8 @@ export class CalibrationService {
       });
       const record = await recordCalibration(tx, {
         assetId,
-        organizationId: user.organizationId,
+        actor: actorOf(user),
         input: dto,
-        recordedById: user.userId,
       });
       return present(
         (await tx.calibrationRecord.findFirst({
@@ -113,7 +113,7 @@ export class CalibrationService {
    * kept, marked as corrected, with the reason.
    */
   async correct(id: string, dto: CalibrationCorrectionDto, user: AuthUser) {
-    return this.prisma.$transaction(async (tx) => {
+    return auditedTransaction(this.prisma, async (tx) => {
       const original = await tx.calibrationRecord.findFirst({
         where: { id, asset: { organizationId: user.organizationId } },
         select: {
@@ -132,9 +132,8 @@ export class CalibrationService {
       const { correctionReason, ...input } = dto;
       const record = await recordCalibration(tx, {
         assetId: original.assetId,
-        organizationId: user.organizationId,
+        actor: actorOf(user),
         input,
-        recordedById: user.userId,
         workOrderId: original.workOrderId,
         supersedesId: id,
         correctionReason,

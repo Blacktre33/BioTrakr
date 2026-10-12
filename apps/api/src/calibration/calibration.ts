@@ -5,7 +5,13 @@ import type {
   ServiceProvider,
 } from '@prisma/client';
 
-import { takeOutOfUseAfterFailedCheck } from '../assets/failed-check';
+import {
+  cancelStaleScheduledWork,
+  takeOutOfUseAfterFailedCheck,
+} from '../assets/failed-check';
+import { audit, type Actor, type Change } from '../audit/audit';
+import { changesBetween, listed } from '../audit/changes';
+import { formatDate } from '../contracts/contract-status';
 import type { CalibrationInputDto } from './calibration.dto';
 
 type Tx = Prisma.TransactionClient;
@@ -102,9 +108,9 @@ export async function recordCalibration(
   tx: Tx,
   e: {
     assetId: string;
-    organizationId: string;
+    /** The person recording it; their hospital is the device's. */
+    actor: Actor;
     input: CalibrationInputDto;
-    recordedById: string;
     workOrderId?: string | null;
     supersedesId?: string;
     correctionReason?: string;
@@ -112,6 +118,7 @@ export async function recordCalibration(
 ) {
   const problems = calibrationProblems(e.input);
   if (problems.length) throw new BadRequestException(problems);
+  const { organizationId } = e.actor;
 
   let record;
   try {
@@ -129,7 +136,7 @@ export async function recordCalibration(
         referenceStandards: clean(e.input.referenceStandards),
         result: e.input.result,
         notes: clean(e.input.notes),
-        recordedById: e.recordedById,
+        recordedById: e.actor.userId!,
         supersedesId: e.supersedesId ?? null,
         correctionReason: clean(e.correctionReason),
       },
@@ -144,17 +151,95 @@ export async function recordCalibration(
     throw error;
   }
 
-  const latest = await refreshCalibrationState(tx, e.assetId, e.organizationId);
+  await auditCheck(tx, e, record);
+
+  const latest = await refreshCalibrationState(tx, e.assetId, organizationId);
   if (latest?.id === record.id && record.result === 'FAIL') {
     await takeOutOfUseAfterFailedCheck(tx, {
-      ...e,
+      assetId: e.assetId,
+      actor: e.actor,
+      workOrderId: e.workOrderId,
       what: 'Failed calibration',
       details: record.notes,
       until: 'a passing calibration is recorded',
       kind: 'calibration_failed',
     });
   }
+  if (e.supersedesId && latest) {
+    await cancelStaleScheduledWork(tx, {
+      assetId: e.assetId,
+      actor: e.actor,
+      workOrderType: 'CALIBRATION',
+      nextDue: latest.nextDue,
+      why: `the calibration record was corrected; the device is next due ${formatDate(latest.nextDue)}`,
+    });
+  }
   return record;
+}
+
+/** What a correction can change, compared with the record it replaces. */
+const CORRECTABLE = {
+  calibratedAt: true,
+  provider: true,
+  providerName: true,
+  labAccreditationNumber: true,
+  certificateNumber: true,
+  validUntil: true,
+  measurementUncertainty: true,
+  referenceStandards: true,
+  result: true,
+  notes: true,
+} as const;
+
+/** The edit history's entry for a calibration, or a correction with what it changed. */
+async function auditCheck(
+  tx: Tx,
+  e: {
+    assetId: string;
+    actor: Actor;
+    supersedesId?: string;
+    correctionReason?: string;
+  },
+  record: Prisma.CalibrationRecordGetPayload<{ select: typeof CORRECTABLE }> & {
+    id: string;
+  },
+) {
+  const device = await tx.asset.findFirst({
+    where: { id: e.assetId, organizationId: e.actor.organizationId },
+    select: { assetTagNumber: true },
+  });
+  const tag = device?.assetTagNumber ?? 'the device';
+  let changes: Change[] = [];
+  if (e.supersedesId) {
+    const original = await tx.calibrationRecord.findFirst({
+      where: { id: e.supersedesId },
+      select: CORRECTABLE,
+    });
+    if (original) {
+      const after = Object.fromEntries(
+        Object.keys(CORRECTABLE).map((k) => [
+          k,
+          record[k as keyof typeof CORRECTABLE],
+        ]),
+      );
+      changes = await changesBetween(tx, original, after);
+    }
+  }
+  audit(tx, e.actor, {
+    action: e.supersedesId ? 'calibration.corrected' : 'calibration.recorded',
+    entityType: 'calibration',
+    entityId: record.id,
+    assetId: e.assetId,
+    summary: e.supersedesId
+      ? `Calibration of ${tag} corrected${changes.length ? `: ${listed(changes)}` : ''}`
+      : `Calibration of ${tag} recorded: ${record.result.toLowerCase()}${
+          record.certificateNumber
+            ? `, certificate ${record.certificateNumber}`
+            : ''
+        }`,
+    changes,
+    reason: e.correctionReason,
+  });
 }
 
 /**
@@ -178,16 +263,14 @@ export async function refreshCalibrationState(
     select: { id: true, calibratedAt: true, validUntil: true, result: true },
   });
   if (!latest) return null;
+  const nextDue = calibrationDueAfter(latest, asset.calibrationFrequencyDays);
   await tx.asset.updateMany({
     where: { id: assetId, organizationId },
     data: {
       lastCalibrationDate: latest.calibratedAt,
-      nextCalibrationDue: calibrationDueAfter(
-        latest,
-        asset.calibrationFrequencyDays,
-      ),
+      nextCalibrationDue: nextDue,
       lastCalibrationResult: latest.result,
     },
   });
-  return latest;
+  return { ...latest, nextDue };
 }

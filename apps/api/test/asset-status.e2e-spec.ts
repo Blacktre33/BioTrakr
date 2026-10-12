@@ -2,6 +2,7 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 
 import { bearer, createTestApp, ORG_A } from './helpers';
+import { auditStore } from './audit-store';
 
 const QUARANTINED_ID = '11111111-1111-4111-8111-111111111111';
 const DISPOSED_ID = '22222222-2222-4222-8222-222222222222';
@@ -87,6 +88,7 @@ function buildPrisma() {
           : 1,
       ),
     },
+    auditEvent: auditStore(),
     $transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
       fn(mock),
     ),

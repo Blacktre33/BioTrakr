@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import type { AssetStatus } from '@prisma/client';
 import ExcelJS from 'exceljs';
 
+import { actorOf, audit, auditedTransaction } from '../../audit/audit';
+import { changesBetween, listed } from '../../audit/changes';
 import type { AuthUser } from '../../auth/auth-user';
 import { PrismaService } from '../../database/prisma.service';
 import { ASSET_FORM_ENUMS } from '../../reference/asset-form-options';
@@ -218,8 +220,10 @@ export class ExcelImportService {
 
     let failingRow = 0;
     try {
-      await this.prisma.$transaction(
+      await auditedTransaction(
+        this.prisma,
         async (tx) => {
+          const actor = actorOf(user);
           for (const draft of drafts) {
             failingRow = draft.row;
             const { existingId } = draft;
@@ -228,6 +232,15 @@ export class ExcelImportService {
               const statusChanges =
                 fields.assetStatus !== undefined &&
                 fields.assetStatus !== draft.previousStatus;
+              const before = await tx.asset.findFirst({
+                where: { id: existingId, organizationId: user.organizationId },
+                select: {
+                  assetTagNumber: true,
+                  ...Object.fromEntries(
+                    Object.keys(fields).map((k) => [k, true]),
+                  ),
+                },
+              });
               const { count } = await tx.asset.updateMany({
                 where: {
                   id: existingId,
@@ -240,7 +253,19 @@ export class ExcelImportService {
                 },
                 data: { ...fields, updatedById: user.userId },
               });
-              if (count === 0) throw new Error('ASSET_CHANGED');
+              if (count === 0 || !before) throw new Error('ASSET_CHANGED');
+              const changes = await changesBetween(tx, before, fields);
+              if (changes.length) {
+                audit(tx, actor, {
+                  action: 'asset.updated',
+                  entityType: 'asset',
+                  entityId: existingId,
+                  assetId: existingId,
+                  summary: `Edited ${before.assetTagNumber as string} by Excel import: ${listed(changes)}`,
+                  changes,
+                  reason: `Excel import, row ${draft.row}`,
+                });
+              }
               if (statusChanges && draft.previousStatus) {
                 await tx.assetStatusChange.create({
                   data: {
@@ -254,7 +279,7 @@ export class ExcelImportService {
                 });
               }
             } else {
-              await tx.asset.create({
+              const asset = await tx.asset.create({
                 data: {
                   ...assetFields(draft),
                   organizationId: user.organizationId,
@@ -262,6 +287,15 @@ export class ExcelImportService {
                   createdById: user.userId,
                   updatedById: user.userId,
                 },
+                select: { id: true, assetTagNumber: true, equipmentName: true },
+              });
+              audit(tx, actor, {
+                action: 'asset.created',
+                entityType: 'asset',
+                entityId: asset.id,
+                assetId: asset.id,
+                summary: `Added ${asset.assetTagNumber} · ${asset.equipmentName}`,
+                reason: `Excel import, row ${draft.row}`,
               });
             }
           }

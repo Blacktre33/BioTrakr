@@ -9,6 +9,7 @@ import type { Prisma } from '@prisma/client';
 import { RETIRED_STATUSES } from '../assets/asset-status.service';
 import { describeLocation, LOCATION_SELECT } from '../assets/location';
 import { DEFAULT_PM_INTERVAL_DAYS } from '../assets/pm-dates';
+import { actorOf, audit, auditedTransaction } from '../audit/audit';
 import type { AuthUser } from '../auth/auth-user';
 import { PrismaService } from '../database/prisma.service';
 import { formatDay, OPEN_PM, PM_SCHEDULED, pmConfig } from './pm-jobs.service';
@@ -163,7 +164,7 @@ export class PmService {
 
   /** Biomed opens a PM work order now, without waiting for the schedule. */
   async openWorkOrder(assetId: string, user: AuthUser) {
-    return this.prisma.$transaction(async (tx) => {
+    return auditedTransaction(this.prisma, async (tx) => {
       // Two people pressing at once: the second waits here, then sees the first's.
       await tx.$queryRaw`SELECT id FROM "assets" WHERE id = ${assetId} FOR UPDATE`;
       const asset = await tx.asset.findFirst({
@@ -173,6 +174,7 @@ export class PmService {
           deletedAt: null,
         },
         select: {
+          assetTagNumber: true,
           assetStatus: true,
           nextPmDueDate: true,
           pmProcedureDocument: true,
@@ -217,6 +219,13 @@ export class PmService {
           createdByUserId: user.userId,
         },
         select: { id: true },
+      });
+      audit(tx, actorOf(user), {
+        action: 'work_order.opened',
+        entityType: 'work_order',
+        entityId: workOrder.id,
+        assetId,
+        summary: `PM work order opened for ${asset.assetTagNumber}`,
       });
       return { workOrderId: workOrder.id };
     });

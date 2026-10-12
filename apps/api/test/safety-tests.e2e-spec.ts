@@ -289,6 +289,44 @@ describe('Electrical safety tests (e2e)', () => {
     expect(d.lastSafetyTestPassed).toBe(true);
   });
 
+  it('cancels the retest when a reading entered wrongly is corrected to a pass', async () => {
+    await openSchedule();
+    const done = await complete(testOrder(1).id, {
+      safetyTest: readings({ earthResistanceOhm: 1.2 }),
+    }).expect(200);
+    const failed = store.safetyTests[0];
+    expect(done.body.record).toEqual({ type: 'safetyTest', id: failed.id });
+
+    await openSchedule();
+    const retest = testOrder(1);
+    expect(retest.dueDate).toEqual(failed.testedAt);
+    // Someone else's retest already under way is not touched.
+    const started = {
+      ...retest,
+      id: 'started',
+      workOrderStatus: 'IN_PROGRESS',
+      dueDate: new Date(0),
+    };
+    store.orders.push(started);
+
+    await http()
+      .post(`/api/safety-tests/${failed.id}/corrections`)
+      .set(tech)
+      .send({
+        ...readings({ earthResistanceOhm: 0.12 }),
+        correctionReason: 'Typed 1.2 for 0.12 Ω',
+      })
+      .expect(201);
+    expect(retest).toMatchObject({
+      workOrderStatus: 'CANCELLED',
+      workPerformed: expect.stringMatching(
+        /^Cancelled: the safety test record was corrected/,
+      ),
+    });
+    expect(started.workOrderStatus).toBe('IN_PROGRESS');
+    expect(device(1).lastSafetyTestPassed).toBe(true);
+  });
+
   describe('records without a work order, and corrections', () => {
     it('records a test done after a repair and puts the device in the programme', async () => {
       const res = await http()

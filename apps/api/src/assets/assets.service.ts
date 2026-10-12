@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import type { Prisma, Asset, AssetScanLog } from '@prisma/client';
 
+import { actorOf, audit, auditedTransaction } from '../audit/audit';
+import { changesBetween, listed } from '../audit/changes';
 import type { AuthUser } from '../auth/auth-user';
 import { PrismaService } from '../database/prisma.service';
 import { CreateAssetScanDto } from './dto/create-asset-scan.dto';
@@ -102,7 +104,17 @@ export class AssetsService {
     };
 
     try {
-      return await this.prisma.asset.create({ data });
+      return await auditedTransaction(this.prisma, async (tx) => {
+        const asset = await tx.asset.create({ data });
+        audit(tx, actorOf(user), {
+          action: 'asset.created',
+          entityType: 'asset',
+          entityId: asset.id,
+          assetId: asset.id,
+          summary: `Added ${asset.assetTagNumber} · ${asset.equipmentName}`,
+        });
+        return asset;
+      });
     } catch (error) {
       // Asset tags are unique within the organization (deleted assets keep
       // theirs, so their history stays unambiguous).
@@ -272,22 +284,48 @@ export class AssetsService {
       }
     }
 
-    // One conditional write: cannot land on another organization's asset or
-    // on one that was deleted in the meantime.
-    const { count } = await this.prisma.asset.updateMany({
-      where: { id, organizationId: user.organizationId, deletedAt: null },
-      data: {
-        ...updateAssetDto,
-        warrantyEndDate: asDate(updateAssetDto.warrantyEndDate),
-        ...pmSchedule,
-        ...calibrationSchedule,
-        ...safetyTestSchedule,
-        updatedById: user.userId,
-      },
+    const data = {
+      ...updateAssetDto,
+      warrantyEndDate: asDate(updateAssetDto.warrantyEndDate),
+      ...pmSchedule,
+      ...calibrationSchedule,
+      ...safetyTestSchedule,
+    };
+    await auditedTransaction(this.prisma, async (tx) => {
+      const where = {
+        id,
+        organizationId: user.organizationId,
+        deletedAt: null,
+      };
+      const before = await tx.asset.findFirst({
+        where,
+        select: {
+          assetTagNumber: true,
+          ...Object.fromEntries(Object.keys(data).map((k) => [k, true])),
+        },
+      });
+      if (!before) throw new NotFoundException(`Asset ${id} not found`);
+      // One conditional write: cannot land on another organization's asset
+      // or on one that was deleted in the meantime.
+      const { count } = await tx.asset.updateMany({
+        where,
+        data: { ...data, updatedById: user.userId },
+      });
+      if (count === 0) {
+        throw new NotFoundException(`Asset ${id} not found`);
+      }
+      const changes = await changesBetween(tx, before, data);
+      if (changes.length) {
+        audit(tx, actorOf(user), {
+          action: 'asset.updated',
+          entityType: 'asset',
+          entityId: id,
+          assetId: id,
+          summary: `Edited ${before.assetTagNumber as string}: ${listed(changes)}`,
+          changes,
+        });
+      }
     });
-    if (count === 0) {
-      throw new NotFoundException(`Asset ${id} not found`);
-    }
     return (await this.findOne(id, user))!;
   }
 
@@ -300,16 +338,29 @@ export class AssetsService {
     user: AuthUser,
   ): Promise<{ id: string; deletedAt: Date }> {
     const deletedAt = new Date();
-    // Conditional on deletedAt: null, so a repeat delete is a 404 and never
-    // overwrites who deleted it and when.
-    const { count } = await this.prisma.asset.updateMany({
-      where: { id, organizationId: user.organizationId, deletedAt: null },
-      data: { deletedAt, deletedById: user.userId, updatedById: user.userId },
+    return auditedTransaction(this.prisma, async (tx) => {
+      const asset = await tx.asset.findFirst({
+        where: { id, organizationId: user.organizationId, deletedAt: null },
+        select: { assetTagNumber: true, equipmentName: true },
+      });
+      // Conditional on deletedAt: null, so a repeat delete is a 404 and
+      // never overwrites who deleted it and when.
+      const { count } = await tx.asset.updateMany({
+        where: { id, organizationId: user.organizationId, deletedAt: null },
+        data: { deletedAt, deletedById: user.userId, updatedById: user.userId },
+      });
+      if (!asset || count === 0) {
+        throw new NotFoundException(`Asset ${id} not found`);
+      }
+      audit(tx, actorOf(user), {
+        action: 'asset.deleted',
+        entityType: 'asset',
+        entityId: id,
+        assetId: id,
+        summary: `Removed ${asset.assetTagNumber} · ${asset.equipmentName} from the register`,
+      });
+      return { id, deletedAt };
     });
-    if (count === 0) {
-      throw new NotFoundException(`Asset ${id} not found`);
-    }
-    return { id, deletedAt };
   }
 
   async createAssetScan(

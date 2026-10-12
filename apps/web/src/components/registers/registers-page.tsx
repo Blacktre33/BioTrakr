@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Download, Printer } from "lucide-react";
 
@@ -23,7 +24,11 @@ const yearAgo = () => {
 
 /** Choose a register and its period, then print it or take it to Excel. */
 export function RegistersPage() {
-  const [kind, setKind] = useState<RegisterKind>("inventory");
+  // A notice can link straight to one register: /registers?kind=audit
+  const linked = useSearchParams().get("kind");
+  const [kind, setKind] = useState<RegisterKind>(
+    () => REGISTERS.find((r) => r.kind === linked)?.kind ?? "inventory",
+  );
   const [facilityId, setFacilityId] = useState("");
   const [from, setFrom] = useState(yearAgo);
   const [to, setTo] = useState(() => toDay(new Date()));
@@ -34,11 +39,12 @@ export function RegistersPage() {
   const info = REGISTERS.find((r) => r.kind === kind)!;
   const periodProblem = info.period && from && to && from > to ? "The period must start before it ends" : null;
   const ready = (!info.device || device.length === 1) && !periodProblem;
+  const facility = info.wholeHospital ? "" : facilityId;
   const register = useQuery({
-    queryKey: ["registers", kind, facilityId, info.period ? from : null, info.period ? to : null, device[0]?.id ?? null],
+    queryKey: ["registers", kind, facility, info.period ? from : null, info.period ? to : null, device[0]?.id ?? null],
     queryFn: () =>
       getRegister(kind, {
-        facilityId: facilityId || undefined,
+        facilityId: facility || undefined,
         from: info.period ? from : undefined,
         to: info.period ? to : undefined,
         assetId: info.device ? device[0]?.id : undefined,
@@ -79,7 +85,7 @@ export function RegistersPage() {
               ))}
             </select>
           </div>
-          {facilities.length > 1 && (
+          {facilities.length > 1 && !info.wholeHospital && (
             <div className="space-y-1.5">
               <Label htmlFor="register-facility">Facility</Label>
               <select

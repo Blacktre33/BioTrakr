@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 
+import { actorOf, auditedTransaction } from '../audit/audit';
 import type { AuthUser } from '../auth/auth-user';
 import { PrismaService } from '../database/prisma.service';
 import { documentCounts } from '../documents/documents.service';
@@ -85,7 +86,7 @@ export class SafetyTestsService {
    * not in it.
    */
   async create(assetId: string, dto: SafetyTestInputDto, user: AuthUser) {
-    return this.prisma.$transaction(async (tx) => {
+    return auditedTransaction(this.prisma, async (tx) => {
       await this.assertAsset(tx, assetId, user);
       // One record per test: an open work order is completed instead.
       const open = await tx.maintenanceHistory.count({
@@ -106,9 +107,8 @@ export class SafetyTestsService {
       });
       const record = await recordSafetyTest(tx, {
         assetId,
-        organizationId: user.organizationId,
+        actor: actorOf(user),
         input: dto,
-        recordedById: user.userId,
       });
       return present(
         (await tx.safetyTestRecord.findFirst({
@@ -121,7 +121,7 @@ export class SafetyTestsService {
 
   /** Corrects a record by adding one that replaces it; the original is kept. */
   async correct(id: string, dto: SafetyTestCorrectionDto, user: AuthUser) {
-    return this.prisma.$transaction(async (tx) => {
+    return auditedTransaction(this.prisma, async (tx) => {
       const original = await tx.safetyTestRecord.findFirst({
         where: { id, asset: { organizationId: user.organizationId } },
         select: {
@@ -141,9 +141,8 @@ export class SafetyTestsService {
       const { correctionReason, ...input } = dto;
       const record = await recordSafetyTest(tx, {
         assetId: original.assetId,
-        organizationId: user.organizationId,
+        actor: actorOf(user),
         input,
-        recordedById: user.userId,
         workOrderId: original.workOrderId,
         supersedesId: id,
         correctionReason,

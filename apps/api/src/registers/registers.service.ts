@@ -6,6 +6,8 @@ import {
 import type { AssetStatus, Prisma } from '@prisma/client';
 
 import { describeLocation, LOCATION_SELECT } from '../assets/location';
+import type { Change } from '../audit/audit';
+import { AuditService } from '../audit/audit.service';
 import type { AuthUser } from '../auth/auth-user';
 import { contractStatus } from '../contracts/contract-status';
 import { PrismaService } from '../database/prisma.service';
@@ -68,7 +70,10 @@ type Body = Pick<Register, 'title' | 'basis' | 'columns' | 'notes'> & {
  */
 @Injectable()
 export class RegistersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   async build(
     kind: RegisterKind,
@@ -150,6 +155,8 @@ export class RegistersService {
         return this.breakdown(s);
       case 'contracts':
         return this.contracts(s);
+      case 'audit':
+        return this.auditTrail(s);
     }
   }
 
@@ -340,6 +347,15 @@ export class RegistersService {
           workPerformed: true,
           description: true,
           assignedTechnician: { select: { firstName: true, lastName: true } },
+          // The result of a calibration or safety test done on this order.
+          calibrationRecords: {
+            where: { supersededBy: null },
+            select: { result: true, certificateNumber: true },
+          },
+          safetyTestRecords: {
+            where: { supersededBy: null },
+            select: { passed: true },
+          },
         },
       }),
       // Recorded without a work order (e.g. an existing certificate).
@@ -404,13 +420,28 @@ export class RegistersService {
           },
         });
       } else {
+        const [cal] = o.calibrationRecords;
+        const [test] = o.safetyTestRecords;
+        const result = cal
+          ? `, ${cal.result.toLowerCase()}`
+          : test
+            ? `, ${test.passed ? 'passed' : 'failed'}`
+            : '';
         entries.push({
           at: o.completedAt ?? o.createdAt,
           row: {
             check: o.completedAt
-              ? `${KIND[o.workOrderType] ?? o.workOrderType} done ${day(o.completedAt)}${by ? ` by ${by}` : ''}`
+              ? `${KIND[o.workOrderType] ?? o.workOrderType} done ${day(o.completedAt)}${by ? ` by ${by}` : ''}${result}`
               : `${KIND[o.workOrderType] ?? o.workOrderType} due (open)`,
-            remarks: o.workPerformed,
+            remarks:
+              [
+                o.workPerformed,
+                cal?.certificateNumber
+                  ? `certificate ${cal.certificateNumber}`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(', ') || null,
             breakdown: null,
             rectified: null,
             downtime: null,
@@ -865,6 +896,74 @@ export class RegistersService {
         };
       }),
       notes: [],
+    };
+  }
+
+  /**
+   * The edit history for a period, oldest first, with the hash chain
+   * checked: what NABH's "records cannot be altered" asks to be shown.
+   */
+  private async auditTrail(s: Scope): Promise<Body> {
+    const [events, chain] = await Promise.all([
+      this.prisma.auditEvent.findMany({
+        where: {
+          organizationId: s.organizationId,
+          occurredAt: { gte: s.from, lte: s.to },
+        },
+        orderBy: { seq: 'asc' },
+        take: MAX_ROWS + 1,
+        select: {
+          seq: true,
+          occurredAt: true,
+          actorRole: true,
+          summary: true,
+          changes: true,
+          reason: true,
+          actor: { select: { firstName: true, lastName: true } },
+        },
+      }),
+      this.audit.check(s.organizationId),
+    ]);
+    const changed = (c: Change) =>
+      c.hidden
+        ? `${c.label} changed`
+        : `${c.label}: ${c.from ?? '(blank)'} → ${c.to ?? '(blank)'}`;
+    return {
+      title: 'Edit History (Audit Trail)',
+      basis:
+        'NABH: records cannot be altered; every change is kept with who, when and why',
+      columns: [
+        { key: 'entry', label: 'Entry', align: 'right' },
+        { key: 'at', label: 'Date and time' },
+        { key: 'by', label: 'By' },
+        { key: 'what', label: 'What happened' },
+        { key: 'changes', label: 'What changed' },
+        { key: 'reason', label: 'Reason or note' },
+      ],
+      rows: events.map((e) => ({
+        entry: Number(e.seq),
+        at: dayTime(e.occurredAt),
+        by: e.actor
+          ? `${name(e.actor)} (${e.actorRole})`
+          : 'BioTrakr (automatic)',
+        what: e.summary,
+        changes:
+          ((e.changes as unknown as Change[] | null) ?? [])
+            .map(changed)
+            .join('; ') || null,
+        reason: e.reason,
+      })),
+      notes: [
+        chain.brokenAt !== null
+          ? `ALTERED: entry ${chain.brokenAt} and the entries after it no longer match their hashes. Something was changed or removed outside BioTrakr; restore from a backup.`
+          : `Hash chain checked ${dayTime(chain.checkedAt)}: intact, ${chain.entries.toLocaleString('en-IN')} ${chain.entries === 1 ? 'entry' : 'entries'} in all.`,
+        ...(chain.lastSeq !== null
+          ? [
+              `Latest entry ${chain.lastSeq}, SHA-256 ${chain.lastHash}. Keep this page: if entries were ever removed from the end, the chain would no longer reach this hash.`,
+            ]
+          : []),
+        'Facility does not apply: the history covers the whole hospital. Personal details (names, phone, email) show only that they changed.',
+      ],
     };
   }
 

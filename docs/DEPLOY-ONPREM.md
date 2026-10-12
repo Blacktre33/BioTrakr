@@ -108,6 +108,8 @@ The `backup` container makes a compressed backup every night at 02:00 into `depl
 
 Uploaded files (calibration certificates, safety test reports, service reports, contracts) are kept in the database, so every backup includes them and a restore brings back records and files together. Each file is at most 10 MB; plan the backup disk for the files you expect to upload (for example, 2,000 certificates of about 1 MB each add about 2 GB to each backup, times the days kept).
 
+The edit history (who changed what) is in the database too, and each entry carries a hash of the one before it. A restore takes the history back to the night of the backup along with everything else; write the restore into the equipment logbook, because entries made after that backup are gone. The *Edit history* register prints the latest entry's hash: keep a printed copy now and then (for example with each month's registers), and a later check that no longer reaches that hash shows entries were removed.
+
 **A backup on the same server is not enough.** If the disk fails, both are lost. Copy the folder to another machine every night, for example to a hospital NAS with a cron job on the server (as root, since the files are root-only):
 
 ```bash

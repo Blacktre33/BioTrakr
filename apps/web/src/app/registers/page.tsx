@@ -1,5 +1,7 @@
 'use client';
 
+import { Suspense } from 'react';
+
 import { Header } from '@/components/layout';
 import { RegistersPage } from '@/components/registers/registers-page';
 
@@ -10,7 +12,10 @@ export default function Registers() {
       <div className="print:hidden">
         <Header title="Registers" subtitle="Print for NABH assessment, or take to Excel" />
       </div>
-      <RegistersPage />
+      {/* Reads ?kind= from a notice link. */}
+      <Suspense>
+        <RegistersPage />
+      </Suspense>
     </>
   );
 }

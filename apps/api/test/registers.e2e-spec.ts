@@ -200,7 +200,27 @@ describe('Registers (e2e)', () => {
         workOrderStatus: 'CANCELLED',
         createdAt: ago(10),
       },
+      {
+        id: '00000000-0000-4000-8000-000000000104',
+        assetId: assetId(1),
+        workOrderType: 'ELECTRICAL_SAFETY_TEST',
+        workOrderStatus: 'COMPLETED',
+        createdAt: ago(9),
+        completedAt: ago(8),
+        workPerformed: 'Tested with Fluke ESA615',
+        assignedTechnicianId: 'user-technician',
+      },
     );
+    // Done on the work order: the result shows in the logbook.
+    store.safetyTests.push({
+      id: '5a000000-0000-4000-8000-000000000001',
+      assetId: assetId(1),
+      workOrderId: '00000000-0000-4000-8000-000000000104',
+      testedAt: ago(8),
+      passed: false,
+      recordedById: 'user-technician',
+      supersedesId: null,
+    });
     store.calibrations.push({
       id: 'cc000000-0000-4000-8000-000000000001',
       assetId: assetId(1),
@@ -221,10 +241,16 @@ describe('Registers (e2e)', () => {
       /^TAG-1 · Syringe pump · BD Alaris GH \(Sl. SN-1\)/,
     );
     const rows = read(res.body);
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(4);
     expect(rows[0]['Preventive Maintenance/Calibration']).toMatch(
       /^PM done .* by Tara Tech$/,
     );
+    expect(rows[3]).toMatchObject({
+      'Preventive Maintenance/Calibration': expect.stringMatching(
+        /^Electrical safety test done .* by Tara Tech, failed$/,
+      ),
+      'Remarks of Service Engineer': 'Tested with Fluke ESA615',
+    });
     expect(rows[1]).toMatchObject({
       'Preventive Maintenance/Calibration': expect.stringMatching(
         /^Calibration .*, pass$/,

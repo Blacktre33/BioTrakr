@@ -7,6 +7,8 @@ import {
 import type { Prisma } from '@prisma/client';
 
 import { RETIRED_STATUSES } from '../assets/asset-status.service';
+import { audit, auditedTransaction, systemActor } from '../audit/audit';
+import { AuditService } from '../audit/audit.service';
 import { BIOMED_ROLES } from '../auth/roles';
 import { ContractAlertsService } from '../contracts/contract-alerts.service';
 import { PrismaService } from '../database/prisma.service';
@@ -166,10 +168,13 @@ export class PmJobsService implements OnApplicationBootstrap, OnModuleDestroy {
   private timer: NodeJS.Timeout | null = null;
   private startup: NodeJS.Timeout | null = null;
   private running = false;
+  /** The day the edit history was last checked, by this instance. */
+  private auditCheckedOn: string | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly contractAlerts: ContractAlertsService,
+    private readonly audit: AuditService,
   ) {}
 
   onApplicationBootstrap(): void {
@@ -193,18 +198,29 @@ export class PmJobsService implements OnApplicationBootstrap, OnModuleDestroy {
     if (this.running) return;
     this.running = true;
     try {
-      await this.openDue();
-    } catch (error) {
-      this.logger.error(`PM schedule failed: ${(error as Error).message}`);
-    }
-    try {
-      await this.contractAlerts.check();
-    } catch (error) {
-      this.logger.error(
-        `Contract and warranty notices failed: ${(error as Error).message}`,
+      await this.step('PM schedule', () => this.openDue());
+      await this.step('Contract and warranty notices', () =>
+        this.contractAlerts.check(),
       );
+      // Once a day: the edit history's hash chain, recomputed.
+      const today = formatDay(new Date());
+      if (this.auditCheckedOn !== today) {
+        await this.step('Edit history check', async () => {
+          await this.audit.checkAll();
+          this.auditCheckedOn = today;
+        });
+      }
     } finally {
       this.running = false;
+    }
+  }
+
+  /** One job of the tick; a failure is logged and the next still runs. */
+  private async step(name: string, job: () => Promise<unknown>) {
+    try {
+      await job();
+    } catch (error) {
+      this.logger.error(`${name} failed: ${(error as Error).message}`);
     }
   }
 
@@ -263,7 +279,7 @@ export class PmJobsService implements OnApplicationBootstrap, OnModuleDestroy {
       if (due.length === 0) break;
       after = due[due.length - 1].id;
 
-      opened += await this.prisma.$transaction(async (tx) => {
+      opened += await auditedTransaction(this.prisma, async (tx) => {
         const created = await tx.maintenanceHistory.createManyAndReturn({
           data: due.map((asset) => {
             const dueDate = asset[schedule.dueField]!;
@@ -281,6 +297,17 @@ export class PmJobsService implements OnApplicationBootstrap, OnModuleDestroy {
           skipDuplicates: true,
           select: { id: true, assetId: true },
         });
+        const byAsset = new Map(due.map((a) => [a.id, a]));
+        for (const wo of created) {
+          const asset = byAsset.get(wo.assetId)!;
+          audit(tx, systemActor(asset.organizationId), {
+            action: 'work_order.opened',
+            entityType: 'work_order',
+            entityId: wo.id,
+            assetId: asset.id,
+            summary: `${schedule.describe(asset, asset[schedule.dueField]!).split('\n')[0]}: opened by the schedule for ${asset.assetTagNumber}`,
+          });
+        }
         if (created.length) {
           await bestEffort(tx, `${schedule.name} notices`, () =>
             this.notice(tx, schedule, due, created),

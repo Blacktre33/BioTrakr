@@ -9,6 +9,13 @@ import { randomInt } from 'crypto';
 
 import { hashPassword } from '@biotrakr/utils';
 
+import {
+  actorOf,
+  audit,
+  auditedTransaction,
+  type AuditEntity,
+} from '../audit/audit';
+import { changesBetween, listed, words } from '../audit/changes';
 import type { AuthUser } from '../auth/auth-user';
 import { normalizeRole } from '../auth/roles';
 import { PrismaService } from '../database/prisma.service';
@@ -43,6 +50,18 @@ export function temporaryPassword(length = 14): string {
 
 const isUniqueViolation = (e: unknown) =>
   (e as { code?: string }).code === 'P2002';
+
+type Tx = Prisma.TransactionClient;
+type Place = Extract<
+  AuditEntity,
+  'facility' | 'department' | 'building' | 'floor' | 'room'
+>;
+
+/** A select of the fields being written, to read them as they were. */
+const fieldsOf = (data: object, ...extra: string[]) =>
+  Object.fromEntries(
+    [...Object.keys(data), ...extra].map((k) => [k, true]),
+  ) as Record<string, true>;
 
 /** Turns a unique-key clash into a 409 the person can act on. */
 async function unique<T>(write: Promise<T>, message: string): Promise<T> {
@@ -152,15 +171,25 @@ export class AdminService {
       'facility',
     );
     return unique(
-      this.prisma.facility.create({
-        data: {
-          organizationId: user.organizationId,
-          facilityCode: dto.facilityCode.trim(),
-          facilityName: dto.facilityName.trim(),
-          facilityType: dto.facilityType?.trim() || null,
-          city: dto.city?.trim() || null,
-          timezone: dto.timezone ?? 'Asia/Kolkata',
-        },
+      auditedTransaction(this.prisma, async (tx) => {
+        const facility = await tx.facility.create({
+          data: {
+            organizationId: user.organizationId,
+            facilityCode: dto.facilityCode.trim(),
+            facilityName: dto.facilityName.trim(),
+            facilityType: dto.facilityType?.trim() || null,
+            city: dto.city?.trim() || null,
+            timezone: dto.timezone ?? 'Asia/Kolkata',
+          },
+        });
+        this.placeAdded(
+          tx,
+          user,
+          'facility',
+          facility.id,
+          facility.facilityName,
+        );
+        return facility;
       }),
       'A facility with this code already exists',
     );
@@ -179,9 +208,25 @@ export class AdminService {
       );
     }
     const { count } = await unique(
-      this.prisma.facility.updateMany({
-        where: { id, organizationId: user.organizationId },
-        data: dto,
+      auditedTransaction(this.prisma, async (tx) => {
+        const where = { id, organizationId: user.organizationId };
+        const before = await tx.facility.findFirst({
+          where,
+          select: fieldsOf(dto, 'facilityName'),
+        });
+        const result = await tx.facility.updateMany({ where, data: dto });
+        if (before && result.count) {
+          await this.placeEdited(
+            tx,
+            user,
+            'facility',
+            id,
+            String(before.facilityName),
+            before,
+            dto,
+          );
+        }
+        return result;
       }),
       'A facility with this code already exists',
     );
@@ -201,13 +246,23 @@ export class AdminService {
       'department in this facility',
     );
     return unique(
-      this.prisma.department.create({
-        data: {
-          facilityId: dto.facilityId,
-          departmentCode: dto.departmentCode.trim(),
-          departmentName: dto.departmentName.trim(),
-          costCenter: dto.costCenter?.trim() || null,
-        },
+      auditedTransaction(this.prisma, async (tx) => {
+        const department = await tx.department.create({
+          data: {
+            facilityId: dto.facilityId,
+            departmentCode: dto.departmentCode.trim(),
+            departmentName: dto.departmentName.trim(),
+            costCenter: dto.costCenter?.trim() || null,
+          },
+        });
+        this.placeAdded(
+          tx,
+          user,
+          'department',
+          department.id,
+          department.departmentName,
+        );
+        return department;
       }),
       'This facility already has a department with this code',
     );
@@ -231,9 +286,25 @@ export class AdminService {
       );
     }
     const { count } = await unique(
-      this.prisma.department.updateMany({
-        where: { id, facility: { organizationId: user.organizationId } },
-        data: dto,
+      auditedTransaction(this.prisma, async (tx) => {
+        const where = { id, facility: { organizationId: user.organizationId } };
+        const before = await tx.department.findFirst({
+          where,
+          select: fieldsOf(dto, 'departmentName'),
+        });
+        const result = await tx.department.updateMany({ where, data: dto });
+        if (before && result.count) {
+          await this.placeEdited(
+            tx,
+            user,
+            'department',
+            id,
+            String(before.departmentName),
+            before,
+            dto,
+          );
+        }
+        return result;
       }),
       'This facility already has a department with this code',
     );
@@ -244,21 +315,48 @@ export class AdminService {
   async createBuilding(dto: CreateBuildingDto, user: AuthUser) {
     await this.assertFacility(dto.facilityId, user);
     return unique(
-      this.prisma.building.create({
-        data: {
-          facilityId: dto.facilityId,
-          buildingCode: dto.buildingCode.trim(),
-          buildingName: dto.buildingName.trim(),
-        },
+      auditedTransaction(this.prisma, async (tx) => {
+        const building = await tx.building.create({
+          data: {
+            facilityId: dto.facilityId,
+            buildingCode: dto.buildingCode.trim(),
+            buildingName: dto.buildingName.trim(),
+          },
+        });
+        this.placeAdded(
+          tx,
+          user,
+          'building',
+          building.id,
+          building.buildingName,
+        );
+        return building;
       }),
       'This facility already has a building with this code',
     );
   }
 
   async updateBuilding(id: string, dto: UpdateBuildingDto, user: AuthUser) {
-    const { count } = await this.prisma.building.updateMany({
-      where: { id, facility: { organizationId: user.organizationId } },
-      data: { buildingName: dto.buildingName.trim() },
+    const count = await auditedTransaction(this.prisma, async (tx) => {
+      const where = { id, facility: { organizationId: user.organizationId } };
+      const data = { buildingName: dto.buildingName.trim() };
+      const before = await tx.building.findFirst({
+        where,
+        select: { buildingName: true },
+      });
+      const result = await tx.building.updateMany({ where, data });
+      if (before && result.count) {
+        await this.placeEdited(
+          tx,
+          user,
+          'building',
+          id,
+          before.buildingName,
+          before,
+          data,
+        );
+      }
+      return result.count;
     });
     if (count === 0) throw new NotFoundException('Building not found');
     return this.prisma.building.findFirst({ where: { id } });
@@ -273,24 +371,51 @@ export class AdminService {
     });
     if (!building) throw new NotFoundException('Building not found');
     return unique(
-      this.prisma.floor.create({
-        data: {
-          buildingId: dto.buildingId,
-          floorNumber: dto.floorNumber,
-          floorName: dto.floorName?.trim() || null,
-        },
+      auditedTransaction(this.prisma, async (tx) => {
+        const floor = await tx.floor.create({
+          data: {
+            buildingId: dto.buildingId,
+            floorNumber: dto.floorNumber,
+            floorName: dto.floorName?.trim() || null,
+          },
+        });
+        this.placeAdded(
+          tx,
+          user,
+          'floor',
+          floor.id,
+          floor.floorName ?? `floor ${floor.floorNumber}`,
+        );
+        return floor;
       }),
       'This building already has that floor',
     );
   }
 
   async updateFloor(id: string, dto: UpdateFloorDto, user: AuthUser) {
-    const { count } = await this.prisma.floor.updateMany({
-      where: {
+    const count = await auditedTransaction(this.prisma, async (tx) => {
+      const where = {
         id,
         building: { facility: { organizationId: user.organizationId } },
-      },
-      data: { floorName: dto.floorName.trim() || null },
+      };
+      const data = { floorName: dto.floorName.trim() || null };
+      const before = await tx.floor.findFirst({
+        where,
+        select: { floorName: true, floorNumber: true },
+      });
+      const result = await tx.floor.updateMany({ where, data });
+      if (before && result.count) {
+        await this.placeEdited(
+          tx,
+          user,
+          'floor',
+          id,
+          before.floorName ?? `floor ${before.floorNumber}`,
+          before,
+          data,
+        );
+      }
+      return result.count;
     });
     if (count === 0) throw new NotFoundException('Floor not found');
     return this.prisma.floor.findFirst({ where: { id } });
@@ -305,27 +430,53 @@ export class AdminService {
     });
     if (!floor) throw new NotFoundException('Floor not found');
     return unique(
-      this.prisma.room.create({
-        data: {
-          floorId: dto.floorId,
-          roomCode: dto.roomCode.trim(),
-          roomName: dto.roomName.trim(),
-          roomType: dto.roomType?.trim() || null,
-        },
+      auditedTransaction(this.prisma, async (tx) => {
+        const room = await tx.room.create({
+          data: {
+            floorId: dto.floorId,
+            roomCode: dto.roomCode.trim(),
+            roomName: dto.roomName.trim(),
+            roomType: dto.roomType?.trim() || null,
+          },
+        });
+        this.placeAdded(
+          tx,
+          user,
+          'room',
+          room.id,
+          `${room.roomName} (${room.roomCode})`,
+        );
+        return room;
       }),
       'This floor already has a room with this code',
     );
   }
 
   async updateRoom(id: string, dto: UpdateRoomDto, user: AuthUser) {
-    const { count } = await this.prisma.room.updateMany({
-      where: {
+    const count = await auditedTransaction(this.prisma, async (tx) => {
+      const where = {
         id,
         floor: {
           building: { facility: { organizationId: user.organizationId } },
         },
-      },
-      data: dto,
+      };
+      const before = await tx.room.findFirst({
+        where,
+        select: fieldsOf(dto, 'roomName', 'roomCode'),
+      });
+      const result = await tx.room.updateMany({ where, data: dto });
+      if (before && result.count) {
+        await this.placeEdited(
+          tx,
+          user,
+          'room',
+          id,
+          `${String(before.roomName)} (${String(before.roomCode)})`,
+          before,
+          dto,
+        );
+      }
+      return result.count;
     });
     if (count === 0) throw new NotFoundException('Room not found');
     return this.prisma.room.findFirst({ where: { id } });
@@ -368,22 +519,32 @@ export class AdminService {
     }
     const password = temporaryPassword();
     const created = await unique(
-      this.prisma.user.create({
-        data: {
-          organizationId: user.organizationId,
-          email,
-          username: email,
-          firstName: dto.firstName.trim(),
-          lastName: dto.lastName.trim(),
-          role: dto.role,
-          jobTitle: dto.jobTitle?.trim() || null,
-          phone: dto.phone ? normalizePhone(dto.phone) || null : null,
-          facilityId,
-          departmentId: dto.departmentId ?? null,
-          passwordHash: await hashPassword(password),
-          passwordChangeRequired: true,
-        },
-        select: USER_SELECT,
+      auditedTransaction(this.prisma, async (tx) => {
+        const row = await tx.user.create({
+          data: {
+            organizationId: user.organizationId,
+            email,
+            username: email,
+            firstName: dto.firstName.trim(),
+            lastName: dto.lastName.trim(),
+            role: dto.role,
+            jobTitle: dto.jobTitle?.trim() || null,
+            phone: dto.phone ? normalizePhone(dto.phone) || null : null,
+            facilityId,
+            departmentId: dto.departmentId ?? null,
+            passwordHash: await hashPassword(password),
+            passwordChangeRequired: true,
+          },
+          select: USER_SELECT,
+        });
+        // The person's name and contact details stay out of the history.
+        audit(tx, actorOf(user), {
+          action: 'user.created',
+          entityType: 'user',
+          entityId: row.id,
+          summary: `Added an account (${words(dto.role)})`,
+        });
+        return row;
       }),
       'An account with this email already exists',
     );
@@ -431,7 +592,11 @@ export class AdminService {
       ...placement,
     };
 
-    const updated = await this.prisma.$transaction(async (tx) => {
+    const updated = await auditedTransaction(this.prisma, async (tx) => {
+      const before = await tx.user.findFirst({
+        where: { id },
+        select: fieldsOf(data),
+      });
       // Two administrators demoting each other at once must not leave none:
       // changes to an organization's admins take turns, and the count is
       // checked after the change, before it commits.
@@ -468,6 +633,16 @@ export class AdminService {
           data: { revokedAt: new Date(), revokedReason: 'account_changed' },
         });
       }
+      const changes = await changesBetween(tx, before ?? {}, data);
+      if (changes.length) {
+        audit(tx, actorOf(admin), {
+          action: 'user.updated',
+          entityType: 'user',
+          entityId: id,
+          summary: `Edited an account: ${listed(changes)}`,
+          changes,
+        });
+      }
       return row;
     });
     return presentUser(updated);
@@ -481,25 +656,72 @@ export class AdminService {
     });
     if (!target) throw new NotFoundException('Person not found');
     const password = temporaryPassword();
-    await this.prisma.$transaction([
-      this.prisma.user.update({
+    const passwordHash = await hashPassword(password);
+    await auditedTransaction(this.prisma, async (tx) => {
+      await tx.user.update({
         where: { id },
         data: {
-          passwordHash: await hashPassword(password),
+          passwordHash,
           passwordChangeRequired: true,
           failedLoginAttempts: 0,
           accountLockedUntil: null,
         },
-      }),
-      this.prisma.authSession.updateMany({
+      });
+      await tx.authSession.updateMany({
         where: { userId: id, revokedAt: null },
         data: { revokedAt: new Date(), revokedReason: 'password_reset' },
-      }),
-    ]);
+      });
+      audit(tx, actorOf(admin), {
+        action: 'user.password_reset',
+        entityType: 'user',
+        entityId: id,
+        summary:
+          'Reset the password of an account and signed it out everywhere',
+      });
+    });
     return { temporaryPassword: password };
   }
 
   // -------------------------------------------------------------- helpers
+
+  private placeAdded(
+    tx: Tx,
+    user: AuthUser,
+    kind: Place,
+    id: string,
+    name: string,
+  ) {
+    audit(tx, actorOf(user), {
+      action: `${kind}.created`,
+      entityType: kind,
+      entityId: id,
+      summary: `Added ${kind} ${name}`,
+    });
+  }
+
+  private async placeEdited(
+    tx: Tx,
+    user: AuthUser,
+    kind: Place,
+    id: string,
+    name: string,
+    before: Record<string, unknown>,
+    after: object,
+  ) {
+    const changes = await changesBetween(
+      tx,
+      before,
+      after as Record<string, unknown>,
+    );
+    if (!changes.length) return;
+    audit(tx, actorOf(user), {
+      action: `${kind}.updated`,
+      entityType: kind,
+      entityId: id,
+      summary: `Edited ${kind} ${name}: ${listed(changes)}`,
+      changes,
+    });
+  }
 
   /**
    * Imports match codes loosely ("C-G" finds "CG"), so codes that differ

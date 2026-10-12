@@ -6,6 +6,7 @@ import { createAccessToken } from '@biotrakr/utils';
 
 import { MAX_FAILED_LOGINS } from '../src/auth/auth.service';
 import { bearer, createTestApp, ORG_A, ORG_B } from './helpers';
+import { auditStore } from './audit-store';
 
 const ASSET_A = '11111111-1111-4111-8111-111111111111';
 const ASSET_B = '22222222-2222-4222-8222-222222222222';
@@ -138,6 +139,7 @@ function buildPrisma() {
     },
     $executeRawUnsafe: jest.fn(async () => 0),
     // Interactive transactions run against the same in-memory rows.
+    auditEvent: auditStore(),
     $transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
       fn(mock),
     ),
