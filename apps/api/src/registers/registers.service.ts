@@ -38,6 +38,7 @@ import {
   type PlanSchedule,
 } from './plan';
 import { DEFAULT_SAFETY_TEST_INTERVAL_DAYS } from '../safety-tests/safety-test';
+import { assessmentText } from '../training/assessment';
 import type { RegisterKind, RegisterQuery } from './registers.dto';
 import {
   day,
@@ -226,6 +227,8 @@ export class RegistersService {
         return this.uptime(s);
       case 'condemnation':
         return this.condemnation(s);
+      case 'training':
+        return this.training(s);
       case 'audit':
         return this.auditTrail(s);
     }
@@ -634,7 +637,7 @@ export class RegistersService {
     });
     if (!a) throw new NotFoundException('Device not found');
     const person = { select: { firstName: true, lastName: true } };
-    const [orders, calibrations, tests, changes, condemnations] =
+    const [orders, calibrations, tests, changes, condemnations, trainings] =
       await Promise.all([
         this.prisma.maintenanceHistory.findMany({
           where: { assetId, workOrderStatus: { not: 'CANCELLED' } },
@@ -717,6 +720,17 @@ export class RegistersService {
             disposalMethod: true,
             disposalNote: true,
             clearance: true,
+          },
+        }),
+        this.prisma.trainingSession.findMany({
+          where: { devices: { some: { assetId } } },
+          select: {
+            heldOn: true,
+            kind: true,
+            topic: true,
+            trainer: true,
+            trainerFrom: true,
+            attendees: { select: { assessment: true } },
           },
         }),
       ]);
@@ -873,6 +887,17 @@ export class RegistersService {
         );
       }
     }
+    for (const t of trainings) {
+      line(
+        t.heldOn,
+        `${words(t.kind)} training`,
+        join(
+          t.topic,
+          `${t.attendees.length} attended: ${assessmentText(t.attendees)}`,
+        ),
+        t.trainerFrom ? `${t.trainer}, ${t.trainerFrom}` : t.trainer,
+      );
+    }
     lines.sort((x, y) => x.at.getTime() - y.at.getTime());
 
     const cover = a.serviceContracts
@@ -947,7 +972,7 @@ export class RegistersService {
       rows: lines.map((l) => l.row),
       snapshot: true,
       notes: [
-        'Everything on record for this device, oldest first. Changes of status that go with a work order or a condemnation are on their lines.',
+        'Everything on record for this device, oldest first, its training included. Changes of status that go with a work order or a condemnation are on their lines.',
       ],
     };
   }
@@ -1647,6 +1672,98 @@ export class RegistersService {
     };
   }
 
+  /** NABH FMS.5.e: training on medical equipment in the period, and who attended. */
+  private async training(s: Scope): Promise<Body> {
+    const sessions = await this.prisma.trainingSession.findMany({
+      where: {
+        organizationId: s.organizationId,
+        heldOn: { gte: s.from, lte: s.to },
+        ...(s.facilityId
+          ? {
+              devices: {
+                some: { asset: { currentFacilityId: s.facilityId } },
+              },
+            }
+          : {}),
+      },
+      orderBy: [{ heldOn: 'asc' }, { id: 'asc' }],
+      take: MAX_ROWS + 1,
+      select: {
+        id: true,
+        heldOn: true,
+        kind: true,
+        topic: true,
+        equipment: true,
+        trainer: true,
+        trainerFrom: true,
+        durationHours: true,
+        devices: { select: { asset: { select: { assetTagNumber: true } } } },
+        attendees: {
+          orderBy: { name: 'asc' },
+          select: {
+            name: true,
+            designation: true,
+            department: true,
+            assessment: true,
+          },
+        },
+      },
+    });
+    const files = await this.fileCounts(
+      'trainingSessionId',
+      sessions.map((t) => t.id),
+    );
+    return {
+      title: 'Equipment Training Register',
+      basis:
+        'NABH FMS.5.e (qualified and trained personnel operate and maintain medical equipment)',
+      columns: [
+        { key: 'date', label: 'Date' },
+        { key: 'topic', label: 'Training' },
+        { key: 'kind', label: 'Kind' },
+        { key: 'equipment', label: 'Equipment' },
+        { key: 'trainer', label: 'Trainer' },
+        { key: 'hours', label: 'Hours', align: 'right' },
+        { key: 'attended', label: 'Attended', align: 'right' },
+        { key: 'assessed', label: 'Assessment' },
+        { key: 'attendees', label: 'Attendees' },
+        { key: 'file', label: 'Attendance sheet on file' },
+      ],
+      rows: sessions.map((t) => {
+        const tags = t.devices.map((d) => d.asset.assetTagNumber).sort();
+        return {
+          date: day(t.heldOn),
+          topic: t.topic,
+          kind: words(t.kind),
+          equipment: tags.length
+            ? `${t.equipment} (${tags.slice(0, 8).join(', ')}${tags.length > 8 ? ` and ${tags.length - 8} more` : ''})`
+            : t.equipment,
+          trainer: t.trainerFrom ? `${t.trainer}, ${t.trainerFrom}` : t.trainer,
+          hours: num(t.durationHours),
+          attended: t.attendees.length,
+          assessed: assessmentText(t.attendees),
+          attendees: t.attendees
+            .map((a) => {
+              const role = [a.designation, a.department]
+                .filter(Boolean)
+                .join(', ');
+              return role ? `${a.name} (${role})` : a.name;
+            })
+            .join('; '),
+          file: yesNo(files.get(t.id) ?? 0),
+        };
+      }),
+      notes: [
+        'The BMMP Model RFP asks for user training at least twice a year in each institution.',
+        ...(s.facilityId
+          ? [
+              'With a facility chosen, sessions are listed when they covered a device there.',
+            ]
+          : []),
+      ],
+    };
+  }
+
   /**
    * NABH FMS.5 and the NHSRC guidelines: how much of the period each
    * device was in use, with its breakdowns; worst first.
@@ -1774,7 +1891,8 @@ export class RegistersService {
       | 'calibrationRecordId'
       | 'safetyTestRecordId'
       | 'contractId'
-      | 'condemnationId',
+      | 'condemnationId'
+      | 'trainingSessionId',
     ids: string[],
   ) {
     return documentCounts(this.prisma, field, ids);

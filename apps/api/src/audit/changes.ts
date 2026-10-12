@@ -89,6 +89,15 @@ const LABELS: Record<string, string> = {
   keywords: 'Picked by words in the name',
   items: 'Items',
   active: 'Offered',
+  // Training
+  heldOn: 'Date',
+  kind: 'Kind',
+  topic: 'Topic',
+  equipment: 'Equipment',
+  trainer: 'Trainer',
+  trainerFrom: 'Trainer from',
+  durationHours: 'Hours',
+  attendees: 'Attendees',
   // People
   firstName: 'First name',
   lastName: 'Last name',
@@ -126,6 +135,7 @@ const ENUMS = new Set([
   'reason',
   'workOrderStatus',
   'failureCategory',
+  'kind',
 ]);
 const MONEY = new Set(['purchaseCost', 'annualValue']);
 /**

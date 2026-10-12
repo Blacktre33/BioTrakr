@@ -39,7 +39,8 @@ export type AuditEntity =
   | 'user'
   | 'checklist'
   | 'pm_checklist'
-  | 'condemnation';
+  | 'condemnation'
+  | 'training';
 
 /** One field, as it reads on screen before and after. */
 export interface Change {

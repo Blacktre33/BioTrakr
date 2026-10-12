@@ -41,6 +41,7 @@ const META_SELECT = {
   contractId: true,
   workOrderId: true,
   condemnationId: true,
+  trainingSessionId: true,
   category: true,
   title: true,
   fileName: true,
@@ -80,6 +81,7 @@ const DEFAULT_CATEGORY: Record<DocumentTarget, DocumentCategory> = {
   contract: 'CONTRACT',
   workOrder: 'SERVICE_REPORT',
   condemnation: 'CONDEMNATION',
+  training: 'TRAINING',
 };
 
 type Link = Pick<
@@ -90,6 +92,7 @@ type Link = Pick<
   | 'contractId'
   | 'workOrderId'
   | 'condemnationId'
+  | 'trainingSessionId'
 >;
 
 /** How many files (not withdrawn) each record has, for "certificate on file". */
@@ -99,7 +102,8 @@ export async function documentCounts(
     | 'calibrationRecordId'
     | 'safetyTestRecordId'
     | 'contractId'
-    | 'condemnationId',
+    | 'condemnationId'
+    | 'trainingSessionId',
   ids: string[],
 ): Promise<Map<string, number>> {
   if (ids.length === 0) return new Map();
@@ -134,7 +138,9 @@ export class DocumentsService {
               ? { safetyTestRecordId: link.safetyTestRecordId }
               : query.targetType === 'condemnation'
                 ? { condemnationId: link.condemnationId }
-                : { workOrderId: link.workOrderId };
+                : query.targetType === 'training'
+                  ? { trainingSessionId: link.trainingSessionId }
+                  : { workOrderId: link.workOrderId };
     const rows = await this.prisma.document.findMany({
       where: { ...where, organizationId: user.organizationId },
       orderBy: [{ uploadedAt: 'desc' }, { id: 'asc' }],
@@ -298,6 +304,15 @@ export class DocumentsService {
           select: { assetId: true },
         });
         link = c && { assetId: c.assetId, condemnationId: id };
+        break;
+      }
+      case 'training': {
+        const t = await this.prisma.trainingSession.findFirst({
+          where: { id, ...inOrg },
+          select: { id: true },
+        });
+        // Not tied to one device: a session can cover several, or none.
+        link = t && { assetId: null, trainingSessionId: id };
         break;
       }
     }

@@ -12,6 +12,7 @@ import { ServiceCoverSection } from "@/components/contracts/service-cover-sectio
 import { DocumentsSection } from "@/components/documents/documents-section";
 import { PmRecordsSection } from "@/components/pm/pm-records-section";
 import { SafetyTestSection } from "@/components/safety-tests/safety-test-section";
+import { TrainingSection } from "@/components/training/training-section";
 import { AssetBedsideCard } from "@/components/scan/asset-bedside-card";
 import { Button, Skeleton } from "@/components/ui";
 import { getSession } from "@/lib/auth/session";
@@ -39,7 +40,7 @@ const SOURCE_LABEL: Record<string, string> = {
 /**
  * One device: the same safety answer staff get when they scan it, plus
  * biomed actions (change status with a reason, edit details), calibration
- * and electrical safety test records, warranty and contracts, the
+ * and electrical safety test records, warranty and contracts, training, the
  * condemnation file, the full status history and the edit history.
  */
 export function DevicePage({ assetId }: { assetId: string }) {
@@ -156,6 +157,8 @@ export function DevicePage({ assetId }: { assetId: string }) {
           {(canChangeStatus || role === "viewer") && (
             <DocumentsSection assetId={assetId} canUpload={canChangeStatus} />
           )}
+
+          {(canChangeStatus || role === "viewer") && <TrainingSection device={{ ...device, id: assetId }} />}
 
           {(canChangeStatus || role === "viewer") && (
             <CondemnationSection
