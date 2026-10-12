@@ -1,7 +1,11 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 
-import { takeOutOfUseAfterFailedCheck } from '../assets/failed-check';
+import {
+  cancelStaleScheduledWork,
+  takeOutOfUseAfterFailedCheck,
+} from '../assets/failed-check';
+import { formatDate } from '../contracts/contract-status';
 import { evaluateSafetyTest, type SafetyEvaluation } from './iec62353';
 import type { SafetyTestInputDto } from './safety-test.dto';
 
@@ -144,6 +148,14 @@ export async function recordSafetyTest(
       kind: 'safety_test_failed',
     });
   }
+  if (e.supersedesId && latest) {
+    await cancelStaleScheduledWork(tx, {
+      assetId: e.assetId,
+      workOrderType: 'ELECTRICAL_SAFETY_TEST',
+      nextDue: latest.nextDue,
+      why: `the safety test record was corrected; the device is next due ${formatDate(latest.nextDue)}`,
+    });
+  }
   return record;
 }
 
@@ -167,16 +179,14 @@ export async function refreshSafetyTestState(
     select: { id: true, testedAt: true, passed: true },
   });
   if (!latest) return null;
+  const nextDue = safetyTestDueAfter(latest, asset.safetyTestFrequencyDays);
   await tx.asset.updateMany({
     where: { id: assetId, organizationId },
     data: {
       lastSafetyInspectionDate: latest.testedAt,
-      nextSafetyInspectionDue: safetyTestDueAfter(
-        latest,
-        asset.safetyTestFrequencyDays,
-      ),
+      nextSafetyInspectionDue: nextDue,
       lastSafetyTestPassed: latest.passed,
     },
   });
-  return latest;
+  return { ...latest, nextDue };
 }

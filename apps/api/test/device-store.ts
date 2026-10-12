@@ -249,6 +249,10 @@ export function buildStore() {
           .map((c) => project(c, args.select, 'change'));
     }
     if (of === 'order') {
+      if (key === 'calibrationRecords' || key === 'safetyTestRecords')
+        return (key === 'calibrationRecords' ? calibrations : safetyTests)
+          .filter((r) => r.workOrderId === row.id && matches(r, args.where))
+          .map((r) => project(r, args.select, 'record'));
       if (key === 'asset')
         return project(
           assets.find((a) => a.id === row.assetId)!,

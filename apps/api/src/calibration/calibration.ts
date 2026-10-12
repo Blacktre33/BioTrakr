@@ -5,7 +5,11 @@ import type {
   ServiceProvider,
 } from '@prisma/client';
 
-import { takeOutOfUseAfterFailedCheck } from '../assets/failed-check';
+import {
+  cancelStaleScheduledWork,
+  takeOutOfUseAfterFailedCheck,
+} from '../assets/failed-check';
+import { formatDate } from '../contracts/contract-status';
 import type { CalibrationInputDto } from './calibration.dto';
 
 type Tx = Prisma.TransactionClient;
@@ -154,6 +158,14 @@ export async function recordCalibration(
       kind: 'calibration_failed',
     });
   }
+  if (e.supersedesId && latest) {
+    await cancelStaleScheduledWork(tx, {
+      assetId: e.assetId,
+      workOrderType: 'CALIBRATION',
+      nextDue: latest.nextDue,
+      why: `the calibration record was corrected; the device is next due ${formatDate(latest.nextDue)}`,
+    });
+  }
   return record;
 }
 
@@ -178,16 +190,14 @@ export async function refreshCalibrationState(
     select: { id: true, calibratedAt: true, validUntil: true, result: true },
   });
   if (!latest) return null;
+  const nextDue = calibrationDueAfter(latest, asset.calibrationFrequencyDays);
   await tx.asset.updateMany({
     where: { id: assetId, organizationId },
     data: {
       lastCalibrationDate: latest.calibratedAt,
-      nextCalibrationDue: calibrationDueAfter(
-        latest,
-        asset.calibrationFrequencyDays,
-      ),
+      nextCalibrationDue: nextDue,
       lastCalibrationResult: latest.result,
     },
   });
-  return latest;
+  return { ...latest, nextDue };
 }

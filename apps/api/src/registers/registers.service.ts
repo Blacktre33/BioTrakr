@@ -340,6 +340,15 @@ export class RegistersService {
           workPerformed: true,
           description: true,
           assignedTechnician: { select: { firstName: true, lastName: true } },
+          // The result of a calibration or safety test done on this order.
+          calibrationRecords: {
+            where: { supersededBy: null },
+            select: { result: true, certificateNumber: true },
+          },
+          safetyTestRecords: {
+            where: { supersededBy: null },
+            select: { passed: true },
+          },
         },
       }),
       // Recorded without a work order (e.g. an existing certificate).
@@ -404,13 +413,28 @@ export class RegistersService {
           },
         });
       } else {
+        const [cal] = o.calibrationRecords;
+        const [test] = o.safetyTestRecords;
+        const result = cal
+          ? `, ${cal.result.toLowerCase()}`
+          : test
+            ? `, ${test.passed ? 'passed' : 'failed'}`
+            : '';
         entries.push({
           at: o.completedAt ?? o.createdAt,
           row: {
             check: o.completedAt
-              ? `${KIND[o.workOrderType] ?? o.workOrderType} done ${day(o.completedAt)}${by ? ` by ${by}` : ''}`
+              ? `${KIND[o.workOrderType] ?? o.workOrderType} done ${day(o.completedAt)}${by ? ` by ${by}` : ''}${result}`
               : `${KIND[o.workOrderType] ?? o.workOrderType} due (open)`,
-            remarks: o.workPerformed,
+            remarks:
+              [
+                o.workPerformed,
+                cal?.certificateNumber
+                  ? `certificate ${cal.certificateNumber}`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(', ') || null,
             breakdown: null,
             rectified: null,
             downtime: null,

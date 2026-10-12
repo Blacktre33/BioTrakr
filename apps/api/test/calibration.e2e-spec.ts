@@ -251,6 +251,49 @@ describe('Calibration (e2e)', () => {
       expect(device.assetStatus).toBe('ACTIVE');
       expect(device.lastCalibrationResult).toBe('PASS');
     });
+
+    it('cancels the retest when the failed result is corrected to a pass', async () => {
+      const order = calibrationOrder(1);
+      const done = await complete(order.id, {
+        calibration: labCertificate({
+          result: 'FAIL',
+          notes: 'Pressure reads 8 mmHg high at 200 mmHg',
+        }),
+      }).expect(200);
+      // The record it made, for attaching the certificate to.
+      const failed = store.calibrations[0];
+      expect(done.body.record).toEqual({ type: 'calibration', id: failed.id });
+
+      await openSchedule();
+      const retest = store.orders.find(
+        (o) =>
+          o.assetId === assetId(1) &&
+          o.workOrderType === 'CALIBRATION' &&
+          o.workOrderStatus === 'PENDING',
+      )!;
+      expect(retest.dueDate).toEqual(failed.calibratedAt);
+
+      const until = ahead(300);
+      await http()
+        .post(`/api/calibrations/${failed.id}/corrections`)
+        .set(tech)
+        .send({
+          ...labCertificate({ validUntil: until.toISOString() }),
+          correctionReason: 'The lab sent the page for another monitor',
+        })
+        .expect(201);
+      expect(retest).toMatchObject({
+        workOrderStatus: 'CANCELLED',
+        workPerformed: expect.stringMatching(
+          /^Cancelled: the calibration record was corrected; the device is next due /,
+        ),
+      });
+      // The work order that recorded the calibration stays as it was.
+      expect(order.workOrderStatus).toBe('COMPLETED');
+      expect(
+        store.assets.find((a) => a.id === assetId(1))!.nextCalibrationDue,
+      ).toEqual(until);
+    });
   });
 
   describe('records without a work order, and corrections', () => {

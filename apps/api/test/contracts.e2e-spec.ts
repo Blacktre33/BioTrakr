@@ -162,6 +162,28 @@ describe('Contracts and vendors (e2e)', () => {
         .expect(404);
     });
 
+    it('offers a CMC typed into the device notes earlier, until it is entered as a contract', async () => {
+      store.assets.find((a) => a.id === assetId(3))!.notes =
+        '[CONTRACT_TRACKING]\n{"cmc": {"contractNumber": "CMC/2024/17", "costAnnual": 85000}}';
+      const cover = () =>
+        http()
+          .get(`/api/assets/${assetId(3)}/cover`)
+          .set(bearer('engineer'))
+          .expect(200);
+      expect((await cover()).body.earlier).toEqual([
+        expect.objectContaining({
+          contractType: 'CMC',
+          contractNumber: 'CMC/2024/17',
+          annualValue: 85000,
+        }),
+      ]);
+      await create({
+        contractNumber: 'CMC/2024/17',
+        deviceIds: [assetId(3)],
+      }).expect(201);
+      expect((await cover()).body.earlier).toEqual([]);
+    });
+
     it('needs a sensible period, a vendor and devices of this hospital', async () => {
       const backwards = await create({
         endDate: day(-60).toISOString(),

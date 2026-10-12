@@ -11,6 +11,38 @@ import {
 import { changeAssetStatus, isStopStatus } from './asset-status.service';
 
 /**
+ * After a correction, scheduled work for a due date that no longer applies
+ * is cancelled: typically the retest opened at once for a failed check that
+ * turned out to be a pass. Only work nobody has started, and only what the
+ * schedule opened; it opens again for the new due date in good time.
+ */
+export async function cancelStaleScheduledWork(
+  tx: Prisma.TransactionClient,
+  e: {
+    assetId: string;
+    workOrderType: 'CALIBRATION' | 'ELECTRICAL_SAFETY_TEST';
+    nextDue: Date | null;
+    why: string;
+  },
+): Promise<number> {
+  if (!e.nextDue) return 0;
+  const { count } = await tx.maintenanceHistory.updateMany({
+    where: {
+      assetId: e.assetId,
+      workOrderType: e.workOrderType,
+      workOrderStatus: { in: ['PENDING', 'ASSIGNED'] },
+      createdByUserId: null,
+      dueDate: { lt: e.nextDue },
+    },
+    data: {
+      workOrderStatus: 'CANCELLED',
+      workPerformed: `Cancelled: ${e.why}`,
+    },
+  });
+  return count;
+}
+
+/**
  * A device failed a check that makes it unsafe (calibration, electrical
  * safety): it is quarantined, unless already out of use, and biomed is
  * told. The release guard in changeAssetStatus keeps it out of use until

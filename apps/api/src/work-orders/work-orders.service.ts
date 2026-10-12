@@ -385,25 +385,30 @@ export class WorkOrdersService {
       }
 
       let released = false;
+      /** The calibration or safety test this completed, to attach its certificate to. */
+      let record: { type: 'calibration' | 'safetyTest'; id: string } | null =
+        null;
       if (completing) {
         // Before any release, so a failed check keeps the device out of use.
         if (isCalibration) {
-          await recordCalibration(tx, {
+          const { id: recordId } = await recordCalibration(tx, {
             assetId: current.assetId,
             organizationId: user.organizationId,
             input: dto.calibration!,
             recordedById: user.userId,
             workOrderId: id,
           });
+          record = { type: 'calibration', id: recordId };
         }
         if (isSafetyTest) {
-          await recordSafetyTest(tx, {
+          const { id: recordId } = await recordSafetyTest(tx, {
             assetId: current.assetId,
             organizationId: user.organizationId,
             input: dto.safetyTest!,
             recordedById: user.userId,
             workOrderId: id,
           });
+          record = { type: 'safetyTest', id: recordId };
         }
         if (current.workOrderType === 'PREVENTIVE_MAINTENANCE') {
           await recordPmCompleted(
@@ -449,7 +454,7 @@ export class WorkOrdersService {
         where: { id },
         select: LIST_SELECT,
       });
-      return { ...present(row!), deviceReleased: released };
+      return { ...present(row!), deviceReleased: released, record };
     });
   }
 

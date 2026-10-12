@@ -273,7 +273,16 @@ describe("ServiceCoverSection", () => {
         cmc(),
         cmc({ id: "c0", contractNumber: "PH/CMC/2025/09", status: "expired", daysLeft: -345, renewedById: "c1", previous: null }),
       ],
-      earlierAmc: { contractNumber: "AMC-OLD", startDate: null, endDate: day(-800), annualCost: 50000 },
+      earlier: [
+        {
+          contractType: "AMC",
+          vendor: { id: "v1", vendorName: "Philips Healthcare India" },
+          contractNumber: "AMC-OLD",
+          startDate: "2023-04-01T00:00:00.000Z",
+          endDate: "2024-03-31T00:00:00.000Z",
+          annualValue: 50000,
+        },
+      ],
     };
   });
 
@@ -281,18 +290,49 @@ describe("ServiceCoverSection", () => {
     const user = userEvent.setup();
     render(<ServiceCoverSection device={device} canEdit />);
     expect(screen.getByText(/^Warranty ended /)).toBeInTheDocument();
-    expect(screen.getAllByRole("listitem")).toHaveLength(1);
-    expect(screen.getByText(/Recorded on the device earlier: AMC AMC-OLD/)).toBeInTheDocument();
+    // The contract in force, and the AMC typed on the device before contracts were records.
+    expect(screen.getAllByRole("listitem")).toHaveLength(2);
+    expect(
+      screen.getByText(/Typed on the device earlier: AMC AMC-OLD with Philips Healthcare India until/),
+    ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Show earlier contracts (1)" }));
     expect(screen.getByText("PH/CMC/2025/09")).toBeInTheDocument();
   });
 
   it("starts a new contract with this device already chosen", async () => {
     const user = userEvent.setup();
-    cover = { ...cover, contracts: [], earlierAmc: null };
+    cover = { ...cover, contracts: [], earlier: [] };
     render(<ServiceCoverSection device={device} canEdit />);
     expect(screen.getByText(/Not covered by an AMC or CMC/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Add contract" }));
     expect(within(screen.getByRole("list", { name: "Devices covered" })).getByText(/Patient monitor/)).toBeInTheDocument();
+  });
+
+  it("enters details typed on the device earlier as a contract, filled in", async () => {
+    const user = userEvent.setup();
+    render(<ServiceCoverSection device={device} canEdit />);
+    await user.click(screen.getByRole("button", { name: "Enter as a contract" }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByLabelText(/Contract or PO number/)).toHaveValue("AMC-OLD");
+    await user.click(within(dialog).getByRole("button", { name: "Add contract" }));
+    expect(saveContract).toHaveBeenCalledWith({
+      mode: "create",
+      id: undefined,
+      body: expect.objectContaining({
+        vendorId: "v1",
+        contractType: "AMC",
+        contractNumber: "AMC-OLD",
+        startDate: expect.stringMatching(/^2023-04-01/),
+        endDate: expect.stringMatching(/^2024-03-31/),
+        annualValue: 50000,
+        deviceIds: ["a1"],
+      }),
+    });
+  });
+
+  it("only says what is missing to those who cannot enter contracts", () => {
+    render(<ServiceCoverSection device={device} canEdit={false} />);
+    expect(screen.getByText(/Not yet entered as a contract/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Enter as a contract" })).not.toBeInTheDocument();
   });
 });

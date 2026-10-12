@@ -167,15 +167,18 @@ export function ContractDialog({
   mode,
   contract,
   devices,
+  prefill,
   onClose,
 }: {
   mode: Mode;
   contract?: Contract | null;
   /** Devices to start with (a new contract from a device page). */
   devices?: PickedDevice[];
+  /** Details to start a new contract with, e.g. typed on the device earlier. */
+  prefill?: Partial<ContractFormValues>;
   onClose: () => void;
 }) {
-  const [values, setValues] = useState(() => initialValues(mode, contract, devices));
+  const [values, setValues] = useState(() => ({ ...initialValues(mode, contract, devices), ...prefill }));
   const [submitted, setSubmitted] = useState(false);
   const [serverErrors, setServerErrors] = useState<string[]>([]);
   const [addingVendor, setAddingVendor] = useState(false);

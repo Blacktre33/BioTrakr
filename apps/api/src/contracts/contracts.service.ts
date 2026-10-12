@@ -9,6 +9,7 @@ import type { Prisma } from '@prisma/client';
 import type { AuthUser } from '../auth/auth-user';
 import { PrismaService } from '../database/prisma.service';
 import { documentCounts } from '../documents/documents.service';
+import { earlierCover } from './earlier-cover';
 import {
   contractStatus,
   daysUntil,
@@ -196,6 +197,9 @@ export class ContractsService {
         amcStartDate: true,
         amcEndDate: true,
         amcCostAnnual: true,
+        amcProvider: { select: { id: true, vendorName: true } },
+        cmcProvider: { select: { id: true, vendorName: true } },
+        notes: true,
       },
     });
     if (!asset) throw new NotFoundException(`Asset ${assetId} not found`);
@@ -226,16 +230,8 @@ export class ContractsService {
         active: daysLeft !== null && daysLeft >= 0,
       },
       contracts: rows.map((r) => present(r, now, files.get(r.id))),
-      /** AMC details typed on the device itself, from before contracts were records. */
-      earlierAmc:
-        asset.amcContractNumber || asset.amcEndDate
-          ? {
-              contractNumber: asset.amcContractNumber,
-              startDate: asset.amcStartDate,
-              endDate: asset.amcEndDate,
-              annualCost: num(asset.amcCostAnnual),
-            }
-          : null,
+      /** AMC/CMC details typed on the device, not yet entered as contracts. */
+      earlier: earlierCover(asset, rows),
     };
   }
 

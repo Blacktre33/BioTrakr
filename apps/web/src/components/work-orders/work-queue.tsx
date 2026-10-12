@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { Route } from "next";
 import Link from "next/link";
 import { AlertOctagon, Siren } from "lucide-react";
@@ -33,8 +33,10 @@ import {
   Skeleton,
   Textarea,
 } from "@/components/ui";
+import { ACCEPTED_TYPES, fileProblem } from "@/lib/api/documents";
 import type { WorkOrder, WorkOrderStatus, WorkOrderUpdate, WorkOrderView } from "@/lib/api/work-orders";
 import { getSession } from "@/lib/auth/session";
+import { useUploadDocument } from "@/lib/hooks/use-documents";
 import { useTechnicians, useUpdateWorkOrderMutation, useWorkOrders } from "@/lib/hooks/use-work-orders";
 import { cn, formatDate, formatRelativeTime } from "@/lib/utils";
 
@@ -108,6 +110,11 @@ function CloseDialog({
   const safetyTestInvalid = testing && Object.keys(safetyTestErrors(safetyTest)).length > 0;
   const failedSafetyTest = testing && expectedResult(safetyTest)?.passed === false;
   const recording = calibrating || testing;
+  // The certificate or test report, attached to the record once it is saved.
+  const [file, setFile] = useState<File | null>(null);
+  const fileId = useId();
+  const upload = useUploadDocument();
+  const fileError = file ? (fileProblem(file) ?? undefined) : undefined;
   const canRelease =
     mode === "complete" && RELEASABLE.includes(order.asset.assetStatus) && !failedCalibration && !failedSafetyTest;
 
@@ -118,7 +125,9 @@ function CloseDialog({
     e.preventDefault();
     setSubmitted(true);
     setServerError(undefined);
-    if (note.trim().length < 5 || (release && !confirmSafe) || calibrationInvalid || safetyTestInvalid) return;
+    if (note.trim().length < 5 || (release && !confirmSafe) || calibrationInvalid || safetyTestInvalid || fileError) {
+      return;
+    }
     try {
       const result = await mutation.mutateAsync({
         id: order.id,
@@ -143,6 +152,22 @@ function CloseDialog({
                 ? `Safety test recorded as failed. ${order.asset.equipmentName} is out of use.`
                 : "Work order completed",
       );
+      if (file && result.record) {
+        // The record is saved either way; a failed upload can be retried from the device page.
+        try {
+          await upload.mutateAsync({
+            targetType: result.record.type,
+            targetId: result.record.id,
+            file,
+            title: `${calibrating ? "Calibration certificate" : "Safety test report"}, ${order.asset.assetTagNumber}`,
+          });
+          toast.success(calibrating ? "Certificate attached" : "Test report attached");
+        } catch (err) {
+          toast.error(
+            `The ${calibrating ? "certificate" : "test report"} didn't upload: ${(err as Error).message}. Attach it from the device page.`,
+          );
+        }
+      }
       onClose();
     } catch (err) {
       setServerError((err as Error).message || "Could not save. Please try again.");
@@ -180,6 +205,27 @@ function CloseDialog({
           </Field>
           {calibrating && <CalibrationFields values={calibration} onChange={setCalibration} showErrors={submitted} idPrefix="wo-cal" />}
           {testing && <SafetyTestFields values={safetyTest} onChange={setSafetyTest} showErrors={submitted} idPrefix="wo-est" />}
+          {recording && (
+            <div className="space-y-1">
+              <label htmlFor={fileId} className="text-sm font-medium text-gray-200">
+                {calibrating ? "Certificate" : "Test report"} (optional: PDF, JPEG or PNG, up to 10 MB)
+              </label>
+              <input
+                id={fileId}
+                type="file"
+                accept={ACCEPTED_TYPES}
+                aria-invalid={fileError ? true : undefined}
+                aria-describedby={fileError ? `${fileId}-error` : undefined}
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                className="block w-full text-sm text-gray-300 file:mr-3 file:rounded-lg file:border-0 file:bg-primary-500/20 file:px-3 file:py-1.5 file:text-gray-100"
+              />
+              {fileError && (
+                <p id={`${fileId}-error`} role="alert" className="text-sm text-critical-500">
+                  {fileError}
+                </p>
+              )}
+            </div>
+          )}
           {mode === "complete" && !recording && (
             <Field field="wo-failure" label="Cause (optional)">
               <select
@@ -233,11 +279,21 @@ function CloseDialog({
             </p>
           )}
           <DialogFooter>
-            <Button type="button" variant="ghost" onClick={onClose} disabled={mutation.isPending}>
+            <Button type="button" variant="ghost" onClick={onClose} disabled={mutation.isPending || upload.isPending}>
               Back
             </Button>
-            <Button type="submit" variant={mode === "cancel" ? "danger" : "primary"} disabled={mutation.isPending}>
-              {mutation.isPending ? "Saving…" : mode === "complete" ? "Complete" : "Cancel work order"}
+            <Button
+              type="submit"
+              variant={mode === "cancel" ? "danger" : "primary"}
+              disabled={mutation.isPending || upload.isPending}
+            >
+              {upload.isPending
+                ? "Uploading…"
+                : mutation.isPending
+                  ? "Saving…"
+                  : mode === "complete"
+                    ? "Complete"
+                    : "Cancel work order"}
             </Button>
           </DialogFooter>
         </form>

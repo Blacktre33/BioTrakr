@@ -98,8 +98,17 @@ export interface DeviceCover {
     active: boolean;
   };
   contracts: Contract[];
-  /** AMC details typed on the device before contracts were records. */
-  earlierAmc: { contractNumber: string | null; startDate: string | null; endDate: string | null; annualCost: number | null } | null;
+  /** AMC/CMC details typed on the device before contracts were records, not yet entered as contracts. */
+  earlier: EarlierCover[];
+}
+
+export interface EarlierCover {
+  contractType: ContractType;
+  vendor: { id: string; vendorName: string } | null;
+  contractNumber: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  annualValue: number | null;
 }
 
 /** "ends in 12 days", "ends today", "ended 3 days ago". */
