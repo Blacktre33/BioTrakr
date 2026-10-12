@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
+import { Toaster } from 'sonner';
 
 import {
   CHANGE_PASSWORD_PATH,
@@ -62,6 +63,8 @@ export function Providers({ children }: ProvidersProps) {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthGate>{children}</AuthGate>
+      {/* Confirmations and errors raised with toast() across the app. */}
+      <Toaster theme="dark" position="top-right" richColors closeButton />
       <ReactQueryDevtools initialIsOpen={false} />
     </QueryClientProvider>
   );
