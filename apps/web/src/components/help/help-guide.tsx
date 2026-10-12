@@ -81,7 +81,7 @@ const tasks: Task[] = [
     title: 'Registers for NABH',
     href: '/registers',
     icon: ClipboardList,
-    body: 'For biomed and auditors: the inventory master, annual survey and device logbook in the NHSRC formats, and the calibration, electrical safety, PM, breakdown, AMC/CMC and condemnation registers. Print on A4 with a sign-off, or download for Excel.',
+    body: "For biomed and auditors: the inventory master, annual survey and device logbook in the NHSRC formats; each device's history card; the year's maintenance plan, month by month; and the calibration, electrical safety, PM, breakdown, AMC/CMC and condemnation registers. Print on A4 with a sign-off, or download for Excel.",
   },
   {
     title: 'Uptime and repair limits',

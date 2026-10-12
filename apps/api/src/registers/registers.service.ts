@@ -6,24 +6,38 @@ import {
 import type { AssetStatus, Prisma } from '@prisma/client';
 
 import { describeLocation, LOCATION_SELECT } from '../assets/location';
+import { DEFAULT_PM_INTERVAL_DAYS } from '../assets/pm-dates';
 import type { Change } from '../audit/audit';
+import { words } from '../audit/changes';
 import { AuditService } from '../audit/audit.service';
 import type { AuthUser } from '../auth/auth-user';
 import {
+  bookValue,
   DISPOSAL_LABEL,
   reasonsText,
   repairShare,
+  REVERSED,
   type CondemnationEvidence,
 } from '../condemnation/condemnation';
 import { contractStatus } from '../contracts/contract-status';
 import { PrismaService } from '../database/prisma.service';
 import { documentCounts } from '../documents/documents.service';
+import { DEFAULT_CALIBRATION_INTERVAL_DAYS } from '../calibration/calibration';
 import { breakdownClock, downtimeConfig } from '../downtime/downtime';
 import {
   DowntimeService,
   hoursText,
   limitText,
 } from '../downtime/downtime.service';
+import {
+  comingYear,
+  everyText,
+  MAX_PLAN_MONTHS,
+  planCells,
+  planMonths,
+  type PlanSchedule,
+} from './plan';
+import { DEFAULT_SAFETY_TEST_INTERVAL_DAYS } from '../safety-tests/safety-test';
 import type { RegisterKind, RegisterQuery } from './registers.dto';
 import {
   day,
@@ -86,7 +100,10 @@ interface Scope {
   to: Date;
 }
 
-type Body = Pick<Register, 'title' | 'basis' | 'columns' | 'notes'> & {
+type Body = Pick<
+  Register,
+  'title' | 'basis' | 'columns' | 'notes' | 'details'
+> & {
   rows: RegisterRow[];
   /** As of today, not over a period. */
   snapshot?: boolean;
@@ -113,10 +130,17 @@ export class RegistersService {
     query: RegisterQuery,
     user: AuthUser,
   ): Promise<Register> {
-    const to = query.to ? localDay(query.to) : new Date();
-    const from = query.from
-      ? localDay(query.from)
-      : new Date(to.getTime() - DEFAULT_PERIOD_DAYS * DAY);
+    // A plan looks ahead: the year from the start of this month.
+    const ahead =
+      kind === 'planner' && !query.from && !query.to
+        ? comingYear(new Date())
+        : null;
+    const to = ahead?.to ?? (query.to ? localDay(query.to) : new Date());
+    const from =
+      ahead?.from ??
+      (query.from
+        ? localDay(query.from)
+        : new Date(to.getTime() - DEFAULT_PERIOD_DAYS * DAY));
     if (from > to) {
       throw new BadRequestException('The period must start before it ends');
     }
@@ -159,6 +183,7 @@ export class RegistersService {
       facility: facility?.facilityName ?? null,
       period: body.snapshot ? null : { from: day(from)!, to: day(to)! },
       device: body.device ?? null,
+      ...(body.details ? { details: body.details } : {}),
       generatedAt: dayTime(new Date())!,
       columns: [SL, ...body.columns],
       rows: numbered(rows),
@@ -178,6 +203,15 @@ export class RegistersService {
           throw new BadRequestException('Choose the device for its logbook');
         }
         return this.logbook(s, q.assetId);
+      case 'history':
+        if (!q.assetId) {
+          throw new BadRequestException(
+            'Choose the device for its history card',
+          );
+        }
+        return this.history(s, q.assetId);
+      case 'planner':
+        return this.planner(s);
       case 'calibration':
         return this.calibration(s);
       case 'safety':
@@ -544,6 +578,527 @@ export class RegistersService {
       ],
       rows: entries.map((e) => e.row),
       notes: [],
+    };
+  }
+
+  /**
+   * A device's whole life on one card: purchase, installation, contracts,
+   * maintenance, checks, breakdowns, changes of status made by hand, and
+   * condemnation, oldest first, under its particulars.
+   */
+  private async history(s: Scope, assetId: string): Promise<Body> {
+    const now = new Date();
+    const a = await this.prisma.asset.findFirst({
+      where: { id: assetId, ...this.devices(s) },
+      select: {
+        assetTagNumber: true,
+        equipmentName: true,
+        manufacturer: true,
+        modelNumber: true,
+        serialNumber: true,
+        deviceCategory: true,
+        criticalityLevel: true,
+        assetStatus: true,
+        purchaseOrderNumber: true,
+        purchaseDate: true,
+        purchaseCost: true,
+        salvageValue: true,
+        usefulLifeYears: true,
+        installationDate: true,
+        warrantyEndDate: true,
+        pmFrequencyDays: true,
+        nextPmDueDate: true,
+        requiresCalibration: true,
+        calibrationFrequencyDays: true,
+        requiresSafetyTest: true,
+        safetyTestFrequencyDays: true,
+        vendor: { select: { vendorName: true } },
+        ...LOCATION_SELECT,
+        serviceContracts: {
+          select: {
+            contract: {
+              select: {
+                contractType: true,
+                contractNumber: true,
+                startDate: true,
+                endDate: true,
+                annualValue: true,
+                terminatedAt: true,
+                terminationReason: true,
+                vendor: { select: { vendorName: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!a) throw new NotFoundException('Device not found');
+    const person = { select: { firstName: true, lastName: true } };
+    const [orders, calibrations, tests, changes, condemnations] =
+      await Promise.all([
+        this.prisma.maintenanceHistory.findMany({
+          where: { assetId, workOrderStatus: { not: 'CANCELLED' } },
+          orderBy: { createdAt: 'asc' },
+          take: MAX_ROWS + 1,
+          select: {
+            workOrderType: true,
+            workOrderStatus: true,
+            isEmergency: true,
+            createdAt: true,
+            completedAt: true,
+            description: true,
+            workPerformed: true,
+            failureCategory: true,
+            assignedTechnician: person,
+            calibrationRecords: {
+              where: { supersededBy: null },
+              select: { result: true, certificateNumber: true },
+            },
+            safetyTestRecords: {
+              where: { supersededBy: null },
+              select: { passed: true },
+            },
+            pmChecklist: { select: { outcome: true, items: true } },
+          },
+        }),
+        this.prisma.calibrationRecord.findMany({
+          where: { assetId, workOrderId: null, supersededBy: null },
+          select: {
+            calibratedAt: true,
+            result: true,
+            provider: true,
+            providerName: true,
+            certificateNumber: true,
+            recordedBy: person,
+          },
+        }),
+        this.prisma.safetyTestRecord.findMany({
+          where: { assetId, workOrderId: null, supersededBy: null },
+          select: { testedAt: true, passed: true, recordedBy: person },
+        }),
+        // Made by hand or by the device; the rest go with a work order or
+        // a condemnation, which have their own lines.
+        this.prisma.assetStatusChange.findMany({
+          where: {
+            assetId,
+            source: { in: ['MANUAL', 'DEVICE_ALERT'] },
+            toStatus: { notIn: ['CONDEMNED', 'DISPOSED'] },
+            NOT: { reason: { startsWith: REVERSED } },
+          },
+          orderBy: { changedAt: 'asc' },
+          select: {
+            changedAt: true,
+            fromStatus: true,
+            toStatus: true,
+            reason: true,
+            source: true,
+            changedBy: person,
+          },
+        }),
+        this.prisma.condemnation.findMany({
+          where: { assetId },
+          orderBy: { proposedAt: 'asc' },
+          select: {
+            status: true,
+            reasons: true,
+            justification: true,
+            repairEstimate: true,
+            proposedAt: true,
+            proposedBy: person,
+            decidedAt: true,
+            decidedBy: person,
+            committee: true,
+            decisionNote: true,
+            withdrawnAt: true,
+            withdrawnBy: person,
+            withdrawalReason: true,
+            disposedAt: true,
+            disposedBy: person,
+            disposalMethod: true,
+            disposalNote: true,
+            clearance: true,
+          },
+        }),
+      ]);
+
+    const KIND: Record<string, string> = {
+      PREVENTIVE_MAINTENANCE: 'Preventive maintenance',
+      CALIBRATION: 'Calibration',
+      ELECTRICAL_SAFETY_TEST: 'Electrical safety test',
+      INSPECTION: 'Inspection',
+      INSTALLATION: 'Installation',
+      DECOMMISSIONING: 'Decommissioning',
+    };
+    const lines: Array<{ at: Date; row: RegisterRow }> = [];
+    const line = (
+      at: Date,
+      event: string,
+      details: string | null,
+      by: string | null = null,
+      downtime: string | null = null,
+    ) =>
+      lines.push({ at, row: { date: day(at), event, details, by, downtime } });
+    const join = (...parts: Array<string | null | undefined | false>) =>
+      parts.filter(Boolean).join('; ') || null;
+    const cost = num(a.purchaseCost);
+
+    line(
+      a.purchaseDate,
+      'Purchased',
+      join(
+        rupees(cost),
+        a.vendor && `from ${a.vendor.vendorName}`,
+        a.purchaseOrderNumber && `PO ${a.purchaseOrderNumber}`,
+      ),
+    );
+    if (a.installationDate) line(a.installationDate, 'Installed', null);
+    for (const { contract: c } of a.serviceContracts) {
+      line(
+        c.startDate,
+        `${c.contractType} contract`,
+        join(
+          `${c.vendor.vendorName}, ${day(c.startDate)} to ${day(c.endDate)}`,
+          c.contractNumber && `no. ${c.contractNumber}`,
+          c.annualValue !== null && `${rupees(num(c.annualValue))} a year`,
+          c.terminatedAt &&
+            `ended early ${day(c.terminatedAt)}: ${c.terminationReason}`,
+        ),
+      );
+    }
+    for (const o of orders) {
+      const by = name(o.assignedTechnician);
+      if ((BREAKDOWNS as readonly string[]).includes(o.workOrderType)) {
+        line(
+          o.createdAt,
+          o.isEmergency ? 'Breakdown (urgent)' : 'Breakdown',
+          join(
+            o.description,
+            o.failureCategory && `cause: ${words(o.failureCategory)}`,
+            o.completedAt
+              ? `rectified ${dayTime(o.completedAt)}${o.workPerformed ? `: ${o.workPerformed}` : ''}`
+              : 'not yet rectified',
+          ),
+          by,
+          o.completedAt
+            ? duration(o.createdAt, o.completedAt)
+            : `${duration(o.createdAt, now)} so far`,
+        );
+        continue;
+      }
+      const [cal] = o.calibrationRecords;
+      const [test] = o.safetyTestRecords;
+      const kind = KIND[o.workOrderType] ?? words(o.workOrderType);
+      line(
+        o.completedAt ?? o.createdAt,
+        o.completedAt ? kind : `${kind} (open)`,
+        join(
+          o.completedAt ? o.workPerformed : o.description,
+          cal &&
+            `${cal.result.toLowerCase()}${cal.certificateNumber ? `, certificate ${cal.certificateNumber}` : ''}`,
+          test && (test.passed ? 'passed' : 'failed'),
+          checklistResult(o.pmChecklist),
+        ),
+        by,
+      );
+    }
+    for (const c of calibrations) {
+      line(
+        c.calibratedAt,
+        'Calibration',
+        join(
+          c.result.toLowerCase(),
+          c.providerName ?? PROVIDER_LABEL[c.provider],
+          c.certificateNumber && `certificate ${c.certificateNumber}`,
+        ),
+        name(c.recordedBy),
+      );
+    }
+    for (const t of tests) {
+      line(
+        t.testedAt,
+        'Electrical safety test',
+        t.passed ? 'passed' : 'failed',
+        name(t.recordedBy),
+      );
+    }
+    for (const c of changes) {
+      line(
+        c.changedAt,
+        'Status changed',
+        `${STATUS_LABEL[c.fromStatus]} → ${STATUS_LABEL[c.toStatus]}: ${c.reason}`,
+        name(c.changedBy) ??
+          (c.source === 'DEVICE_ALERT' ? 'Device alert' : null),
+      );
+    }
+    for (const c of condemnations) {
+      line(
+        c.proposedAt,
+        'Proposed for condemnation',
+        join(
+          reasonsText(c.reasons),
+          c.justification,
+          c.repairEstimate !== null &&
+            `repair estimate ${rupees(num(c.repairEstimate))}`,
+        ),
+        name(c.proposedBy),
+      );
+      if (c.decidedAt) {
+        line(
+          c.decidedAt,
+          c.status === 'REJECTED'
+            ? 'Condemnation not approved'
+            : 'Condemnation approved',
+          join(c.committee, c.decisionNote),
+          name(c.decidedBy),
+        );
+      }
+      if (c.withdrawnAt) {
+        line(
+          c.withdrawnAt,
+          c.decidedAt ? 'Condemnation reversed' : 'Condemnation withdrawn',
+          c.withdrawalReason,
+          name(c.withdrawnBy),
+        );
+      }
+      if (c.disposedAt && c.disposalMethod) {
+        line(
+          c.disposedAt,
+          'Disposed of',
+          join(
+            DISPOSAL_LABEL[c.disposalMethod],
+            c.disposalNote,
+            c.clearance && `clearance: ${c.clearance}`,
+          ),
+          name(c.disposedBy),
+        );
+      }
+    }
+    lines.sort((x, y) => x.at.getTime() - y.at.getTime());
+
+    const cover = a.serviceContracts
+      .map((sc) => sc.contract)
+      .filter((c) => contractStatus(c, now) === 'active')
+      .sort((x, y) => y.endDate.getTime() - x.endDate.getTime())[0];
+    // The intervals the schedule works to (its defaults when none is set).
+    const schedule = [
+      (a.pmFrequencyDays || a.nextPmDueDate) &&
+        `PM ${everyText(a.pmFrequencyDays ?? DEFAULT_PM_INTERVAL_DAYS)}`,
+      a.requiresCalibration &&
+        `calibration ${everyText(a.calibrationFrequencyDays ?? DEFAULT_CALIBRATION_INTERVAL_DAYS)}`,
+      a.requiresSafetyTest &&
+        `electrical safety test ${everyText(a.safetyTestFrequencyDays ?? DEFAULT_SAFETY_TEST_INTERVAL_DAYS)}`,
+    ];
+    return {
+      title: 'Equipment History Card',
+      basis: 'NABH FMS.5.b (a log for each device); NHSRC guidelines',
+      device: deviceCell(a),
+      details: [
+        { label: 'Ref ID', value: a.assetTagNumber },
+        { label: 'Equipment', value: a.equipmentName },
+        {
+          label: 'Make and model',
+          value: `${a.manufacturer} ${a.modelNumber}`,
+        },
+        { label: 'Serial number', value: a.serialNumber || null },
+        { label: 'Category', value: words(a.deviceCategory) },
+        { label: 'Criticality', value: words(a.criticalityLevel) },
+        { label: 'Location', value: describeLocation(a) },
+        { label: 'Supplier', value: a.vendor?.vendorName ?? null },
+        {
+          label: 'Purchased',
+          value: join(
+            day(a.purchaseDate),
+            rupees(cost),
+            a.purchaseOrderNumber && `PO ${a.purchaseOrderNumber}`,
+          ),
+        },
+        { label: 'Installed', value: day(a.installationDate) },
+        { label: 'Warranty until', value: day(a.warrantyEndDate) },
+        {
+          label: 'Service contract',
+          value: cover
+            ? `${cover.contractType} with ${cover.vendor.vendorName} to ${day(cover.endDate)}`
+            : 'None in force',
+        },
+        {
+          label: 'Useful life',
+          value: `${a.usefulLifeYears} years; book value today ${rupees(
+            bookValue(
+              {
+                purchaseCost: cost ?? 0,
+                salvageValue: num(a.salvageValue) ?? 0,
+                usefulLifeYears: a.usefulLifeYears,
+                purchaseDate: a.purchaseDate,
+              },
+              now,
+            ),
+          )} (straight line)`,
+        },
+        { label: 'Maintenance', value: join(...schedule) },
+        { label: 'Status', value: STATUS_LABEL[a.assetStatus] },
+      ],
+      columns: [
+        { key: 'date', label: 'Date' },
+        { key: 'event', label: 'Event' },
+        { key: 'details', label: 'Details' },
+        { key: 'by', label: 'By' },
+        { key: 'downtime', label: 'Downtime', align: 'right' },
+      ],
+      rows: lines.map((l) => l.row),
+      snapshot: true,
+      notes: [
+        'Everything on record for this device, oldest first. Changes of status that go with a work order or a condemnation are on their lines.',
+      ],
+    };
+  }
+
+  /**
+   * NABH FMS.5.c, the documented maintenance plan: each device's PM,
+   * calibration and electrical safety tests month by month, as planned
+   * from its intervals and as done.
+   */
+  private async planner(s: Scope): Promise<Body> {
+    const months = planMonths(s.from, s.to);
+    if (months.length > MAX_PLAN_MONTHS) {
+      throw new BadRequestException(
+        'Choose a period of up to a year for the plan',
+      );
+    }
+    const now = new Date();
+    const inService: Prisma.AssetWhereInput = {
+      ...this.devices(s),
+      assetStatus: { notIn: ['CONDEMNED', 'RETIRED', 'DISPOSED'] },
+    };
+    const inPeriod = { gte: s.from, lte: s.to };
+    const [assets, orders, calibrations, tests] = await Promise.all([
+      this.prisma.asset.findMany({
+        where: inService,
+        orderBy: [{ assetTagNumber: 'asc' }],
+        take: MAX_ROWS + 1,
+        select: {
+          id: true,
+          assetTagNumber: true,
+          equipmentName: true,
+          ...LOCATION_SELECT,
+          pmFrequencyDays: true,
+          nextPmDueDate: true,
+          requiresCalibration: true,
+          calibrationFrequencyDays: true,
+          nextCalibrationDue: true,
+          requiresSafetyTest: true,
+          safetyTestFrequencyDays: true,
+          nextSafetyInspectionDue: true,
+        },
+      }),
+      this.prisma.maintenanceHistory.findMany({
+        where: {
+          asset: inService,
+          workOrderStatus: 'COMPLETED',
+          workOrderType: {
+            in: [
+              'PREVENTIVE_MAINTENANCE',
+              'CALIBRATION',
+              'ELECTRICAL_SAFETY_TEST',
+            ],
+          },
+          completedAt: inPeriod,
+        },
+        select: { assetId: true, workOrderType: true, completedAt: true },
+      }),
+      // Recorded without a work order (e.g. an outside laboratory's).
+      this.prisma.calibrationRecord.findMany({
+        where: {
+          asset: inService,
+          workOrderId: null,
+          supersededBy: null,
+          calibratedAt: inPeriod,
+        },
+        select: { assetId: true, calibratedAt: true },
+      }),
+      this.prisma.safetyTestRecord.findMany({
+        where: {
+          asset: inService,
+          workOrderId: null,
+          supersededBy: null,
+          testedAt: inPeriod,
+        },
+        select: { assetId: true, testedAt: true },
+      }),
+    ]);
+    const done = new Map<string, Date[]>();
+    const add = (assetId: string, kind: string, at: Date | null) => {
+      if (!at) return;
+      const key = `${assetId}:${kind}`;
+      done.set(key, [...(done.get(key) ?? []), at]);
+    };
+    for (const o of orders) add(o.assetId, o.workOrderType, o.completedAt);
+    for (const c of calibrations) add(c.assetId, 'CALIBRATION', c.calibratedAt);
+    for (const t of tests) add(t.assetId, 'ELECTRICAL_SAFETY_TEST', t.testedAt);
+
+    let unscheduled = 0;
+    const rows: RegisterRow[] = [];
+    for (const a of assets) {
+      const schedules: PlanSchedule[] = [
+        {
+          kind: 'PM',
+          every: a.pmFrequencyDays ?? DEFAULT_PM_INTERVAL_DAYS,
+          next: a.nextPmDueDate,
+          done: done.get(`${a.id}:PREVENTIVE_MAINTENANCE`) ?? [],
+        },
+        {
+          kind: 'Calibration',
+          every:
+            a.calibrationFrequencyDays ?? DEFAULT_CALIBRATION_INTERVAL_DAYS,
+          next: a.requiresCalibration ? a.nextCalibrationDue : null,
+          done: done.get(`${a.id}:CALIBRATION`) ?? [],
+        },
+        {
+          kind: 'Safety test',
+          every: a.safetyTestFrequencyDays ?? DEFAULT_SAFETY_TEST_INTERVAL_DAYS,
+          next: a.requiresSafetyTest ? a.nextSafetyInspectionDue : null,
+          done: done.get(`${a.id}:ELECTRICAL_SAFETY_TEST`) ?? [],
+        },
+      ];
+      if (schedules.every((x) => !x.next && x.done.length === 0)) {
+        unscheduled++;
+        continue;
+      }
+      const label = {
+        PM: 'PM',
+        Calibration: 'calibration',
+        'Safety test': 'safety test',
+      };
+      rows.push({
+        device: deviceCell(a),
+        location: describeLocation(a),
+        schedule:
+          schedules
+            .filter((x) => x.next)
+            .map((x) => `${label[x.kind]} ${everyText(x.every!)}`)
+            .join('; ') || null,
+        ...planCells(schedules, months, now),
+      });
+    }
+    return {
+      title: 'Annual Maintenance Plan',
+      basis:
+        'NABH FMS.5.c (documented maintenance plan, implemented); NHSRC guidelines (PM and calibration schedule)',
+      columns: [
+        { key: 'device', label: 'Equipment' },
+        { key: 'location', label: 'Location' },
+        { key: 'schedule', label: 'Schedule' },
+        ...months.map((m) => ({ key: m.key, label: m.label })),
+      ],
+      rows,
+      notes: [
+        'PM 15: due on the 15th. PM done 12: done on the 12th. Overdue: past its due date and not done yet, shown in the current month.',
+        'Cal: calibration. EST: electrical safety test (IS/IEC 62353). Later dates follow each device’s interval from its next due date; work done early or late moves them.',
+        ...(unscheduled
+          ? [
+              `${unscheduled} ${unscheduled === 1 ? 'device' : 'devices'} in service ${unscheduled === 1 ? 'has' : 'have'} no PM, calibration or safety test due and ${unscheduled === 1 ? 'is' : 'are'} not listed.`,
+            ]
+          : []),
+      ],
     };
   }
 

@@ -24,6 +24,8 @@ export interface Register {
   period: { from: string; to: string } | null;
   /** The device, for a logbook. */
   device: string | null;
+  /** About the device, printed above the table (history card). */
+  details?: Array<{ label: string; value: string | null }>;
   generatedAt: string;
   columns: RegisterColumn[];
   rows: RegisterRow[];

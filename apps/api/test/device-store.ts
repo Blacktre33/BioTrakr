@@ -57,6 +57,11 @@ function test(value: any, cond: Rec): boolean {
   if (cond.notIn && cond.notIn.some((c: unknown) => same(value, c)))
     return false;
   if (
+    cond.startsWith !== undefined &&
+    !(typeof value === 'string' && value.startsWith(cond.startsWith))
+  )
+    return false;
+  if (
     'not' in cond &&
     (cond.not === null ? value == null : same(value, cond.not))
   )
@@ -223,6 +228,7 @@ export function buildStore() {
       }
       if (k === 'AND') return (v as Rec[]).every((w) => matches(row, w));
       if (k === 'OR') return (v as Rec[]).some((w) => matches(row, w));
+      if (k === 'NOT') return !matches(row, v);
       if (relations[k] && isCond(v)) return relations[k](row, v);
       if (!isCond(v)) return v === null ? row[k] == null : same(row[k], v);
       return test(row[k], v);
@@ -238,6 +244,10 @@ export function buildStore() {
             row.currentFacilityId === FAC_2 ? 'North Clinic' : 'City General',
         };
       if (key === 'currentRoom') return null;
+      if (key === 'vendor') {
+        const v = vendors.find((x) => x.id === row.vendorId);
+        return v ? project(v, args.select, 'vendor') : null;
+      }
       if (key === 'custodianDepartment')
         return { departmentName: row.departmentName ?? 'ICU' };
       if (key === 'maintenanceHistory')
@@ -320,6 +330,10 @@ export function buildStore() {
         const w = withdrawals.find((x) => x.documentId === row.id);
         return w ? project(w, args.select, 'withdrawal') : null;
       }
+    }
+    if (of === 'change' && key === 'changedBy') {
+      const u = users.find((x) => x.id === row.changedById);
+      return u ? project(u, args.select, 'user') : null;
     }
     if (of === 'condemnation') {
       if (key === 'asset')
@@ -538,6 +552,7 @@ export function buildStore() {
       ),
     },
     assetStatusChange: {
+      ...finder(statusChanges, 'change'),
       create: jest.fn(async ({ data }: Rec) => {
         const row = {
           id: `change-${statusChanges.length + 1}`,

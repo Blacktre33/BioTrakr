@@ -21,18 +21,36 @@ const yearAgo = () => {
   d.setDate(d.getDate() + 1);
   return toDay(d);
 };
+/** A plan looks ahead: from the start of this month for twelve months. */
+const yearAhead = () => {
+  const d = new Date();
+  return { from: toDay(new Date(d.getFullYear(), d.getMonth(), 1)), to: toDay(new Date(d.getFullYear(), d.getMonth() + 12, 0)) };
+};
+const lookingBack = () => ({ from: yearAgo(), to: toDay(new Date()) });
 
 /** Choose a register and its period, then print it or take it to Excel. */
 export function RegistersPage() {
-  // A notice can link straight to one register: /registers?kind=audit
-  const linked = useSearchParams().get("kind");
+  // A notice or a device page can link straight to one register:
+  // /registers?kind=audit, /registers?kind=history&assetId=…&tag=…&name=…
+  const params = useSearchParams();
+  const linked = params.get("kind");
   const [kind, setKind] = useState<RegisterKind>(
     () => REGISTERS.find((r) => r.kind === linked)?.kind ?? "inventory",
   );
   const [facilityId, setFacilityId] = useState("");
-  const [from, setFrom] = useState(yearAgo);
-  const [to, setTo] = useState(() => toDay(new Date()));
-  const [device, setDevice] = useState<PickedDevice[]>([]);
+  const [period, setPeriod] = useState(() => (kind === "planner" ? yearAhead() : lookingBack()));
+  const { from, to } = period;
+  const setFrom = (value: string) => setPeriod({ ...period, from: value });
+  const setTo = (value: string) => setPeriod({ ...period, to: value });
+  const [device, setDevice] = useState<PickedDevice[]>(() => {
+    const id = params.get("assetId");
+    return id ? [{ id, assetTagNumber: params.get("tag") ?? "", equipmentName: params.get("name") ?? "" }] : [];
+  });
+  const choose = (next: RegisterKind) => {
+    // The plan looks ahead and the other registers back.
+    if ((next === "planner") !== (kind === "planner")) setPeriod(next === "planner" ? yearAhead() : lookingBack());
+    setKind(next);
+  };
   const reference = useAssetFormReference();
   const facilities = reference.data?.facilities ?? [];
 
@@ -71,7 +89,7 @@ export function RegistersPage() {
             <select
               id="register-kind"
               value={kind}
-              onChange={(e) => setKind(e.target.value as RegisterKind)}
+              onChange={(e) => choose(e.target.value as RegisterKind)}
               className={SELECT_CLASS}
             >
               {(["NHSRC formats", "NABH registers"] as const).map((group) => (
@@ -142,7 +160,9 @@ export function RegistersPage() {
       </section>
 
       {!ready && info.device ? (
-        <p className="text-sm text-gray-400 print:hidden">Choose the device whose logbook you want.</p>
+        <p className="text-sm text-gray-400 print:hidden">
+          Choose the device whose {kind === "history" ? "history card" : "logbook"} you want.
+        </p>
       ) : !ready ? null : register.isPending ? (
         <Skeleton className="h-64 w-full" />
       ) : register.isError ? (
