@@ -1,6 +1,7 @@
 import type { BreakdownClock } from "../downtime";
 import type { AppliedPartType, ElectricalClass } from "../iec62353";
 import type { CalibrationInput } from "./calibration";
+import type { PmChecklistInput, PmOutcome } from "./checklists";
 import { api } from "./client";
 import type { SafetyTestInput } from "./safety-tests";
 
@@ -55,6 +56,8 @@ export interface WorkOrderUpdate {
   calibration?: CalibrationInput;
   /** Required to complete an electrical safety test work order. */
   safetyTest?: SafetyTestInput;
+  /** Required to complete a preventive maintenance work order. */
+  checklist?: PmChecklistInput;
 }
 
 export async function reportProblem(body: {
@@ -85,6 +88,8 @@ export async function updateWorkOrder(
     deviceReleased: boolean;
     /** The calibration or safety test recorded on completion. */
     record: { type: "calibration" | "safetyTest"; id: string } | null;
+    /** The PM checklist's outcome, when one was recorded. */
+    pmOutcome?: PmOutcome | null;
   }
 > {
   const { data } = await api.patch(`/work-orders/${id}`, body);

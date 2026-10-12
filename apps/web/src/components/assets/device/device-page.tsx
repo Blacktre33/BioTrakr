@@ -9,6 +9,7 @@ import { EditHistorySection } from "@/components/audit/edit-history-section";
 import { CalibrationSection } from "@/components/calibration/calibration-section";
 import { ServiceCoverSection } from "@/components/contracts/service-cover-section";
 import { DocumentsSection } from "@/components/documents/documents-section";
+import { PmRecordsSection } from "@/components/pm/pm-records-section";
 import { SafetyTestSection } from "@/components/safety-tests/safety-test-section";
 import { AssetBedsideCard } from "@/components/scan/asset-bedside-card";
 import { Button, Skeleton } from "@/components/ui";
@@ -129,6 +130,8 @@ export function DevicePage({ assetId }: { assetId: string }) {
           />
 
           <SafetyTestSection assetId={assetId} device={device} canRecord={canChangeStatus} />
+
+          {(canChangeStatus || role === "viewer") && <PmRecordsSection assetId={assetId} />}
 
           {canChangeStatus && <ServiceCoverSection device={device} canEdit={canEdit} />}
 

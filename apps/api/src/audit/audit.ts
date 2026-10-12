@@ -36,7 +36,9 @@ export type AuditEntity =
   | 'building'
   | 'floor'
   | 'room'
-  | 'user';
+  | 'user'
+  | 'checklist'
+  | 'pm_checklist';
 
 /** One field, as it reads on screen before and after. */
 export interface Change {

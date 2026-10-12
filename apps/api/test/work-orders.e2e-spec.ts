@@ -5,8 +5,16 @@ import {
   NotificationJobsService,
   signWebhook,
 } from '../src/notifications/notification-jobs.service';
+import { GENERAL_CHECKLIST } from '../src/pm/checklists';
 import { bearer, createTestApp, ORG_A } from './helpers';
 import { auditStore } from './audit-store';
+
+/** The general PM checklist with every item passed. */
+const passedChecklist = {
+  checklistKey: GENERAL_CHECKLIST.key,
+  testEquipment: 'Fluke ESA615, calibrated 2026-03',
+  items: GENERAL_CHECKLIST.items.map((i) => ({ key: i.key, result: 'PASS' })),
+};
 
 const VENT = '11111111-1111-4111-8111-111111111111';
 const PUMP = '22222222-2222-4222-8222-222222222222';
@@ -307,6 +315,15 @@ function buildPrisma() {
     // Savepoints around notices (see bestEffort).
     $executeRawUnsafe: jest.fn(async () => 0),
     auditEvent: auditStore(),
+    // What each PM found.
+    pmRecords: [] as Rec[],
+    pmChecklistRecord: {
+      create: jest.fn(async ({ data }: { data: Rec }) => {
+        const row = { id: `pm-${mock.pmRecords.length + 1}`, ...data };
+        mock.pmRecords.push(row);
+        return row;
+      }),
+    },
     $transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
       fn(mock),
     ),
@@ -585,11 +602,28 @@ describe('Problem reports and work orders (e2e)', () => {
       assignedTechnicianId: 'user-technician',
       startedAt: null,
     });
-    await update(WO_PM, {
+    // The checklist is part of the PM.
+    const without = await update(WO_PM, {
       expectedStatus: 'ASSIGNED',
       status: 'COMPLETED',
       workPerformed: 'Annual PM per checklist',
+    }).expect(400);
+    expect(without.body.message).toBe(
+      'Fill in the PM checklist to complete a preventive maintenance work order',
+    );
+    const done = await update(WO_PM, {
+      expectedStatus: 'ASSIGNED',
+      status: 'COMPLETED',
+      workPerformed: 'Annual PM per checklist',
+      checklist: passedChecklist,
     }).expect(200);
+    expect(done.body.pmOutcome).toBe('PASS');
+    expect(prisma.pmRecords[0]).toMatchObject({
+      workOrderId: WO_PM,
+      checklistName: 'General electrical equipment',
+      outcome: 'PASS',
+      testEquipment: 'Fluke ESA615, calibrated 2026-03',
+    });
 
     const vent = prisma.assets[0];
     expect(vent.lastPmDate).toBeInstanceOf(Date);
@@ -621,6 +655,7 @@ describe('Problem reports and work orders (e2e)', () => {
       expectedStatus: 'PENDING',
       status: 'COMPLETED',
       workPerformed: 'PM per checklist',
+      checklist: passedChecklist,
     }).expect(200);
     expect(prisma.assets[0].lastPmDate).toBeInstanceOf(Date);
     expect(prisma.notifications).toEqual([]);

@@ -22,7 +22,8 @@ export type NotificationKind =
   | 'contract_expiring'
   | 'warranty_expiring'
   | 'audit_chain_broken'
-  | 'downtime_limit';
+  | 'downtime_limit'
+  | 'pm_failed';
 
 /** Settings, read when used so tests and restarts pick up changes. */
 export function notificationConfig() {

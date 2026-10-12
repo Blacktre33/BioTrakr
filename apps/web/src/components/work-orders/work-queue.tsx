@@ -13,6 +13,14 @@ import {
   toCalibrationInput,
 } from "@/components/calibration/calibration-fields";
 import { Attachments } from "@/components/documents/attachments";
+import {
+  ChecklistFields,
+  checklistInvalid,
+  checklistOutcome,
+  emptyChecklist,
+  toChecklistInput,
+  type ChecklistValues,
+} from "@/components/pm/checklist-fields";
 import { ERROR_BORDER, Field, SELECT_CLASS, describedBy } from "@/components/forms/form-field";
 import {
   SafetyTestFields,
@@ -37,6 +45,7 @@ import { ACCEPTED_TYPES, fileProblem } from "@/lib/api/documents";
 import type { WorkOrder, WorkOrderStatus, WorkOrderUpdate, WorkOrderView } from "@/lib/api/work-orders";
 import { getSession } from "@/lib/auth/session";
 import { clockText } from "@/lib/downtime";
+import { useChecklists } from "@/lib/hooks/use-checklists";
 import { useUploadDocument } from "@/lib/hooks/use-documents";
 import { useTechnicians, useUpdateWorkOrderMutation, useWorkOrders } from "@/lib/hooks/use-work-orders";
 import { cn, formatDate, formatRelativeTime } from "@/lib/utils";
@@ -110,14 +119,26 @@ function CloseDialog({
   const [safetyTest, setSafetyTest] = useState(() => emptySafetyTest(order.asset));
   const safetyTestInvalid = testing && Object.keys(safetyTestErrors(safetyTest)).length > 0;
   const failedSafetyTest = testing && expectedResult(safetyTest)?.passed === false;
-  const recording = calibrating || testing;
+  // And preventive maintenance its checklist.
+  const maintaining = mode === "complete" && order.workOrderType === "PREVENTIVE_MAINTENANCE";
+  const checklists = useChecklists(order.asset.id, maintaining);
+  const [chosen, setChosen] = useState<ChecklistValues | null>(null);
+  const pm = chosen ?? emptyChecklist(checklists.data?.suggested ?? "");
+  const pmChecklist = checklists.data?.checklists.find((c) => c.key === pm.checklistKey && c.active);
+  const checklistIncomplete = maintaining && checklistInvalid(pmChecklist, pm);
+  const failedPm = maintaining && checklistOutcome(pmChecklist, pm) === "FAIL";
+  const recording = calibrating || testing || maintaining;
   // The certificate or test report, attached to the record once it is saved.
   const [file, setFile] = useState<File | null>(null);
   const fileId = useId();
   const upload = useUploadDocument();
   const fileError = file ? (fileProblem(file) ?? undefined) : undefined;
   const canRelease =
-    mode === "complete" && RELEASABLE.includes(order.asset.assetStatus) && !failedCalibration && !failedSafetyTest;
+    mode === "complete" &&
+    RELEASABLE.includes(order.asset.assetStatus) &&
+    !failedCalibration &&
+    !failedSafetyTest &&
+    !failedPm;
 
   const noteError = submitted && note.trim().length < 5 ? (mode === "complete" ? "Say what was done" : "Say why") : undefined;
   const safeError = submitted && release && !confirmSafe ? "Confirm the device is safe before releasing it" : undefined;
@@ -126,7 +147,14 @@ function CloseDialog({
     e.preventDefault();
     setSubmitted(true);
     setServerError(undefined);
-    if (note.trim().length < 5 || (release && !confirmSafe) || calibrationInvalid || safetyTestInvalid || fileError) {
+    if (
+      note.trim().length < 5 ||
+      (release && !confirmSafe) ||
+      calibrationInvalid ||
+      safetyTestInvalid ||
+      checklistIncomplete ||
+      fileError
+    ) {
       return;
     }
     try {
@@ -140,6 +168,7 @@ function CloseDialog({
           ...(release && canRelease ? { releaseDevice: true, confirmSafe: true } : {}),
           ...(calibrating ? { calibration: toCalibrationInput(calibration) } : {}),
           ...(testing ? { safetyTest: toSafetyTestInput(safetyTest) } : {}),
+          ...(maintaining && pmChecklist ? { checklist: toChecklistInput(pm, pmChecklist) } : {}),
         },
       });
       toast.success(
@@ -151,7 +180,11 @@ function CloseDialog({
               ? `Calibration recorded as failed. ${order.asset.equipmentName} is out of use.`
               : failedSafetyTest
                 ? `Safety test recorded as failed. ${order.asset.equipmentName} is out of use.`
-                : "Work order completed",
+                : result.pmOutcome === "FAIL"
+                  ? `PM recorded as failed. ${order.asset.equipmentName} is out of use and a repair has been opened.`
+                  : result.pmOutcome === "FLAG"
+                    ? "PM completed; the flagged items are on record"
+                    : "Work order completed",
       );
       if (file && result.record) {
         // The record is saved either way; a failed upload can be retried from the device page.
@@ -184,7 +217,9 @@ function CloseDialog({
               ? "Record calibration"
               : testing
                 ? "Record electrical safety test"
-                : mode === "complete"
+                : maintaining
+                  ? "Complete preventive maintenance"
+                  : mode === "complete"
                   ? "Complete work order"
                   : "Cancel work order"}
           </DialogTitle>
@@ -206,7 +241,23 @@ function CloseDialog({
           </Field>
           {calibrating && <CalibrationFields values={calibration} onChange={setCalibration} showErrors={submitted} idPrefix="wo-cal" />}
           {testing && <SafetyTestFields values={safetyTest} onChange={setSafetyTest} showErrors={submitted} idPrefix="wo-est" />}
-          {recording && (
+          {maintaining &&
+            (checklists.isPending ? (
+              <p className="text-sm text-gray-400">Loading the checklist…</p>
+            ) : checklists.isError ? (
+              <p role="alert" className="text-sm text-critical-500">
+                Couldn&apos;t load the checklists: {checklists.error.message}
+              </p>
+            ) : (
+              <ChecklistFields
+                checklists={checklists.data.checklists}
+                values={pm}
+                onChange={setChosen}
+                showErrors={submitted}
+                idPrefix="wo-pm"
+              />
+            ))}
+          {(calibrating || testing) && (
             <div className="space-y-1">
               <label htmlFor={fileId} className="text-sm font-medium text-gray-200">
                 {calibrating ? "Certificate" : "Test report"} (optional: PDF, JPEG or PNG, up to 10 MB)

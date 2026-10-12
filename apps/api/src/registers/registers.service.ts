@@ -47,6 +47,26 @@ const BREAKDOWNS = ['CORRECTIVE_MAINTENANCE', 'EMERGENCY_REPAIR'] as const;
 
 const yesNo = (n: number) => (n > 0 ? 'Yes' : 'No');
 
+/** A PM checklist's result in a few words: "Pass", "Pass, 1 flagged: …", "Failed: …". */
+function checklistResult(
+  c: { outcome: string; items: Prisma.JsonValue } | null | undefined,
+): string | null {
+  if (!c) return null;
+  const items = c.items as Array<{
+    text: string;
+    result: string;
+    note: string | null;
+  }>;
+  const list = (result: string) =>
+    items
+      .filter((i) => i.result === result)
+      .map((i) => (i.note ? `${i.text} (${i.note})` : i.text))
+      .join('; ');
+  if (c.outcome === 'FAIL') return `Failed: ${list('FAIL')}`;
+  const flagged = items.filter((i) => i.result === 'FLAG').length;
+  return flagged ? `Pass, ${flagged} flagged: ${list('FLAG')}` : 'Pass';
+}
+
 /** "2026-04-01" is that day here, not midnight UTC. */
 function localDay(value: string): Date {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
@@ -365,6 +385,7 @@ export class RegistersService {
             where: { supersededBy: null },
             select: { passed: true },
           },
+          pmChecklist: { select: { outcome: true, items: true } },
         },
       }),
       // Recorded without a work order (e.g. an existing certificate).
@@ -431,11 +452,14 @@ export class RegistersService {
       } else {
         const [cal] = o.calibrationRecords;
         const [test] = o.safetyTestRecords;
+        const pm = checklistResult(o.pmChecklist);
         const result = cal
           ? `, ${cal.result.toLowerCase()}`
           : test
             ? `, ${test.passed ? 'passed' : 'failed'}`
-            : '';
+            : pm
+              ? `, ${pm.split(':')[0].toLowerCase()}`
+              : '';
         entries.push({
           at: o.completedAt ?? o.createdAt,
           row: {
@@ -448,6 +472,7 @@ export class RegistersService {
                 cal?.certificateNumber
                   ? `certificate ${cal.certificateNumber}`
                   : null,
+                pm && pm !== 'Pass' ? pm : null,
               ]
                 .filter(Boolean)
                 .join(', ') || null,
@@ -694,6 +719,14 @@ export class RegistersService {
         workOrderStatus: true,
         workPerformed: true,
         assignedTechnician: { select: { firstName: true, lastName: true } },
+        pmChecklist: {
+          select: {
+            outcome: true,
+            items: true,
+            checklistName: true,
+            testEquipment: true,
+          },
+        },
         asset: {
           select: {
             assetTagNumber: true,
@@ -724,6 +757,8 @@ export class RegistersService {
         { key: 'done', label: 'Done on' },
         { key: 'by', label: 'Done by' },
         { key: 'remarks', label: 'Work done' },
+        { key: 'checklist', label: 'Checklist result' },
+        { key: 'equipment', label: 'Test equipment' },
         { key: 'status', label: 'Status' },
       ],
       rows: orders.map((o) => ({
@@ -733,9 +768,15 @@ export class RegistersService {
         done: day(o.completedAt),
         by: o.completedAt ? name(o.assignedTechnician) : null,
         remarks: o.workPerformed,
+        checklist: o.pmChecklist
+          ? `${checklistResult(o.pmChecklist)} (${o.pmChecklist.checklistName})`
+          : null,
+        equipment: o.pmChecklist?.testEquipment ?? null,
         status: status(o),
       })),
-      notes: [],
+      notes: [
+        'Checklist result: each item passed, flagged (needs attention, still usable) or failed (taken out of use and a repair opened).',
+      ],
     };
   }
 

@@ -26,6 +26,8 @@ export const AUDIT_ENTITIES = [
   'floor',
   'room',
   'user',
+  'checklist',
+  'pm_checklist',
 ] as const;
 
 export class ListAuditQuery {

@@ -249,6 +249,7 @@ model Organization {
   serviceContracts ServiceContract[]
   documents        Document[]
   auditEvents      AuditEvent[]
+  pmChecklists     PmChecklistTemplate[]
 
   @@map("organizations")
 }
@@ -448,6 +449,7 @@ model User {
   documentsUploaded         Document[]          @relation("DocumentUploadedBy")
   documentsWithdrawn        DocumentWithdrawal[] @relation("DocumentWithdrawnBy")
   auditEvents               AuditEvent[]        @relation("AuditActor")
+  pmChecklistRecords        PmChecklistRecord[] @relation("PmChecklistRecordedBy")
   authSessions              AuthSession[]
   notifications             Notification[]
 
@@ -742,6 +744,7 @@ model Asset {
   serviceContracts                ServiceContractAsset[]
   documents                       Document[]
   auditEvents                     AuditEvent[]
+  pmChecklistRecords              PmChecklistRecord[]
   telemetry                       AssetTelemetry[]
   maintenanceEvents               MaintenanceEvent[]
   errorEvents                     ErrorEvent[]
@@ -1062,6 +1065,7 @@ model MaintenanceHistory {
   calibrationRecords      CalibrationRecord[]
   safetyTestRecords       SafetyTestRecord[]
   documents               Document[]
+  pmChecklist             PmChecklistRecord?
 
   @@unique([assetId, workOrderType, dueDate])
   @@map("maintenance_history")
@@ -1702,4 +1706,61 @@ model AuditEvent {
   @@index([organizationId, entityType, entityId])
   @@index([assetId, occurredAt(sort: Desc)])
   @@map("audit_events")
+}
+
+// =====================================================
+// PREVENTIVE MAINTENANCE CHECKLISTS
+// =====================================================
+
+/// A preventive maintenance checklist's overall result: its worst item.
+enum PmOutcome {
+  PASS
+  FLAG
+  FAIL
+}
+
+/// A checklist a hospital wrote, or copied from a built-in one to fit its
+/// own equipment. Retired rather than deleted; records keep the items as
+/// they were answered, so editing one never changes past PMs.
+model PmChecklistTemplate {
+  id             String   @id @default(uuid())
+  organizationId String
+  name           String   @db.VarChar(120)
+  /// Words in a device's name that pick this checklist.
+  keywords       String[]
+  /// [{ key, text, kind: check | reading, unit, min, max }]
+  items          Json
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, name])
+  @@map("pm_checklist_templates")
+}
+
+/// What a preventive maintenance found, item by item, kept with the work
+/// order it completed. Never edited or deleted (a database trigger refuses).
+model PmChecklistRecord {
+  id            String     @id @default(uuid())
+  workOrderId   String     @unique
+  assetId       String
+  /// "builtin:…" or a hospital checklist's id.
+  checklistKey  String     @db.VarChar(64)
+  checklistName String     @db.VarChar(120)
+  /// Each item as answered, with its text and limits at the time.
+  items         Json
+  outcome       PmOutcome
+  /// Analysers and instruments used, with their own calibration.
+  testEquipment String?    @db.VarChar(500)
+  recordedById  String
+  recordedAt    DateTime   @default(now())
+
+  workOrder     MaintenanceHistory @relation(fields: [workOrderId], references: [id], onDelete: Restrict)
+  asset         Asset              @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  recordedBy    User               @relation("PmChecklistRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+
+  @@index([assetId, recordedAt(sort: Desc)])
+  @@map("pm_checklist_records")
 }

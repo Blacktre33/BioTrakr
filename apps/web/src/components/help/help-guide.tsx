@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   ArrowRight,
   CalendarClock,
+  ClipboardCheck,
   ClipboardList,
   ExternalLink,
   FileText,
@@ -56,6 +57,12 @@ const tasks: Task[] = [
     href: '/maintenance/schedule',
     icon: CalendarClock,
     body: 'For biomed: preventive maintenance that is due, done and overdue.',
+  },
+  {
+    title: 'PM checklists',
+    href: '/maintenance',
+    icon: ClipboardCheck,
+    body: 'For biomed: completing a PM opens the checklist for that kind of device. Mark each item pass, flag or fail and enter the readings; a reading outside its limits fails by itself, and a failed item takes the device out of use and opens a repair. Engineers can copy a built-in checklist and change it in Settings → PM checklists.',
   },
   {
     title: 'Calibration and safety tests',
