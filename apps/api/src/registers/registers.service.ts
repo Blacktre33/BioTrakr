@@ -9,6 +9,12 @@ import { describeLocation, LOCATION_SELECT } from '../assets/location';
 import type { Change } from '../audit/audit';
 import { AuditService } from '../audit/audit.service';
 import type { AuthUser } from '../auth/auth-user';
+import {
+  DISPOSAL_LABEL,
+  reasonsText,
+  repairShare,
+  type CondemnationEvidence,
+} from '../condemnation/condemnation';
 import { contractStatus } from '../contracts/contract-status';
 import { PrismaService } from '../database/prisma.service';
 import { documentCounts } from '../documents/documents.service';
@@ -184,6 +190,8 @@ export class RegistersService {
         return this.contracts(s);
       case 'uptime':
         return this.uptime(s);
+      case 'condemnation':
+        return this.condemnation(s);
       case 'audit':
         return this.auditTrail(s);
     }
@@ -968,6 +976,123 @@ export class RegistersService {
   }
 
   /**
+   * The condemnation file (NABH FMS.5.f): every proposal proposed, decided,
+   * withdrawn or disposed of in the period, with the device's record and
+   * the committee's decision.
+   */
+  private async condemnation(s: Scope): Promise<Body> {
+    const inPeriod = { gte: s.from, lte: s.to };
+    const rows = await this.prisma.condemnation.findMany({
+      where: {
+        organizationId: s.organizationId,
+        asset: this.devices(s),
+        OR: [
+          { proposedAt: inPeriod },
+          { decidedAt: inPeriod },
+          { withdrawnAt: inPeriod },
+          { disposedAt: inPeriod },
+        ],
+      },
+      orderBy: [{ proposedAt: 'asc' }, { id: 'asc' }],
+      take: MAX_ROWS + 1,
+      select: {
+        id: true,
+        status: true,
+        reasons: true,
+        repairEstimate: true,
+        currentValue: true,
+        evidence: true,
+        proposedAt: true,
+        proposedBy: { select: { firstName: true, lastName: true } },
+        decidedAt: true,
+        committee: true,
+        decisionNote: true,
+        withdrawnAt: true,
+        withdrawnBy: { select: { firstName: true, lastName: true } },
+        withdrawalReason: true,
+        disposedAt: true,
+        disposalMethod: true,
+        disposalNote: true,
+        clearance: true,
+        asset: {
+          select: {
+            assetTagNumber: true,
+            equipmentName: true,
+            purchaseDate: true,
+            ...LOCATION_SELECT,
+          },
+        },
+      },
+    });
+    const files = await this.fileCounts(
+      'condemnationId',
+      rows.map((r) => r.id),
+    );
+    const decision = (r: (typeof rows)[number]) => {
+      const decided = r.decidedAt
+        ? `${r.status === 'REJECTED' ? 'Not approved' : 'Approved'} ${day(r.decidedAt)}, ${r.committee}${r.decisionNote ? `: ${r.decisionNote}` : ''}`
+        : null;
+      if (r.status === 'PROPOSED') return 'Waiting for the committee';
+      if (r.status === 'WITHDRAWN') {
+        const withdrawn = `Withdrawn ${day(r.withdrawnAt)} (${name(r.withdrawnBy)}): ${r.withdrawalReason}`;
+        return decided ? `${decided}; ${withdrawn}` : withdrawn;
+      }
+      return decided;
+    };
+    return {
+      title: 'Condemnation Register',
+      basis:
+        'NABH FMS.5.f; NHSRC guidelines (condemnation board, AERB and PC-PNDT clearances)',
+      columns: [
+        { key: 'device', label: 'Equipment' },
+        { key: 'location', label: 'Location' },
+        { key: 'purchased', label: 'Purchased (cost)' },
+        { key: 'age', label: 'Age / useful life' },
+        { key: 'reasons', label: 'Reasons' },
+        { key: 'history', label: 'Breakdowns in the year before' },
+        { key: 'repair', label: 'Repair estimate', align: 'right' },
+        { key: 'value', label: 'Value', align: 'right' },
+        { key: 'proposed', label: 'Proposed (by)' },
+        { key: 'decision', label: "Committee's decision" },
+        { key: 'disposal', label: 'Disposal' },
+        { key: 'file', label: 'Papers on file' },
+      ],
+      rows: rows.map((r) => {
+        const e = r.evidence as unknown as CondemnationEvidence;
+        const repair = num(r.repairEstimate);
+        const value = num(r.currentValue);
+        const share = repairShare(repair, value ?? e.bookValue);
+        return {
+          device: deviceCell(r.asset),
+          location: describeLocation(r.asset),
+          purchased: `${day(r.asset.purchaseDate)} (${rupees(e.purchaseCost)})`,
+          age: `${e.ageYears} / ${e.usefulLifeYears} years`,
+          reasons: reasonsText(r.reasons),
+          history: `${e.breakdowns}, ${hoursText(e.downtimeHours)} out of use`,
+          repair:
+            repair === null
+              ? null
+              : `${rupees(repair)}${share === null ? '' : ` (${share}% of value)`}`,
+          value:
+            value === null ? `${rupees(e.bookValue)} (book)` : rupees(value),
+          proposed: `${day(r.proposedAt)} (${name(r.proposedBy)})`,
+          decision: decision(r),
+          disposal:
+            r.status === 'DISPOSED' && r.disposalMethod
+              ? `${DISPOSAL_LABEL[r.disposalMethod]}, ${day(r.disposedAt)}: ${r.disposalNote}${r.clearance ? `. Clearance: ${r.clearance}` : ''}`
+              : null,
+          file: yesNo(files.get(r.id) ?? 0),
+        };
+      }),
+      notes: [
+        'A device is condemned only once the committee approves it; an administrator who did not propose it records the decision.',
+        'Value: what the proposer gave, or the straight-line book value on the day it was proposed (book).',
+        "An X-ray or other radiation unit leaves only with AERB's decommissioning approval, and an ultrasound machine is sold or transferred only with a PC-PNDT NOC.",
+      ],
+    };
+  }
+
+  /**
    * NABH FMS.5 and the NHSRC guidelines: how much of the period each
    * device was in use, with its breakdowns; worst first.
    */
@@ -1090,7 +1215,11 @@ export class RegistersService {
   }
 
   private fileCounts(
-    field: 'calibrationRecordId' | 'safetyTestRecordId' | 'contractId',
+    field:
+      | 'calibrationRecordId'
+      | 'safetyTestRecordId'
+      | 'contractId'
+      | 'condemnationId',
     ids: string[],
   ) {
     return documentCounts(this.prisma, field, ids);

@@ -21,6 +21,7 @@ import { ContractsModule } from './contracts/contracts.module';
 import { DocumentsModule } from './documents/documents.module';
 import { RegistersModule } from './registers/registers.module';
 import { AuditModule } from './audit/audit.module';
+import { CondemnationModule } from './condemnation/condemnation.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { requestIdMiddleware } from './common/request-id';
 import { AppController } from './app.controller';
@@ -46,6 +47,7 @@ import { AppService } from './app.service';
     DocumentsModule,
     RegistersModule,
     AuditModule,
+    CondemnationModule,
   ],
   controllers: [AppController],
   providers: [

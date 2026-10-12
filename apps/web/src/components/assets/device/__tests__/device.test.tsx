@@ -56,6 +56,27 @@ describe("ChangeStatusDialog", () => {
     });
   });
 
+  it("leaves condemnation and disposal to the condemnation file", () => {
+    render(
+      <ChangeStatusDialog
+        open
+        onOpenChange={jest.fn()}
+        assetId="a1"
+        equipmentName="ICU ventilator"
+        currentStatus="ACTIVE"
+        statusOptions={[
+          ...statusOptions,
+          { value: "CONDEMNED", label: "Condemned" },
+          { value: "DISPOSED", label: "Disposed" },
+        ]}
+      />,
+    );
+    const options = screen.getAllByRole("option").map((o) => o.textContent);
+    expect(options).not.toContain("Condemned");
+    expect(options).not.toContain("Disposed");
+    expect(screen.getByText(/To condemn it, propose it for condemnation on this page/)).toBeInTheDocument();
+  });
+
   it("does not ask for the safety confirmation when taking a device out of use", async () => {
     const user = userEvent.setup();
     renderDialog("ACTIVE");

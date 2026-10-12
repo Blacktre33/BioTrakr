@@ -20,6 +20,8 @@ import { cn } from "@/lib/utils";
 
 /** Must match the API's STOP_STATUSES (asset-status.service.ts). */
 export const STOP_STATUSES = ["QUARANTINED", "IN_MAINTENANCE", "CONDEMNED", "RETIRED", "DISPOSED"];
+/** Reached only through a condemnation, with the committee's approval (the API refuses them here). */
+const CONDEMNATION_STATUSES = ["CONDEMNED", "DISPOSED"];
 
 interface ChangeStatusDialogProps {
   open: boolean;
@@ -102,7 +104,7 @@ export function ChangeStatusDialog({
           <DialogTitle>Change status</DialogTitle>
           <DialogDescription>
             {equipmentName} is currently <strong>{label(currentStatus)}</strong>. The change and your reason are kept in its
-            history.
+            history. To condemn it, propose it for condemnation on this page.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} noValidate className="space-y-4">
@@ -117,7 +119,7 @@ export function ChangeStatusDialog({
                 Choose
               </option>
               {statusOptions
-                .filter((o) => o.value !== currentStatus)
+                .filter((o) => o.value !== currentStatus && !CONDEMNATION_STATUSES.includes(o.value))
                 .map((o) => (
                   <option key={o.value} value={o.value}>
                     {o.hint ? `${o.label} — ${o.hint}` : o.label}

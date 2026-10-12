@@ -21,6 +21,7 @@ export const DOCUMENT_TARGETS = [
   'safetyTest',
   'contract',
   'workOrder',
+  'condemnation',
 ] as const;
 export type DocumentTarget = (typeof DOCUMENT_TARGETS)[number];
 

@@ -95,6 +95,8 @@ enum DocumentCategory {
   INSTALLATION_REPORT
   MANUAL
   INVOICE
+  /// Committee minutes, condemnation certificate, e-waste or disposal papers.
+  CONDEMNATION
   OTHER
 }
 
@@ -250,6 +252,7 @@ model Organization {
   documents        Document[]
   auditEvents      AuditEvent[]
   pmChecklists     PmChecklistTemplate[]
+  condemnations    Condemnation[]
 
   @@map("organizations")
 }
@@ -450,6 +453,10 @@ model User {
   documentsWithdrawn        DocumentWithdrawal[] @relation("DocumentWithdrawnBy")
   auditEvents               AuditEvent[]        @relation("AuditActor")
   pmChecklistRecords        PmChecklistRecord[] @relation("PmChecklistRecordedBy")
+  condemnationsProposed     Condemnation[]      @relation("CondemnationProposedBy")
+  condemnationsDecided      Condemnation[]      @relation("CondemnationDecidedBy")
+  condemnationsWithdrawn    Condemnation[]      @relation("CondemnationWithdrawnBy")
+  condemnationsDisposed     Condemnation[]      @relation("CondemnationDisposedBy")
   authSessions              AuthSession[]
   notifications             Notification[]
 
@@ -745,6 +752,7 @@ model Asset {
   documents                       Document[]
   auditEvents                     AuditEvent[]
   pmChecklistRecords              PmChecklistRecord[]
+  condemnations                   Condemnation[]
   telemetry                       AssetTelemetry[]
   maintenanceEvents               MaintenanceEvent[]
   errorEvents                     ErrorEvent[]
@@ -1232,6 +1240,7 @@ model Document {
   safetyTestRecordId  String?
   contractId          String?
   workOrderId         String?
+  condemnationId      String?
   category            DocumentCategory
   title               String              @db.VarChar(200)
   fileName            String              @db.VarChar(255)
@@ -1250,6 +1259,7 @@ model Document {
   safetyTestRecord    SafetyTestRecord?   @relation(fields: [safetyTestRecordId], references: [id], onDelete: Restrict)
   contract            ServiceContract?    @relation(fields: [contractId], references: [id], onDelete: Restrict)
   workOrder           MaintenanceHistory? @relation(fields: [workOrderId], references: [id], onDelete: Restrict)
+  condemnation        Condemnation?       @relation(fields: [condemnationId], references: [id], onDelete: Restrict)
   uploadedBy          User                @relation("DocumentUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
   withdrawal          DocumentWithdrawal?
 
@@ -1259,6 +1269,7 @@ model Document {
   @@index([safetyTestRecordId])
   @@index([contractId])
   @@index([workOrderId])
+  @@index([condemnationId])
   @@map("documents")
 }
 
@@ -1763,4 +1774,77 @@ model PmChecklistRecord {
 
   @@index([assetId, recordedAt(sort: Desc)])
   @@map("pm_checklist_records")
+}
+
+// =====================================================
+// CONDEMNATION
+// =====================================================
+
+/// Where a proposal to condemn a device stands.
+enum CondemnationStatus {
+  PROPOSED  // waiting for the committee's decision
+  APPROVED  // condemned; waiting to be disposed of
+  REJECTED
+  WITHDRAWN
+  DISPOSED
+}
+
+enum DisposalMethod {
+  E_WASTE_RECYCLER // an authorised e-waste recycler
+  BUYBACK          // returned to a vendor against a new purchase
+  AUCTION
+  TRANSFER         // to another facility or institution
+  OTHER
+}
+
+/// A proposal to condemn a device, the committee's decision and the
+/// disposal: the condemnation file. A device is condemned only once the
+/// proposal is approved (BMMP Model RFP: no BER marking without prior
+/// approval), by someone other than whoever proposed it.
+model Condemnation {
+  id               String             @id @default(uuid())
+  organizationId   String
+  assetId          String
+  status           CondemnationStatus @default(PROPOSED)
+  /// beyond_economic_repair, obsolete, no_spares, unsafe, end_of_life, damaged, other
+  reasons          String[]
+  justification    String
+  /// What a repair would cost, and what the device is worth now.
+  repairEstimate   Decimal?           @db.Decimal(12, 2)
+  currentValue     Decimal?           @db.Decimal(12, 2)
+  /// The device's record when it was proposed: age, cost, book value,
+  /// breakdowns and downtime over the last year.
+  evidence         Json
+  proposedById     String
+  proposedAt       DateTime           @default(now())
+  /// The committee's decision: the meeting, and its note.
+  decidedById      String?
+  decidedAt        DateTime?
+  committee        String?            @db.VarChar(500)
+  decisionNote     String?
+  /// Withdrawn by whoever proposed it, or reversed by an administrator.
+  withdrawnById    String?
+  withdrawnAt      DateTime?
+  withdrawalReason String?
+  disposedById     String?
+  disposedAt       DateTime?
+  disposalMethod   DisposalMethod?
+  /// Recycler or buyer, e-waste certificate number.
+  disposalNote     String?
+  /// AERB decommissioning approval (X-ray, CT…) or PC-PNDT NOC
+  /// (ultrasound): reference and date.
+  clearance        String?            @db.VarChar(500)
+  updatedAt        DateTime           @updatedAt
+
+  organization     Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  asset            Asset              @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  proposedBy       User               @relation("CondemnationProposedBy", fields: [proposedById], references: [id], onDelete: Restrict)
+  decidedBy        User?              @relation("CondemnationDecidedBy", fields: [decidedById], references: [id], onDelete: Restrict)
+  withdrawnBy      User?              @relation("CondemnationWithdrawnBy", fields: [withdrawnById], references: [id], onDelete: Restrict)
+  disposedBy       User?              @relation("CondemnationDisposedBy", fields: [disposedById], references: [id], onDelete: Restrict)
+  documents        Document[]
+
+  @@index([organizationId, status])
+  @@index([assetId])
+  @@map("condemnations")
 }

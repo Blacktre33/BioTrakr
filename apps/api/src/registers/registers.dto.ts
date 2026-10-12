@@ -12,6 +12,7 @@ export const REGISTER_KINDS = [
   'breakdown',
   'contracts',
   'uptime',
+  'condemnation',
   'audit',
 ] as const;
 export type RegisterKind = (typeof REGISTER_KINDS)[number];

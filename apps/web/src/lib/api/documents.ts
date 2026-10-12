@@ -1,6 +1,6 @@
 import { api } from "./client";
 
-export type DocumentTarget = "asset" | "calibration" | "safetyTest" | "contract" | "workOrder";
+export type DocumentTarget = "asset" | "calibration" | "safetyTest" | "contract" | "workOrder" | "condemnation";
 export type DocumentCategory =
   | "CALIBRATION_CERTIFICATE"
   | "SAFETY_TEST_REPORT"
@@ -9,6 +9,7 @@ export type DocumentCategory =
   | "INSTALLATION_REPORT"
   | "MANUAL"
   | "INVOICE"
+  | "CONDEMNATION"
   | "OTHER";
 
 export const CATEGORY_LABEL: Record<DocumentCategory, string> = {
@@ -19,6 +20,7 @@ export const CATEGORY_LABEL: Record<DocumentCategory, string> = {
   INSTALLATION_REPORT: "Installation or acceptance report",
   MANUAL: "Manual",
   INVOICE: "Invoice or purchase order",
+  CONDEMNATION: "Condemnation papers",
   OTHER: "Other",
 };
 
@@ -33,6 +35,7 @@ export interface StoredDocument {
   safetyTestRecordId: string | null;
   contractId: string | null;
   workOrderId: string | null;
+  condemnationId?: string | null;
   category: DocumentCategory;
   title: string;
   fileName: string;

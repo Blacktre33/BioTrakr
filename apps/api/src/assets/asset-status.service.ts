@@ -179,6 +179,11 @@ export class AssetStatusService {
         'Say why the status is changing (at least a few words)',
       );
     }
+    if (body.status === 'CONDEMNED' || body.status === 'DISPOSED') {
+      throw new BadRequestException(
+        "Propose the device for condemnation instead: the committee's decision and the disposal are then on file",
+      );
+    }
 
     const result = await auditedTransaction(this.prisma, async (tx) => {
       const current = await tx.asset.findFirst({
@@ -189,11 +194,29 @@ export class AssetStatusService {
         },
         select: { assetStatus: true },
       });
-      // Disposal is final; only an administrator can correct a mistake.
-      if (current?.assetStatus === 'DISPOSED' && user.role !== 'admin') {
+      // Condemnation and disposal are final; only an administrator can
+      // correct a mistake.
+      if (
+        (current?.assetStatus === 'DISPOSED' ||
+          current?.assetStatus === 'CONDEMNED') &&
+        user.role !== 'admin'
+      ) {
         throw new ForbiddenException(
-          'Only an administrator can change the status of a disposed device',
+          `Only an administrator can change the status of a ${current.assetStatus === 'DISPOSED' ? 'disposed' : 'condemned'} device`,
         );
+      }
+      // The committee's approval is reversed on the condemnation, so the
+      // file says so too.
+      if (current?.assetStatus === 'CONDEMNED') {
+        const approved = await tx.condemnation.findFirst({
+          where: { assetId, status: 'APPROVED' },
+          select: { id: true },
+        });
+        if (approved) {
+          throw new BadRequestException(
+            'The committee condemned this device: reverse the condemnation on the device page instead',
+          );
+        }
       }
       // Putting a device back into use is what turns the scan banner green;
       // it needs an explicit statement that the device is safe.

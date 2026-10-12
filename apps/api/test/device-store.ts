@@ -122,6 +122,8 @@ export function buildStore() {
   /** What each PM found, and the hospital's own checklists. */
   const pmRecords: Rec[] = [];
   const checklists: Rec[] = [];
+  /** Proposals to condemn a device, with the decision and disposal. */
+  const condemnations: Rec[] = [];
   /** Calibration and safety test records: their ids never collide. */
   const records = () => [...calibrations, ...safetyTests];
   const users: Rec[] = [
@@ -317,6 +319,26 @@ export function buildStore() {
       if (key === 'withdrawal') {
         const w = withdrawals.find((x) => x.documentId === row.id);
         return w ? project(w, args.select, 'withdrawal') : null;
+      }
+    }
+    if (of === 'condemnation') {
+      if (key === 'asset')
+        return project(
+          assets.find((a) => a.id === row.assetId)!,
+          args.select,
+          'asset',
+        );
+      const by = (
+        {
+          proposedBy: 'proposedById',
+          decidedBy: 'decidedById',
+          withdrawnBy: 'withdrawnById',
+          disposedBy: 'disposedById',
+        } as Record<string, string>
+      )[key];
+      if (by) {
+        const u = users.find((x) => x.id === row[by]);
+        return u ? project(u, args.select, 'user') : null;
       }
     }
     if (of === 'pmRecord' && key === 'recordedBy') {
@@ -590,6 +612,35 @@ export function buildStore() {
         return project(row, select, 'checklist');
       }),
     },
+    condemnations,
+    condemnation: {
+      ...finder(condemnations, 'condemnation'),
+      create: jest.fn(async ({ data, select }: Rec) => {
+        const row = {
+          id: `cd000000-0000-4000-8000-${String(condemnations.length + 1).padStart(12, '0')}`,
+          status: 'PROPOSED',
+          repairEstimate: null,
+          currentValue: null,
+          proposedAt: new Date(),
+          decidedById: null,
+          decidedAt: null,
+          committee: null,
+          decisionNote: null,
+          withdrawnById: null,
+          withdrawnAt: null,
+          withdrawalReason: null,
+          disposedById: null,
+          disposedAt: null,
+          disposalMethod: null,
+          disposalNote: null,
+          clearance: null,
+          updatedAt: new Date(),
+          ...data,
+        };
+        condemnations.push(row);
+        return project(row, select, 'condemnation');
+      }),
+    },
     auditEvents,
     auditEvent: {
       ...finder(auditEvents, 'audit'),
@@ -742,6 +793,7 @@ export function buildStore() {
           safetyTestRecordId: null,
           contractId: null,
           workOrderId: null,
+          condemnationId: null,
           uploadedAt: new Date(),
           ...data,
         };
